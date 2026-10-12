@@ -328,9 +328,9 @@ class Controller {
     const next = setCell(this.table, at.r, at.c, trimSpaces(input.value));
     // What is typed must read back as this one cell, or it would break the table apart.
     const back = parseTable(writeTable(next));
-    const sound = back.ok && same(back.table, next);
+    const sound = back.ok && same(back.table, next) && soundCaption(next.rows[at.r][at.c].tex);
     input.classList.toggle("bad", !sound);
-    input.title = sound ? "" : "This cannot go into the table yet. Check that its braces match and that it has no line break (\\\\) in it.";
+    input.title = sound ? "" : "This cannot go into the table yet. Check that its braces match, that mathematics opened with $ is closed, and that it has no line break (\\\\) in it.";
     if (sound) this.commit(next, false);
   }
 
@@ -407,7 +407,9 @@ class Controller {
       if (!wanted && where.kind === "float" && where.labelled) {
         return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
       }
-      if (!soundCaption(wanted)) return store().notify("That caption's braces do not match, so it was not changed.", true);
+      if (!soundCaption(wanted)) {
+        return store().notify("That caption cannot be written as LaTeX as it stands, so it was not changed. Check that its braces match and that mathematics opened with $ is closed.", true);
+      }
       const changes = setCaption(at.text, at.from, to, wanted);
       if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });
       return;

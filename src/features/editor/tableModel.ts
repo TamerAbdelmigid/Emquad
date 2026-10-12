@@ -689,6 +689,11 @@ function uncommented(text: string): { clean: string; sure: boolean } {
         // the matching one. \mintinline names its language in braces first.
         const lineEnd = text.indexOf("\n", i) < 0 ? text.length : text.indexOf("\n", i);
         let at = i + inline[0].length;
+        // TikZ has a \path of its own, followed by a space and never by a mark.
+        if (inline[0] === "\\path" && /[ \t\r\n(]/.test(text[at] ?? " ")) {
+          i += inline[0].length;
+          continue;
+        }
         if (text[at] === "[") at = text.indexOf("]", at) + 1 || lineEnd + 1;
         if (inline[0].startsWith("\\mintinline") && text[at] === "{") at = closing(text, at);
         const mark = at > 0 && at < lineEnd ? text[at] : undefined;
@@ -747,8 +752,30 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   // The same for anything defined in the body, by any of the commands that define.
   for (const m of clean.slice(body).matchAll(/\\(?:[gex]?def|let|(?:re)?newcommand|providecommand|(?:New|Renew|Provide|Declare)(?:Expandable)?Document(?:Command|Environment)|DeclareRobustCommand|(?:re)?newenvironment|(?:re)?newrobustcmd|providerobustcmd|catcode|AtEndDocument)(?![a-zA-Z@])/g)) {
     const at = body + m.index;
-    const stop = clean.indexOf("\n\n", at);
-    const defined = clean.slice(at, stop < 0 ? Math.min(clean.length, at + 2000) : stop);
+    // The definition runs to the end of the last of the arguments that follow the command.
+    let stop = at + m[0].length;
+    for (let groups = 0, i = stop; groups < 8 && i < clean.length; ) {
+      while (/[ \t\r\n]/.test(clean[i] ?? "") && !/^\r?\n[ \t]*\r?\n/.test(clean.slice(i))) i++;
+      // The parameters of a \def stand between its name and its body: step over them.
+      if (clean[i] === "#") {
+        const lineEnd = clean.indexOf("\n", i) < 0 ? clean.length : clean.indexOf("\n", i);
+        const brace = clean.indexOf("{", i);
+        i = brace < 0 || brace > lineEnd ? lineEnd : brace;
+      }
+      const next = clean[i];
+      // Only the first thing after the command can be the bare name of what is defined.
+      const name = next === "\\" && groups === 0 ? i + 1 + (/^[a-zA-Z@]+/.exec(clean.slice(i + 1))?.[0].length ?? 1) : -1;
+      const end = next === "{" ? closing(clean, i) : next === "[" ? clean.indexOf("]", i) + 1 : name;
+      // An argument that never closes cannot be followed: take in everything to the next blank line.
+      if ((next === "{" || next === "[") && end <= 0) {
+        stop = clean.indexOf("\n\n", i) < 0 ? clean.length : clean.indexOf("\n\n", i);
+        break;
+      }
+      if (end <= 0) break;
+      stop = i = end;
+      groups++;
+    }
+    const defined = clean.slice(at, stop);
     if (m[0] === "\\catcode" || m[0] === "\\AtEndDocument" || HIDDEN.test(defined.slice(m[0].length))) {
       return refuse("This document makes its own commands that begin or end environments.");
     }
@@ -757,7 +784,7 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   if (/\\(?:begin|end)(?![a-zA-Z@{])/.test(text0)) return refuse("An environment here is begun or ended in a way that cannot be followed.");
   // Conditions, and commands built or passed around by name, can make the text mean something
   // other than it shows.
-  if (/\\(?:if[a-zA-Z@]*|else|fi|csname|@nameuse|expandafter|futurelet|let|vadjust|noexpand)(?![a-zA-Z@])/.test(text0)) {
+  if (/\\(?:if(?!f(?![a-zA-Z@]))[a-zA-Z@]*|else|fi|csname|@nameuse|expandafter|futurelet|let|vadjust|noexpand)(?![a-zA-Z@])/.test(text0)) {
     return refuse("This document uses conditions or commands built by name in its body.");
   }
   // The environments open at the table, outermost first.
@@ -874,18 +901,24 @@ export function captionOf(text: string, from: number, to: number): string | null
   return place.kind === "float" && place.open !== undefined ? text.slice(place.open, place.close).replace(/[ \t]*\r?\n[ \t]*/g, " ") : null;
 }
 
-/** Whether text can be a caption as it stands: its braces match, and it ends no group early. */
+/**
+ * Whether text can be a caption, or a cell, as it stands: its braces match, it ends no group
+ * early, its mathematics is closed, and it has no bare % or #.
+ */
 export function soundCaption(caption: string): boolean {
   let depth = 0;
+  let dollars = 0;
   for (let i = 0; i < caption.length; i++) {
     if (caption[i] === "\\") {
       // A backslash with nothing after it would take the closing brace for itself.
       if (++i >= caption.length) return false;
     } else if (caption[i] === "{") depth++;
     else if (caption[i] === "}" && --depth < 0) return false;
-    else if (caption[i] === "%") return false;
+    else if (caption[i] === "%" || caption[i] === "#") return false;
+    else if (caption[i] === "$") dollars++;
   }
-  return depth === 0;
+  // A dollar sign on its own would open mathematics that never closes.
+  return depth === 0 && dollars % 2 === 0;
 }
 
 /**
@@ -952,6 +985,9 @@ export function escapeTyped(value: string): string {
   return out;
 }
 
+/** Whether text ends inside the braces of a command whose argument is a name, not prose. */
+const NAMING = /\\(?:ref|eqref|pageref|autoref|nameref|[cC]ref|cite[a-zA-Z]*|label|url|href|nolinkurl|hyperref|includegraphics|input|include)\*?(?:\[[^\]]*\])*\{[^{}]*$/;
+
 /**
  * The same, for a box that already held text: only the characters that were put in are looked
  * at, wherever in the text they went. What was there before is the user's own LaTeX and is
@@ -1001,8 +1037,11 @@ export function escapeInserted(before: string, after: string): string {
     if (ch === "$" && !escaped) math = !math;
     // A character that was there before is left alone, unless it was escaped and the
     // backslash before it has since been deleted: it must not become a bare one.
-    const bare = !escaped && (kept[j] ? wasEscaped[j] === 1 : ch === "%" || (ch === "&" && !math));
-    out += bare ? `\\${ch}` : ch;
+    const bare = !escaped && (kept[j] ? wasEscaped[j] === 1 : ch === "%" || ch === "#" || (ch === "&" && !math));
+    // An underscore or a caret typed outside mathematics is meant as the character, except
+    // in the name of a label, a reference or a file, where it is part of the name.
+    const mark = !kept[j] && !escaped && !math && (ch === "_" || ch === "^") && !NAMING.test(out);
+    out += bare ? `\\${ch}` : mark ? (ch === "_" ? "\\_" : "\\^{}") : ch;
   }
   return out;
 }

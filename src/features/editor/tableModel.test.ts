@@ -495,6 +495,14 @@ describe("the text around a table", () => {
     expect(captionOf(`${DOC0}\\begin{table}\n\\captionsetup{font=small}\n${tabular}\n\\end{table}`, `${DOC0}\\begin{table}\n\\captionsetup{font=small}\n`.length, `${DOC0}\\begin{table}\n\\captionsetup{font=small}\n`.length + tabular.length)).toBeNull();
     // A percent sign in a web address is not a comment, so what follows it is still seen.
     expect(where(`${DOC0}See \\url{http://example.org/a%20b}.\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("bare");
+    // Things an ordinary document has that must not make the tool decline.
+    for (const body of [
+      `A holds $a \\iff b$.\n\n${tabular}\n\nEnd.`,
+      `\\begin{table}\n\\renewcommand{\\arraystretch}{1.3}\n${tabular}\n\\end{table}`,
+      `\\tikz \\path (0,0) -- (1,1);\n\n${tabular}\n\nEnd.`,
+    ]) {
+      expect(where(`${DOC0}${body}`).place.kind).not.toBe("no");
+    }
     // Ordinary definitions, in the preamble or the body, do not stand in the way.
     expect(where(`\\documentclass{article}\n\\newcommand{\\R}{\\mathbb{R}}\n\\begin{document}\n\\def\\x{y}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("bare");
     // A comment or verbatim text that mentions verbatim must not hide what follows it.
@@ -520,6 +528,10 @@ describe("the text around a table", () => {
     expect(soundCaption("open {brace")).toBe(false);
     expect(soundCaption("close} brace")).toBe(false);
     expect(soundCaption("ends with \\")).toBe(false);
+    expect(soundCaption("Cost in $ per unit")).toBe(false);
+    expect(soundCaption("Cost in \\$ per unit, $x$")).toBe(true);
+    expect(soundCaption("Item #3")).toBe(false);
+    expect(soundCaption("Item \\#3")).toBe(true);
   });
 
   it("finds the smallest change between two versions of a table", () => {
@@ -755,6 +767,19 @@ describe("text typed into a box that already held text", () => {
     expect(escapeInserted("A \\& B", "C & D")).toBe("C \\& D");
     expect(escapeInserted("50\\% of X", "100% of X")).toBe("100\\% of X");
     expect(escapeInserted("Sales \\& marketing, 2023", "Sales & marketing, 2024")).toBe("Sales \\& marketing, 2024");
+  });
+
+  it("writes the other characters LaTeX acts on so that they print", () => {
+    expect(escapeInserted("", "Sales_2024")).toBe("Sales\\_2024");
+    expect(escapeInserted("", "Item #3")).toBe("Item \\#3");
+    expect(escapeInserted("", "50^2 metres")).toBe("50\\^{}2 metres");
+    // ... but not in mathematics, nor in the name of a label, a reference or a file.
+    expect(escapeInserted("", "$x_i^2$ and $R^2$")).toBe("$x_i^2$ and $R^2$");
+    expect(escapeInserted("", "see \\ref{tab:my_table} and \\cite[p.~3]{knuth_84}")).toBe("see \\ref{tab:my_table} and \\cite[p.~3]{knuth_84}");
+    expect(escapeInserted("", "\\includegraphics[width=1cm]{fig_1}")).toBe("\\includegraphics[width=1cm]{fig_1}");
+    expect(escapeInserted("", "a\\_b and \\#1")).toBe("a\\_b and \\#1");
+    // What was already there is left exactly as written.
+    expect(escapeInserted("run_2 #x", "Old run_2 #x")).toBe("Old run_2 #x");
   });
 
   it("knows mathematics and a waiting backslash from what stands before", () => {
