@@ -19,6 +19,7 @@ interface Backend {
   fileDiff: (version: string, against: string | null, path: string) => Promise<FileDiff>;
   review: (bundleId: string) => Promise<Review>;
   decide: (bundleId: string, itemId: string, decision: Decision) => Promise<Review>;
+  edit: (bundleId: string, itemId: string, text: string) => Promise<Review>;
   finish: (bundleId: string) => Promise<string>;
   cancel: (bundleId: string) => Promise<void>;
 }
@@ -204,6 +205,7 @@ export function History(p: Props) {
           review={review}
           busy={busy}
           onDecide={(item, decision) => act(async () => setReview(await backend.decide(pendingBundle, item, decision)))}
+          onEdit={(item, text) => act(async () => setReview(await backend.edit(pendingBundle, item, text)))}
           onFinish={() =>
             act(async () => {
               await backend.finish(pendingBundle);
@@ -327,6 +329,7 @@ function ReviewPanel(p: {
   review: Review;
   busy: boolean;
   onDecide: (itemId: string, decision: Decision) => void;
+  onEdit: (itemId: string, text: string) => void;
   onFinish: () => void;
   onCancel: () => void;
 }) {
@@ -336,6 +339,8 @@ function ReviewPanel(p: {
   const where = (i: ReviewItem) => (i.wholeFile ? i.path : `${i.path}, line ${i.line}`);
   const side = (i: ReviewItem, keep: "delete" | "insert") =>
     i.segments.filter((s) => s.tag === "equal" || s.tag === keep);
+  /** The conflict being rewritten by hand, and the text so far. */
+  const [draft, setDraft] = useState<{ id: string; text: string } | null>(null);
 
   return (
     <aside className="mod changes" aria-label="Review this bundle">
@@ -360,7 +365,7 @@ function ReviewPanel(p: {
               <button
                 key={who}
                 className={`opt ${who}`}
-                aria-pressed={item.decision === who}
+                aria-pressed={item.decision === who && item.custom === null}
                 disabled={p.busy}
                 onClick={() => p.onDecide(item.id, who)}
               >
@@ -376,6 +381,39 @@ function ReviewPanel(p: {
                 </span>
               </button>
             ))}
+            {!item.wholeFile && draft?.id !== item.id && item.custom !== null && (
+              <div className="opt custom" aria-current="true">
+                <span className="who">Your edit</span>
+                <span className="txt">{item.custom || "(passage removed)"}</span>
+              </div>
+            )}
+            {!item.wholeFile && draft?.id === item.id && (
+              <form
+                className="hand"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  p.onEdit(item.id, draft.text);
+                  setDraft(null);
+                }}
+              >
+                <label htmlFor={`hand-${item.id}`}>Write what this passage should say</label>
+                <textarea id={`hand-${item.id}`} rows={5} autoFocus value={draft.text} onChange={(e) => setDraft({ id: item.id, text: e.target.value })} />
+                <div className="hand-acts">
+                  <button type="button" className="btn sm" onClick={() => setDraft(null)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn sm dark">
+                    Use this text
+                  </button>
+                </div>
+              </form>
+            )}
+            {!item.wholeFile && draft?.id !== item.id && (
+              <button className="btn sm hand-open" disabled={p.busy} onClick={() => setDraft({ id: item.id, text: item.custom ?? `${item.mine}${item.theirs}` })}>
+                <Icon name="edit" size={12} />
+                {item.custom === null ? "Edit by hand" : "Edit again"}
+              </button>
+            )}
           </div>
         ))}
 

@@ -19,6 +19,8 @@ pub struct Settings {
     pub recent: Vec<Recent>,
     pub compile_on_save: bool,
     pub editor_font_size: u32,
+    /// "fieldwork", "glass" or "onyx".
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -37,6 +39,7 @@ impl Default for Settings {
             recent: Vec::new(),
             compile_on_save: true,
             editor_font_size: 13,
+            theme: "fieldwork".into(),
         }
     }
 }
@@ -44,6 +47,8 @@ impl Default for Settings {
 /// Settings are read, changed and written back as one step; this keeps two commands from
 /// interleaving and one of them writing stale or default values over the other's.
 static LOCK: Mutex<()> = Mutex::new(());
+
+pub const THEMES: [&str; 3] = ["fieldwork", "glass", "onyx"];
 
 impl Settings {
     fn read(dir: &Path) -> Result<Settings> {

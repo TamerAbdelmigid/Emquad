@@ -39,7 +39,7 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 - **Version list.** The working copy, every snapshot, and every imported bundle, newest first, each with author and description.
 - **Version view.** Selecting a version shows the files it changed and, for the selected file, the source with that version's changes highlighted.
 - **Snapshots.** Save a named snapshot at any time. Restore any snapshot. Compare any version with the working copy.
-- **Bundle review.** Selecting an imported bundle shows a review panel: conflicts to resolve one by one (keep mine or keep theirs), changes that merged automatically (each can still be rejected), and a Finish merge action that is enabled once every conflict is resolved.
+- **Bundle review.** Selecting an imported bundle shows a review panel: conflicts to resolve one by one (keep mine, keep theirs, or write the passage by hand), changes that merged automatically (each can still be rejected), and a Finish merge action that is enabled once every conflict is resolved.
 
 ### Bundles
 
@@ -53,15 +53,19 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 - Open an existing folder of LaTeX files as a project.
 - A recent-projects list on start.
 
-## Planned after version 1
+## Added after the first release
 
-These are designed for but not required for the first release. `05-implementation-plan.md` places them in the last milestone.
+- **Visual mode.** The Code / Visual switch in the editor draws headings, emphasis, typeset mathematics and list bullets in place. The text underneath stays plain LaTeX, and whatever the cursor is in is shown as source.
+- **Compiler choice.** Each project uses Automatic, Tectonic or `latexmk`; a compiler that is missing is refused with a message, not swapped.
+- **Editing a conflict by hand** in review, as a third way to resolve it.
+- **Search across the project.**
+- **Themes.** Fieldwork, Glass and Onyx on the same layout.
+- **texlab**, the LaTeX language server, when installed with the app: richer completion, hover, go to definition, find references, rename.
 
-- **Visual mode.** The Code / Visual switch in the editor. Renders headings, emphasis, math and figures inline while the underlying text stays plain LaTeX.
+## Planned
+
 - **Fully offline bundles.** Including the LaTeX packages a document used inside the `.emquad` file, so the recipient can compile with no internet at all.
-- **Alternative engine.** Use a system `latexmk` when one is installed, for documents that need pdfTeX-only features or `--shell-escape`.
-- **Spell check, comments, search across the project.**
-- **Other themes.** The mockup exploration produced two alternates (Glass, Onyx); the token structure in `04-design-system.md` allows them later.
+- **Spell check and comments.**
 
 ## Out of scope
 

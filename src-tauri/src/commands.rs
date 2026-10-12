@@ -29,6 +29,8 @@ pub struct AppState {
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
     /// A `.emquad` file the app was started with.
     pub startup_file: Mutex<Option<String>>,
+    /// texlab, running for the open project, when it is installed.
+    pub language_server: Mutex<Option<crate::lsp::Server>>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -40,6 +42,8 @@ pub struct OpenedProject {
     pub tree: Vec<TreeNode>,
     /// Whatever the UI saved last time (open tabs and so on), as JSON text.
     pub ui_state: Option<String>,
+    /// The language server is running for this project.
+    pub language_server: bool,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -86,11 +90,30 @@ fn activate(app: &AppHandle, state: &AppState, project: Project) -> Result<Opene
         .map_err(|e| Error::app("watch_failed", e.to_string()))?;
     *state.watcher.lock().unwrap() = Some(watcher);
 
+    // One language server per open project; the previous project's is stopped by replacing it.
+    let server = crate::lsp::find(&state.sidecar_dirs).and_then(|exe| {
+        let (messages, closed) = (app.clone(), app.clone());
+        crate::lsp::Server::start(
+            &exe,
+            &project.root,
+            move |message| {
+                let _ = messages.emit("lsp://message", message);
+            },
+            move || {
+                let _ = closed.emit("lsp://closed", ());
+            },
+        )
+        .ok()
+    });
+    let language_server = server.is_some();
+    *state.language_server.lock().unwrap() = server;
+
     let opened = OpenedProject {
         root: project.root.to_string_lossy().into_owned(),
         info: project.info.clone(),
         tree: project.tree()?,
         ui_state: fs::read_to_string(project.data_dir().join("state.json")).ok(),
+        language_server,
     };
     *state.project.lock().unwrap() = Some(project);
     Ok(opened)
@@ -109,6 +132,7 @@ pub fn settings_update(
     display_name: Option<String>,
     compile_on_save: Option<bool>,
     editor_font_size: Option<u32>,
+    theme: Option<String>,
 ) -> Result<Settings> {
     Settings::update(&state.config_dir, |s| {
         if let Some(v) = display_name {
@@ -119,6 +143,9 @@ pub fn settings_update(
         }
         if let Some(v) = editor_font_size {
             s.editor_font_size = v.clamp(9, 28);
+        }
+        if let Some(v) = theme.filter(|t| crate::settings::THEMES.contains(&t.as_str())) {
+            s.theme = v;
         }
     })
 }
@@ -157,12 +184,22 @@ pub fn project_open(app: AppHandle, state: State<AppState>, dir: String) -> Resu
 #[tauri::command(async)]
 pub fn project_close(state: State<AppState>) {
     *state.watcher.lock().unwrap() = None;
+    *state.language_server.lock().unwrap() = None;
     *state.project.lock().unwrap() = None;
 }
 
 #[tauri::command(async)]
 pub fn project_tree(state: State<AppState>) -> Result<Vec<TreeNode>> {
     current(&state)?.tree()
+}
+
+#[tauri::command(async)]
+pub fn project_search(
+    state: State<AppState>,
+    query: String,
+    match_case: bool,
+) -> Result<crate::project::SearchResult> {
+    current(&state)?.search(&query, match_case)
 }
 
 #[tauri::command(async)]
@@ -478,6 +515,19 @@ pub fn review_decide(
 }
 
 #[tauri::command(async)]
+pub fn review_edit(
+    state: State<AppState>,
+    bundle_id: String,
+    item_id: String,
+    text: String,
+) -> Result<Review> {
+    let p = current(&state)?;
+    let h = History::open(&p)?;
+    review::edit(&p, &h, &bundle_id, &item_id, &text)?;
+    review::get(&p, &h, &author(&state)?, &bundle_id)
+}
+
+#[tauri::command(async)]
 pub fn review_finish(state: State<AppState>, bundle_id: String) -> Result<String> {
     let p = current(&state)?;
     Ok(review::finish(&p, &History::open(&p)?, &author(&state)?, &bundle_id)?.to_string())
@@ -486,4 +536,18 @@ pub fn review_finish(state: State<AppState>, bundle_id: String) -> Result<String
 #[tauri::command(async)]
 pub fn review_cancel(state: State<AppState>, bundle_id: String) -> Result<()> {
     review::cancel(&current(&state)?, &bundle_id)
+}
+
+// ---------- language server ----------
+
+/// Pass one JSON message from the editor to texlab.
+#[tauri::command(async)]
+pub fn lsp_send(state: State<AppState>, message: String) -> Result<()> {
+    match state.language_server.lock().unwrap().as_ref() {
+        Some(server) => server.send(&message),
+        None => Err(Error::app(
+            "lsp_missing",
+            "The language server is not running",
+        )),
+    }
 }

@@ -141,7 +141,7 @@ pub fn kill_tree(pid: u32) {
 }
 
 /// Keep child processes from flashing a console window on Windows.
-fn quiet(command: &mut Command) -> &mut Command {
+pub(crate) fn quiet(command: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -237,6 +237,7 @@ pub fn run(
         .unwrap_or_default();
     let mut diagnostics = parse_log(&format!("{log}\n{output}"), &project.info.main_file);
     diagnostics.dedup();
+    explain_missing_files(&mut diagnostics, engine.name());
     let has_pdf = pdf_path(project).is_file();
     let ok = !cancelled
         && status.success()
@@ -264,6 +265,22 @@ fn clean_file(raw: &str, main_file: &str) -> String {
         f.to_string()
     } else {
         format!("{f}.tex")
+    }
+}
+
+/// Tectonic fetches a package the first time a document uses it. When a file is reported as
+/// missing, the usual cause is that it could not be fetched, so say that.
+pub fn explain_missing_files(diagnostics: &mut [Diagnostic], engine: &str) {
+    if engine != "tectonic" {
+        return;
+    }
+    for d in diagnostics.iter_mut() {
+        if d.severity == "error" && d.message.contains("File `") && d.message.contains("not found")
+        {
+            d.message.push_str(
+                " Emquad downloads a package the first time it is used: check the internet connection and compile again, or check the package name.",
+            );
+        }
     }
 }
 
@@ -433,6 +450,21 @@ mod tests {
                 "Undefined control sequence"
             )]
         );
+    }
+
+    #[test]
+    fn a_missing_package_under_tectonic_is_explained() {
+        let log = "error: main.tex:3: ! LaTeX Error: File `chessboard.sty' not found.\n";
+        let mut found = parse_log(log, "main.tex");
+        let plain = found[0].message.clone();
+        explain_missing_files(&mut found, "latexmk");
+        assert_eq!(
+            found[0].message, plain,
+            "another engine's message is left alone"
+        );
+        explain_missing_files(&mut found, "tectonic");
+        assert!(found[0].message.starts_with(&plain));
+        assert!(found[0].message.contains("check the internet connection"));
     }
 
     #[test]

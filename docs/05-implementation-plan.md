@@ -8,13 +8,13 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 
 | Milestone | State | What is still open |
 |---|---|---|
-| M0 Scaffold and shell | Done | A full keyboard-only pass over every control has not been done |
+| M0 Scaffold and shell | Done | The end-to-end run checks that every control is a real, focusable, named control, and that menus work from the keyboard. No one has yet used the whole app with the keyboard alone |
 | M1 Projects, files, editor | Done | |
-| M2 Compile and preview | Done, verified with Tectonic 0.17.0 and with `latexmk` | The development machine also has TeX installed, so "a machine with no TeX installation" has been shown only in the sense that Tectonic did the compiling. "Compiles offline after the first fetch" has not been tried with the network off |
+| M2 Compile and preview | Done, verified with Tectonic 0.17.0 and with `latexmk` | Compiling with Tectonic's network access blocked works once a document's packages are cached. The development machine also has TeX installed, so a machine with no TeX at all has not been tried |
 | M3 Source and PDF lookup | Done | Verified on both pdfTeX and XeTeX (Tectonic) output |
-| M4 Snapshots and History | Done | "Showing changes since…" is offered as **Show changes**, which opens History on the working copy with an undo on each change, rather than as marks inside the editor |
+| M4 Snapshots and History | Done | **Changes** in the editor toolbar opens History on the working copy with an undo on each change, rather than marking changes inside the editor |
 | M5 Bundles, review, merge | Done | Starting the app with a bundle as its argument is verified in a release build. The Explorer double-click itself relies on the installer's file association |
-| M6 Language intelligence and release | Done except texlab | Done: completion for commands, environments, labels and citation keys; templates; settings; resizable panels; the Windows installer with Tectonic inside; the user guide (`docs/user-guide.md`). Not done: texlab, which stays the planned upgrade for references and richer diagnostics |
+| M6 Language intelligence and release | Done | Completion, templates, settings, resizable panels, the Windows installer with Tectonic and texlab inside, the user guide (`docs/user-guide.md`). texlab 5.26.0 adds completion that knows the packages in use, hover, go to definition, find references and rename; jumping to a definition in a file that is not open is not wired up |
 
 Known limitations, none of which lose data:
 
@@ -24,7 +24,7 @@ Known limitations, none of which lose data:
 - A bundle made on Linux that holds two folders differing only in capital letters is rejected on Windows with a message about its files not matching its history, rather than one that names the real cause.
 - On macOS, file names with invisible Unicode characters have not been examined for the aliasing that the file-name rule guards against on Windows.
 
-Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js` (the full hand-off loop in the real window), and `scripts/smoke-release.js` (the packaged frontend, fonts, PDF viewer and bundled compiler in a release build).
+Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js` (every feature and the full hand-off loop in the real window, with an accessibility check of each screen), and `scripts/smoke-release.js` (the packaged frontend, fonts, PDF viewer and bundled compiler in a release build).
 
 ## Before starting
 
@@ -159,15 +159,15 @@ Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js
 
 ## After version 1
 
-In rough priority order; each is its own piece of work with its own spec.
+Done since the first release: visual mode, the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab.
 
-1. **Visual mode** using CodeMirror decorations over the same plain-text source.
-2. **Offline packages in bundles**: include the compiler's cached package files that the last build used, and seed the recipient's cache from them on import.
-3. **`latexmk` engine** when available on the system.
-4. **Edit by hand** as a third conflict resolution.
-5. **Project-wide search**, spell check, comments.
-6. **macOS and Linux builds.**
-7. **Glass and Onyx themes**, as alternate token sets.
+Still ahead, in rough priority order; each is its own piece of work with its own spec.
+
+1. **Offline packages in bundles**: include the compiler's cached package files that the last build used, and seed the recipient's cache from them on import.
+2. **Spell check and comments.**
+3. **Signing the installer** (see `docs/releasing.md`).
+4. **macOS and Linux builds.**
+5. **Visual mode, further**: tables, figures and citations drawn in place; toolbar actions that act on the drawn document.
 
 ## Working agreements
 

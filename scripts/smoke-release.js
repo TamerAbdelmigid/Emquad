@@ -93,6 +93,13 @@
     });
     await ok(true, "the PDF viewer has drawn text on the page");
     await ok(text(".sfoot").includes("Tectonic engine"), "the bundled Tectonic did the compiling");
+    await ok(text(".sfoot").includes("texlab"), "the bundled texlab is running");
+
+    // Visual mode brings its own stylesheet and fonts, which must load under the security policy.
+    button("Visual").click();
+    await until("visual mode", () => $(".cm-visual .cm-v-h1"));
+    await ok((await document.fonts.load('16px "KaTeX_Main"')).length > 0, "visual mode draws headings and its mathematics font can be loaded");
+    button("Code").click();
 
     const sent = await invoke("bundle_export", { dest: `${work}\\smoke.emquad`, note: "", includePdf: true });
     await ok(sent.includes.pdf, "a bundle with the PDF can be exported");

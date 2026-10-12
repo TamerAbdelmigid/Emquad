@@ -73,6 +73,11 @@ pub struct ReviewItem {
     /// Plain-language description for whole-file items.
     pub note: Option<String>,
     pub decision: Option<Decision>,
+    /// Our text and theirs for this passage, for editing by hand. Empty for whole-file items.
+    pub mine: String,
+    pub theirs: String,
+    /// What the user wrote for this passage, when they resolved it by hand.
+    pub custom: Option<String>,
 }
 
 fn reviewable(class: Class) -> bool {
@@ -111,6 +116,9 @@ pub fn items(path: &str, t: &Triple, plan: &Plan, them: &str) -> Vec<ReviewItem>
             segments: Vec::new(),
             note: Some(whole_file_note(t, them)),
             decision: None,
+            mine: String::new(),
+            theirs: String::new(),
+            custom: None,
         }],
         Plan::Text(chunks) => chunks
             .iter()
@@ -134,6 +142,9 @@ pub fn items(path: &str, t: &Triple, plan: &Plan, them: &str) -> Vec<ReviewItem>
                 segments: word_segments(ours, theirs),
                 note: None,
                 decision: None,
+                mine: ours.clone(),
+                theirs: theirs.clone(),
+                custom: None,
             })
             .collect(),
     }
@@ -146,6 +157,7 @@ pub fn resolve(
     t: &Triple,
     plan: &Plan,
     decisions: &BTreeMap<String, Decision>,
+    custom: &BTreeMap<String, String>,
 ) -> Result<Option<Vec<u8>>> {
     let decide = |id: String, class: Class| -> Result<Decision> {
         match (decisions.get(&id), class) {
@@ -174,8 +186,13 @@ pub fn resolve(
                         theirs,
                         ..
                     } if reviewable(*class) => {
-                        let decision = decide(format!("{path}#{n}"), *class)?;
+                        let id = format!("{path}#{n}");
                         n += 1;
+                        if let Some(text) = custom.get(&id) {
+                            out.push_str(&fit_line_endings(text, ours, theirs));
+                            continue;
+                        }
+                        let decision = decide(id, *class)?;
                         out.push_str(if decision == Decision::Mine {
                             ours
                         } else {
@@ -190,6 +207,23 @@ pub fn resolve(
     }
 }
 
+/// Text the user wrote for a passage, made to sit in the file like the passage it replaces: with
+/// the file's own line endings throughout, and ending its line if the passage did, so the line
+/// after it is never joined on.
+fn fit_line_endings(text: &str, ours: &str, theirs: &str) -> String {
+    let ending = if ours.contains("\r\n") || theirs.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let mut out = text.replace("\r\n", "\n").replace('\n', ending);
+    let ended_line = ours.ends_with('\n') || theirs.ends_with('\n');
+    if ended_line && !out.is_empty() && !out.ends_with('\n') {
+        out.push_str(ending);
+    }
+    out
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Session {
     bundle_id: String,
@@ -197,6 +231,10 @@ struct Session {
     theirs: String,
     base: String,
     decisions: BTreeMap<String, Decision>,
+    /// Passages the user rewrote by hand, by item id. One of these takes the place of a
+    /// decision for that item.
+    #[serde(default)]
+    custom: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -278,6 +316,7 @@ fn open_session(
         theirs: theirs.to_string(),
         base: base.to_string(),
         decisions: BTreeMap::new(),
+        custom: BTreeMap::new(),
     };
     save(project, &session)?;
     Ok(session)
@@ -323,12 +362,13 @@ pub fn get(project: &Project, history: &History, me: &Author, bundle_id: &str) -
     for (path, triple, plan) in planned(history, &session)? {
         for mut item in items(&path, &triple, &plan, &from) {
             item.decision = session.decisions.get(&item.id).copied();
+            item.custom = session.custom.get(&item.id).cloned();
             all.push(item);
         }
     }
     let unresolved = all
         .iter()
-        .filter(|i| i.kind == "conflict" && i.decision.is_none())
+        .filter(|i| i.kind == "conflict" && i.decision.is_none() && i.custom.is_none())
         .count() as u32;
     let base_label = history
         .repo
@@ -354,7 +394,41 @@ pub fn decide(project: &Project, bundle_id: &str, item_id: &str, decision: Decis
             "There is no review in progress for that bundle",
         )
     })?;
+    session.custom.remove(item_id);
     session.decisions.insert(item_id.into(), decision);
+    save(project, &session)
+}
+
+/// Resolve a passage with text the user wrote, in place of choosing a side.
+pub fn edit(
+    project: &Project,
+    history: &History,
+    bundle_id: &str,
+    item_id: &str,
+    text: &str,
+) -> Result<()> {
+    let mut session = load(project, bundle_id)?.ok_or_else(|| {
+        Error::app(
+            "not_found",
+            "There is no review in progress for that bundle",
+        )
+    })?;
+    // Only a passage of text can be rewritten; a whole-file item is a choice between files.
+    let editable = planned(history, &session)?
+        .iter()
+        .any(|(path, triple, plan)| {
+            items(path, triple, plan, "")
+                .iter()
+                .any(|i| i.id == item_id && !i.whole_file)
+        });
+    if !editable {
+        return Err(Error::app(
+            "not_editable",
+            "That item cannot be edited by hand",
+        ));
+    }
+    session.decisions.remove(item_id);
+    session.custom.insert(item_id.into(), text.to_string());
     save(project, &session)
 }
 
@@ -380,7 +454,7 @@ pub fn finish(project: &Project, history: &History, me: &Author, bundle_id: &str
     // Resolve everything before touching any file, so an unresolved conflict changes nothing.
     let mut changes = Vec::new();
     for (path, triple, plan) in planned(history, &session)? {
-        let merged = resolve(&path, &triple, &plan, &session.decisions)?;
+        let merged = resolve(&path, &triple, &plan, &session.decisions, &session.custom)?;
         if merged != triple.ours {
             changes.push((path, merged));
         }
@@ -485,7 +559,7 @@ mod tests {
             .iter()
             .map(|(id, d)| (id.to_string(), *d))
             .collect();
-        Ok(resolve("f.tex", t, &p, &d)?.map(|b| String::from_utf8(b).unwrap()))
+        Ok(resolve("f.tex", t, &p, &d, &BTreeMap::new())?.map(|b| String::from_utf8(b).unwrap()))
     }
 
     #[test]
@@ -606,21 +680,21 @@ mod tests {
             let list = items("f.tex", &t, &p, "Lina");
             let all = |d: Decision| list.iter().map(|i| (i.id.clone(), d)).collect::<BTreeMap<_, _>>();
 
-            let mine = resolve("f.tex", &t, &p, &all(Decision::Mine)).unwrap().unwrap();
+            let mine = resolve("f.tex", &t, &p, &all(Decision::Mine), &BTreeMap::new()).unwrap().unwrap();
             prop_assert_eq!(String::from_utf8(mine).unwrap(), ours.clone());
-            let all_theirs = resolve("f.tex", &t, &p, &all(Decision::Theirs)).unwrap().unwrap();
+            let all_theirs = resolve("f.tex", &t, &p, &all(Decision::Theirs), &BTreeMap::new()).unwrap().unwrap();
             if !list.iter().any(|i| i.kind == "conflict") && ours == text(&b) {
                 prop_assert_eq!(String::from_utf8(all_theirs).unwrap(), theirs.clone());
             }
 
             let has_conflict = list.iter().any(|i| i.kind == "conflict");
-            prop_assert_eq!(resolve("f.tex", &t, &p, &BTreeMap::new()).is_err(), has_conflict);
+            prop_assert_eq!(resolve("f.tex", &t, &p, &BTreeMap::new(), &BTreeMap::new()).is_err(), has_conflict);
 
             // Any mix of decisions yields only lines that exist in ours or theirs.
             let mixed: BTreeMap<_, _> = list.iter().zip(&picks)
                 .map(|(i, m)| (i.id.clone(), if *m { Decision::Mine } else { Decision::Theirs }))
                 .collect();
-            let out = String::from_utf8(resolve("f.tex", &t, &p, &mixed).unwrap().unwrap()).unwrap();
+            let out = String::from_utf8(resolve("f.tex", &t, &p, &mixed, &BTreeMap::new()).unwrap().unwrap()).unwrap();
             for line in out.lines() {
                 prop_assert!(ours.lines().any(|l| l == line) || theirs.lines().any(|l| l == line));
             }
@@ -873,6 +947,113 @@ mod tests {
         finish(a, ha, &me, id).unwrap();
         assert_eq!(file(a, "main.tex"), "their main");
         assert_eq!(file(a, "refs.bib"), "their refs");
+    }
+
+    #[test]
+    fn a_passage_rewritten_by_hand_replaces_exactly_that_passage() {
+        let t = triple(
+            Some("a\nb\nc\nd\ne\nf\ng\n"),
+            Some("a\nb\nc\nd\ne\nf\nMINE\n"),
+            Some("a\nTHEIRS1\nc\nd\ne\nf\nTHEIRS2\n"),
+        );
+        let p = plan(&t).unwrap();
+        let none = BTreeMap::new();
+        let written = |text: &str| -> BTreeMap<String, String> {
+            [("f.tex#1".to_string(), text.to_string())].into()
+        };
+        let out = |custom: &BTreeMap<String, String>| {
+            String::from_utf8(resolve("f.tex", &t, &p, &none, custom).unwrap().unwrap()).unwrap()
+        };
+        // The conflict needs no separate decision once it has been rewritten, and a missing
+        // final newline is restored so the following line is not joined on.
+        assert_eq!(
+            out(&written("both of us")),
+            "a\nTHEIRS1\nc\nd\ne\nf\nboth of us\n"
+        );
+        assert_eq!(
+            out(&written("two\nlines\n")),
+            "a\nTHEIRS1\nc\nd\ne\nf\ntwo\nlines\n"
+        );
+        // Writing nothing removes the passage.
+        assert_eq!(out(&written("")), "a\nTHEIRS1\nc\nd\ne\nf\n");
+    }
+
+    #[test]
+    fn hand_written_text_takes_on_the_files_line_endings() {
+        let t = triple(
+            Some("a\r\nb\r\nc\r\n"),
+            Some("a\r\nMINE\r\nc\r\n"),
+            Some("a\r\nTHEIRS\r\nc\r\n"),
+        );
+        let p = plan(&t).unwrap();
+        let out = |text: &str| {
+            let custom = [("f.tex#0".to_string(), text.to_string())].into();
+            String::from_utf8(
+                resolve("f.tex", &t, &p, &BTreeMap::new(), &custom)
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        // Typed in a text box, line breaks arrive as bare line feeds.
+        assert_eq!(out("one\ntwo"), "a\r\none\r\ntwo\r\nc\r\n");
+        assert_eq!(out("one\r\ntwo\r\n"), "a\r\none\r\ntwo\r\nc\r\n");
+        // And a file with plain line feeds stays that way even if the text carries CRLF.
+        assert_eq!(fit_line_endings("x\r\ny", "m\n", "t\n"), "x\ny\n");
+        // A passage at the very end of a file with no final newline is written as typed.
+        assert_eq!(fit_line_endings("x", "m", "t"), "x");
+    }
+
+    #[test]
+    fn editing_by_hand_and_choosing_a_side_replace_each_other() {
+        let pair = hand_off(
+            &[("main.tex", Some("one\ntwo\nthree\nfour\nfive\nsix\nmine\n"))],
+            &[
+                (
+                    "main.tex",
+                    Some("one\ntwo\nthree\nfour\nfive\nsix\ntheirs\n"),
+                ),
+                ("new.tex", Some("n\n")),
+            ],
+        );
+        let (a, ha, id) = (&pair.a, &pair.ha, pair.bundle_id.as_str());
+        let me = author("Tamer");
+        let first = get(a, ha, &me, id).unwrap();
+        assert_eq!(
+            (first.items[0].mine.as_str(), first.items[0].theirs.as_str()),
+            ("mine\n", "theirs\n")
+        );
+        assert_eq!(first.unresolved, 1);
+
+        super::edit(a, ha, id, "main.tex#0", "mine and theirs").unwrap();
+        let edited = get(a, ha, &me, id).unwrap();
+        assert_eq!(edited.unresolved, 0);
+        assert_eq!(edited.items[0].custom.as_deref(), Some("mine and theirs"));
+        assert_eq!(edited.items[0].decision, None);
+
+        decide(a, id, "main.tex#0", Decision::Mine).unwrap();
+        assert_eq!(get(a, ha, &me, id).unwrap().items[0].custom, None);
+
+        // A whole-file item is a choice between files and cannot be rewritten.
+        assert_eq!(
+            super::edit(a, ha, id, "new.tex#file", "x")
+                .unwrap_err()
+                .code(),
+            "not_editable"
+        );
+        assert_eq!(
+            super::edit(a, ha, id, "main.tex#9", "x")
+                .unwrap_err()
+                .code(),
+            "not_editable"
+        );
+
+        super::edit(a, ha, id, "main.tex#0", "mine and theirs").unwrap();
+        finish(a, ha, &me, id).unwrap();
+        assert_eq!(
+            file(a, "main.tex"),
+            "one\ntwo\nthree\nfour\nfive\nsix\nmine and theirs\n"
+        );
     }
 
     #[test]

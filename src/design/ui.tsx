@@ -18,7 +18,7 @@ export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
 export function Mark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" style={{ flex: "none" }}>
-      <rect x="4" y="4" width="56" height="56" rx="11" fill="#141414" />
+      <rect x="4" y="4" width="56" height="56" rx="11" style={{ fill: "var(--mark-bg, #141414)" }} />
       <path d="M19 32v12h26V32" fill="none" stroke="#FF4D00" strokeWidth="5.5" strokeLinecap="square" />
     </svg>
   );
@@ -45,10 +45,17 @@ export function Menu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const items_ = () => Array.from(ref.current?.querySelectorAll<HTMLButtonElement>(".menu-item:not(:disabled)") ?? []);
   useEffect(() => {
     if (!open) return;
+    // Keyboard users land on the first action, and return to the menu's button on Escape.
+    items_()[0]?.focus();
     const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+      if (e instanceof KeyboardEvent) {
+        if (e.key !== "Escape") return;
+        ref.current?.querySelector<HTMLButtonElement>("button")?.focus();
+        setOpen(false);
+      } else if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", close);
@@ -63,7 +70,18 @@ export function Menu({
         {label}
       </button>
       {open && (
-        <div className="menu-list" role="menu">
+        <div
+          className="menu-list"
+          role="menu"
+          onKeyDown={(e) => {
+            const all = items_();
+            const at = all.indexOf(document.activeElement as HTMLButtonElement);
+            const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
+            if (to === undefined) return;
+            e.preventDefault();
+            all[(to + all.length) % all.length]?.focus();
+          }}
+        >
           {items.map((item, i) =>
             item === "separator" ? (
               <div key={i} className="menu-sep" role="separator" />

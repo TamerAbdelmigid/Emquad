@@ -15,13 +15,21 @@ The first time a document is compiled, Emquad downloads the LaTeX packages it us
 | Area | What it is for |
 |---|---|
 | Top bar | Menus, the project name with compile state and error count, and the History, Layout, Import and Export bundle buttons |
-| Left rail | Show or hide the file panel, find in the open file, open History, keyboard shortcuts, settings |
+| Left rail | The file panel, search across the project, History, keyboard shortcuts, settings |
 | File tree | Your files. The buttons at its top create a file, create a folder, or add files from disk. The "···" on each row renames, deletes, or sets the main file |
 | File outline | The sections of the open file. Click one to go there |
-| Source | Where you type. Tabs along the top; a toolbar for undo, headings, bold, italic, tables, symbols and find |
+| Source | Where you type. Tabs along the top; a toolbar for undo, headings, bold, italic, tables, symbols and find; the Code / Visual switch |
 | PDF | The typeset result, with page and zoom controls |
 
 Drag the gaps between the file panel, the source and the PDF to resize them. **Layout** switches between source and PDF together, source only, and PDF only.
+
+### Code and Visual
+
+**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets. Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile.
+
+### Searching
+
+The magnifier in the left rail (Ctrl+Shift+F) searches every text file in the project as you type. Click a result to go to that line. Ctrl+F searches and replaces within the open file.
 
 ### While typing
 
@@ -50,7 +58,7 @@ In History, the list on the right shows the working copy (your files as they are
 - **Restore this version** puts the project back to that version. Your current files are saved as a snapshot first, so a restore can itself be undone.
 - **Compare with working copy** shows what your current files have that the selected version does not.
 - With the working copy selected, each change has **Undo this change**, which puts that one passage back.
-- **Show changes** in the source toolbar opens History on the working copy for the file you are editing.
+- **Changes** in the source toolbar opens History on the working copy for the file you are editing.
 
 ## Working with someone else
 
@@ -72,7 +80,7 @@ Open the `.emquad` file with **Import** (or **Open bundle** on the start screen,
 
 Import the returned bundle. Emquad opens History with the bundle selected and a review panel showing two kinds of change:
 
-- **Conflicts** are passages that both of you changed since the version you sent. Each shows your text and theirs side by side, with the differing words highlighted. Click the one to keep.
+- **Conflicts** are passages that both of you changed since the version you sent. Each shows your text and theirs, with the differing words highlighted. Click the one to keep, or choose **Edit by hand** to write what the passage should say; the box starts with both versions.
 - **Merged automatically** are changes only they made. They are accepted unless you press the ✕ on one to reject it.
 
 **Finish merge** becomes available once every conflict has a choice. It writes the merged files and records the merge in History. Nothing in your files changes until you press it.
@@ -83,7 +91,7 @@ The state of your project from just before the import is always kept as a versio
 
 ## Settings
 
-The gear at the bottom of the left rail: your name, whether saving also compiles, the editor's text size, and the compiler for the open project.
+The gear at the bottom of the left rail: your name, whether saving also compiles, the editor's text size, the theme (Fieldwork, Glass or Onyx), and the compiler for the open project.
 
 The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, or `latexmk` if Tectonic is missing. Choose **latexmk** for a document that needs your own TeX installation, for example one that relies on pdfTeX-only features. The choice is saved with the project and travels in its bundles; a compiler that is not on the computer is shown as not found, and compiling with it is refused with a message rather than silently using the other one.
 
@@ -96,11 +104,19 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Go to this place in the PDF | Ctrl+Alt+J |
 | Go to the source | Double-click in the PDF |
 | Find and replace | Ctrl+F |
+| Search the project | Ctrl+Shift+F |
+| Suggest completions | Ctrl+Space |
+| Go to definition, find references, rename | F12, Shift+F12, F2 |
+| Leave the editor with the keyboard | Esc, then Tab |
 | Show or hide the file panel | Ctrl+B |
 | Save snapshot | Ctrl+Shift+S |
 | Open History | Ctrl+Shift+H |
 | Export bundle | Ctrl+Shift+E |
 | Import bundle | Ctrl+Shift+I |
+
+## Language help
+
+When the footer of the source pane shows **texlab**, the LaTeX language server is running. Completion then knows the packages your document loads, hovering over a command or label shows information about it, F12 goes to where a label or command is defined, Shift+F12 lists where it is used, and F2 renames a label everywhere in the open file. Going to a definition in a file that is not open is not available yet.
 
 ## Good to know
 

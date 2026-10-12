@@ -14,6 +14,7 @@ import type { PdfRect } from "./bindings/PdfRect";
 import type { ProjectIndex } from "./bindings/ProjectIndex";
 import type { ProjectInfo } from "./bindings/ProjectInfo";
 import type { Review } from "./bindings/Review";
+import type { SearchResult } from "./bindings/SearchResult";
 import type { Settings } from "./bindings/Settings";
 import type { SourcePos } from "./bindings/SourcePos";
 import type { TreeNode } from "./bindings/TreeNode";
@@ -32,6 +33,7 @@ export type {
   ProjectIndex,
   ProjectInfo,
   Review,
+  SearchResult,
   Settings,
   SourcePos,
   TreeNode,
@@ -60,7 +62,7 @@ export function errorOf(e: unknown): AppError {
 
 export const api = {
   settingsGet: () => invoke<Settings>("settings_get"),
-  settingsUpdate: (patch: { displayName?: string; compileOnSave?: boolean; editorFontSize?: number }) =>
+  settingsUpdate: (patch: { displayName?: string; compileOnSave?: boolean; editorFontSize?: number; theme?: string }) =>
     invoke<Settings>("settings_update", patch),
   startupFile: () => invoke<string | null>("startup_file"),
 
@@ -70,6 +72,8 @@ export const api = {
   projectClose: () => invoke<void>("project_close"),
   projectTree: () => invoke<TreeNode[]>("project_tree"),
   projectIndex: () => invoke<ProjectIndex>("project_index"),
+  projectSearch: (query: string, matchCase: boolean) =>
+    invoke<SearchResult>("project_search", { query, matchCase }),
   projectSetMain: (path: string) => invoke<ProjectInfo>("project_set_main", { path }),
   projectSetEngine: (engine: string) => invoke<ProjectInfo>("project_set_engine", { engine }),
   enginesAvailable: () => invoke<Engines>("engines_available"),
@@ -109,6 +113,9 @@ export const api = {
   reviewGet: (bundleId: string) => invoke<Review>("review_get", { bundleId }),
   reviewDecide: (bundleId: string, itemId: string, decision: Decision) =>
     invoke<Review>("review_decide", { bundleId, itemId, decision }),
+  reviewEdit: (bundleId: string, itemId: string, text: string) =>
+    invoke<Review>("review_edit", { bundleId, itemId, text }),
   reviewFinish: (bundleId: string) => invoke<string>("review_finish", { bundleId }),
+  lspSend: (message: string) => invoke<void>("lsp_send", { message }),
   reviewCancel: (bundleId: string) => invoke<void>("review_cancel", { bundleId }),
 };

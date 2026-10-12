@@ -6,6 +6,7 @@ mod e2e;
 pub mod error;
 pub mod history;
 pub mod index;
+pub mod lsp;
 pub mod project;
 pub mod review;
 pub mod settings;
@@ -29,6 +30,7 @@ macro_rules! handlers {
             commands::project_close,
             commands::project_tree,
             commands::project_index,
+            commands::project_search,
             commands::project_set_main,
             commands::project_set_engine,
             commands::engines_available,
@@ -56,8 +58,10 @@ macro_rules! handlers {
             commands::bundle_import_new,
             commands::review_get,
             commands::review_decide,
+            commands::review_edit,
             commands::review_finish,
             commands::review_cancel,
+            commands::lsp_send,
             $($extra),*
         ]
     };
@@ -122,6 +126,7 @@ pub fn run() {
                 compile_lock: Mutex::new(()),
                 watcher: Mutex::new(None),
                 startup_file: Mutex::new(startup_file),
+                language_server: Mutex::new(None),
             });
             Ok(())
         })
@@ -131,6 +136,16 @@ pub fn run() {
     #[cfg(not(any(debug_assertions, feature = "e2e")))]
     let builder = builder.invoke_handler(handlers!());
     builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Stop the language server with the app rather than leaving it to notice.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<AppState>()
+                    .language_server
+                    .lock()
+                    .unwrap()
+                    .take();
+            }
+        });
 }

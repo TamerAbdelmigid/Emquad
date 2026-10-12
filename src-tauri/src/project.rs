@@ -40,6 +40,46 @@ pub struct FileContent {
     pub text: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SearchHit {
+    pub path: String,
+    /// 1-based line and column of the match.
+    pub line: u32,
+    pub column: u32,
+    /// The line the match is on, trimmed.
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SearchResult {
+    pub hits: Vec<SearchHit>,
+    /// There were more matches than are returned.
+    pub truncated: bool,
+}
+
+/// The 1-based column, in the line as written, of a match found at `byte` of the line as searched.
+/// Lower-casing can lengthen a character (`İ` becomes two), so the two do not always line up.
+fn original_column(line: &str, byte: usize, match_case: bool) -> u32 {
+    if match_case {
+        return line[..byte].chars().count() as u32 + 1;
+    }
+    let mut seen = 0;
+    for (index, c) in line.chars().enumerate() {
+        if seen >= byte {
+            return index as u32 + 1;
+        }
+        seen += c.to_lowercase().map(char::len_utf8).sum::<usize>();
+    }
+    line.chars().count() as u32 + 1
+}
+
+/// The most matches a search returns; beyond this the user should narrow the query.
+pub const MAX_SEARCH_HITS: usize = 500;
+
 #[derive(Debug, Clone)]
 pub struct Project {
     pub root: PathBuf,
@@ -407,6 +447,51 @@ impl Project {
         Ok(())
     }
 
+    /// Find text in every text file of the project. The query is matched literally.
+    pub fn search(&self, query: &str, match_case: bool) -> Result<SearchResult> {
+        let mut result = SearchResult {
+            hits: Vec::new(),
+            truncated: false,
+        };
+        if query.is_empty() {
+            return Ok(result);
+        }
+        let needle = if match_case {
+            query.to_string()
+        } else {
+            query.to_lowercase()
+        };
+        for (rel, path) in self.walk_files()? {
+            let Ok(bytes) = fs::read(&path) else { continue };
+            let Some(text) = as_text(&bytes) else {
+                continue;
+            };
+            for (index, line) in text.lines().enumerate() {
+                let haystack = if match_case {
+                    std::borrow::Cow::Borrowed(line)
+                } else {
+                    std::borrow::Cow::Owned(line.to_lowercase())
+                };
+                let mut from = 0;
+                while let Some(at) = haystack[from..].find(&needle) {
+                    if result.hits.len() == MAX_SEARCH_HITS {
+                        result.truncated = true;
+                        return Ok(result);
+                    }
+                    let byte = from + at;
+                    result.hits.push(SearchHit {
+                        path: rel.clone(),
+                        line: index as u32 + 1,
+                        column: original_column(line, byte, match_case),
+                        preview: line.trim().chars().take(200).collect(),
+                    });
+                    from = byte + needle.len();
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// Copy files from elsewhere on disk into a project folder.
     pub fn import_files(&self, sources: &[PathBuf], dest_dir: &str) -> Result<()> {
         let dest = self.resolve(dest_dir)?;
@@ -522,6 +607,43 @@ mod tests {
         );
         p.set_engine("latexmk").unwrap();
         assert_eq!(Project::open(&p.root).unwrap().info.engine, "latexmk");
+    }
+
+    #[test]
+    fn search_finds_text_across_files_and_skips_binary_ones() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        p.write_file(
+            "sections/a.tex",
+            "The Gaussian integral.\nNo match here.\n  gaussian again, Gaussian twice\n",
+        )
+        .unwrap();
+        fs::write(p.root.join("fig.bin"), b"Gaussian\0binary").unwrap();
+        let found = p.search("gaussian", false).unwrap();
+        let places: Vec<_> = found
+            .hits
+            .iter()
+            .map(|h| (h.path.as_str(), h.line, h.column))
+            .collect();
+        assert_eq!(
+            places,
+            [
+                ("sections/a.tex", 1, 5),
+                ("sections/a.tex", 3, 3),
+                ("sections/a.tex", 3, 19)
+            ]
+        );
+        assert_eq!(found.hits[1].preview, "gaussian again, Gaussian twice");
+        assert_eq!(p.search("gaussian", true).unwrap().hits.len(), 1);
+        // A character that grows when lower-cased must not shift the column.
+        p.write_file("turkish.tex", "İİ needle\n").unwrap();
+        assert_eq!(p.search("NEEDLE", false).unwrap().hits[0].column, 4);
+        assert!(p.search("", false).unwrap().hits.is_empty());
+
+        p.write_file("many.tex", &"x ".repeat(MAX_SEARCH_HITS + 50))
+            .unwrap();
+        let many = p.search("x", true).unwrap();
+        assert!(many.truncated && many.hits.len() == MAX_SEARCH_HITS);
     }
 
     #[test]

@@ -43,6 +43,33 @@
   const button = (label) =>
     $$("button").find((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim() === label);
   const click = async (label) => (await until(`button "${label}"`, () => button(label))).click();
+  /** Put text into a field the way typing does, so the page's own handlers see it. */
+  const type = (field, value) => {
+    const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  /** Every control on screen must be a real, focusable control with a name. Returns the misses. */
+  const audit = () => {
+    const visible = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== "hidden";
+    const name = (el) =>
+      (el.getAttribute("aria-label") ?? "").trim() ||
+      (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent.trim()) ||
+      el.closest("label")?.textContent.trim() ||
+      (el.textContent ?? "").trim() ||
+      (el.getAttribute("title") ?? "").trim() ||
+      (el.getAttribute("placeholder") ?? "").trim();
+    const misses = [];
+    for (const el of $$("button, a[href], input, textarea, select, [role=separator][tabindex], [role=tab], [role=menuitem]")) {
+      if (!visible(el) || el.closest(".cm-editor")) continue;
+      const where = `${el.tagName.toLowerCase()}.${String(el.className).split(" ")[0]}`;
+      if (!name(el)) misses.push(`${where} has no name`);
+      if (el.tabIndex < 0 && !el.disabled) misses.push(`${where} cannot be reached with Tab`);
+    }
+    // Anything that reacts to a click must be one of the controls above.
+    for (const el of $$("[onclick], div[role=button], span[role=button]")) misses.push(`${el.tagName.toLowerCase()} acts as a button`);
+    return misses;
+  };
   const status = (wanted, timeout = 180000) => until(`status "${wanted}"`, () => text(".proj .st") === wanted, timeout);
 
   const failures = [];
@@ -85,6 +112,23 @@
     await until("the source pane to narrow", () => $(".screen").getBoundingClientRect().width < sourceBefore - 5);
     await ok(true, "the arrow keys move the gap between source and PDF");
 
+    // --- completion: from texlab when it is installed, from the built-in lists otherwise
+    const withServer = store().languageServer;
+    await ok(text(".sfoot").includes("texlab") === withServer, withServer ? "texlab is running for the project" : "without texlab the editor says nothing about it");
+    {
+      const { buffers: b } = await import("/src/features/editor/buffers.ts");
+      b.goToLine(18);
+      b.insert("\\sec");
+      await click("Edit");
+      (await until("the Suggest completions item", () => $$(".menu-item").find((i) => i.firstChild.textContent === "Suggest completions"))).click();
+      await until("completion suggestions", () => text(".cm-tooltip-autocomplete").includes("section"), withServer ? 30000 : 8000);
+      await ok(true, `completion offers \\section${withServer ? " through texlab" : ""}`);
+      document.querySelector(".cm-content").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      // Put the buffer back as it is on disk, so the test text is not compiled.
+      b.replace("main.tex", (await invoke("file_read", { path: "main.tex" })).text);
+      await until("the buffer to be clean again", () => !$(".stab.on .dot"));
+    }
+
     // --- compile
     await click("Recompile");
     await until("a rendered PDF page", () => $(".pdf-page canvas"), 180000);
@@ -92,12 +136,78 @@
     await ok(true, "Recompile produces a PDF and the status reads Compiled");
     await ok(document.documentElement.scrollHeight <= window.innerHeight, "the window does not scroll");
     await shot("02-editor");
+    let misses = audit();
+    await ok(misses.length === 0, `every control in the editor is focusable and named${misses.length ? `: ${misses.join("; ")}` : ""}`);
+
+    // --- menus work from the keyboard
+    const fileMenu = button("File");
+    fileMenu.focus();
+    fileMenu.click();
+    await until("the menu to take focus", () => document.activeElement?.getAttribute("role") === "menuitem");
+    const firstItem = document.activeElement;
+    firstItem.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    await ok(document.activeElement !== firstItem && document.activeElement.getAttribute("role") === "menuitem", "arrow keys move through a menu");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await until("the menu to close", () => !$(".menu-list"));
+    await ok(document.activeElement === fileMenu, "Escape closes the menu and returns focus to its button");
+
+    // --- the other themes repaint the same layout
+    const fieldworkPage = getComputedStyle(document.body).backgroundColor;
+    for (const theme of ["onyx", "glass"]) {
+      store().set({ settings: await invoke("settings_update", { theme }) });
+      await until(`the ${theme} theme`, () => document.documentElement.dataset.theme === theme && getComputedStyle(document.body).backgroundColor !== fieldworkPage);
+      await ok(getComputedStyle($(".files")).color !== "rgb(20, 20, 20)", `${theme} recolours the panels`);
+      await ok(document.documentElement.scrollHeight <= window.innerHeight, `${theme} keeps the layout inside the window`);
+      await shot(`02-${theme}`);
+    }
+    store().set({ settings: await invoke("settings_update", { theme: "fieldwork" }) });
+    await until("the Fieldwork theme again", () => getComputedStyle(document.body).backgroundColor === fieldworkPage);
+
+    const { buffers } = await import("/src/features/editor/buffers.ts");
+    // --- visual mode draws the same source as a document, and code mode puts it back
+    const plain = (await invoke("file_read", { path: "main.tex" })).text;
+    const rich = plain.replace(
+      "Start writing here.",
+      "Start \\textbf{writing} here, with $E = mc^2$ inline.\n\\begin{equation}\n  I = \\int_0^\\infty e^{-x^2}\\,dx\n\\end{equation}\n\\begin{itemize}\n\\item first\n\\end{itemize}",
+    );
+    await invoke("file_write", { path: "main.tex", text: rich });
+    await until("the richer document", () => text(".cm-content").includes("textbf"));
+    buffers.goToLine(1);
+    await click("Visual");
+    await until("visual mode", () => $(".cm-visual .cm-v-h1") && $$(".cm-v-math .katex").length >= 2 && $(".cm-v-bullet"));
+    await ok(!$(".cm-v-h1").textContent.includes("\\section"), "visual mode shows the section as a heading without its command");
+    await ok($(".cm-v-display .katex") && !$(".cm-v-math-bad"), "and typesets inline and display mathematics");
+    await ok(buffers.text("main.tex") === rich, "the source text itself is unchanged by visual mode");
+    await shot("02-visual");
+    await click("Code");
+    await until("plain source again", () => !$(".cm-visual") && !$(".cm-v-math"));
+    await ok(text(".cm-content").includes("\\begin{equation}"), "code mode shows the plain source again");
+    await invoke("file_write", { path: "main.tex", text: plain });
+    await until("the original document", () => !text(".cm-content").includes("textbf"));
+
+    // --- search across the project
+    await click("Search the project");
+    type(await until("the search field", () => $("#search-query")), "introduction");
+    const hit = await until("a search result", () => $(".search-hit"));
+    await ok(text(".search-path").includes("main.tex"), "project search finds text and names the file");
+    store().set({ cursor: { line: 1, column: 1 } });
+    hit.click();
+    const sectionLine = text(".cm-content").split("\\section")[0].length; // only to prove the jump below
+    await until("the cursor to move to the match", () => store().cursor.line > 1);
+    await ok(sectionLine > 0, "clicking a result goes to that line");
+    misses = audit();
+    await ok(misses.length === 0, `every control in the search panel is focusable and named${misses.length ? `: ${misses.join("; ")}` : ""}`);
+    await click("File tree");
+    await until("the file tree again", () => $(".file-row"));
 
     // --- the compiler can be chosen per project, and a missing one is refused, not swapped
     const engines = await invoke("engines_available");
     await click("Settings");
     await until("the compiler choices", () => $("#eng-auto") && $("#eng-tectonic") && $("#eng-latexmk"));
     await ok($("#eng-auto").checked, "Settings offers the compiler choice, on Automatic by default");
+    await ok($("#theme-fieldwork").checked && $("#theme-glass") && $("#theme-onyx"), "and the three themes");
+    misses = audit();
+    await ok(misses.length === 0, `every control in Settings is focusable and named${misses.length ? `: ${misses.join("; ")}` : ""}`);
     await ok($("#eng-latexmk").disabled === !engines.latexmk, "a compiler that is not installed cannot be chosen");
     await click("Cancel");
     const other = engines.tectonic && engines.latexmk ? "latexmk" : null;
@@ -113,7 +223,6 @@
     }
 
     // --- an edit marks the tab unsaved
-    const { buffers } = await import("/src/features/editor/buffers.ts");
     buffers.insert("% typed by the test\n");
     await until("the unsaved marker", () => $(".stab.on .dot"));
     await ok(true, "an edited file shows as unsaved");
@@ -186,14 +295,27 @@
     await ok(store().pendingReviews === 1, "one bundle is counted as waiting for review");
     await shot("05-review");
 
+    misses = audit();
+    await ok(misses.length === 0, `every control in History and the review is focusable and named${misses.length ? `: ${misses.join("; ")}` : ""}`);
+
     $(".opt.theirs").click();
     await until("Finish merge to unlock", () => !button("Finish merge").disabled);
+    await ok($(".opt.theirs").getAttribute("aria-pressed") === "true", "choosing a side marks it");
+
+    // --- then resolve the same conflict by hand instead
+    await click("Edit by hand");
+    const hand = await until("the hand-editing box", () => $(".hand textarea"));
+    await ok(hand.value.includes("said Tamer") && hand.value.includes("said Lina"), "the box starts with both versions");
+    type(hand, "Start writing here, said both of us.");
+    await click("Use this text");
+    await until("the edit to be recorded", () => text(".opt.custom").includes("said both of us"));
+    await ok($(".opt.theirs").getAttribute("aria-pressed") === "false" && !button("Finish merge").disabled, "a hand edit replaces the earlier choice and still unlocks Finish merge");
     await click("Finish merge");
     await until("the review to close", () => !$(".changes"));
     const merged = (await invoke("file_read", { path: "main.tex" })).text;
     await ok(
-      merged.includes("said Lina") && merged.includes("tightened by Lina") && !merged.includes("said Tamer"),
-      "the merge wrote what was chosen",
+      merged.includes("said both of us.\n") && merged.includes("tightened by Lina") && !merged.includes("said Tamer") && !merged.includes("said Lina"),
+      "the merge wrote the hand-edited passage and the automatic change",
     );
     const list = await invoke("history_list");
     await ok(list.versions[0].kind === "merge" && list.versions[0].parents.length === 2, "History records the merge with both parents");
@@ -203,7 +325,7 @@
     await shot("06-history");
 
     await click("Back to editor");
-    await until("the merged text in the editor", () => text(".cm-content").includes("said Lina"));
+    await until("the merged text in the editor", () => text(".cm-content").includes("said both of us"));
     await ok(true, "the editor shows the merged file");
 
     await ok(failures.length === 0, `no script errors in the page${failures.length ? `: ${failures.join(" | ")}` : ""}`);

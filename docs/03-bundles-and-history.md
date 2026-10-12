@@ -157,7 +157,7 @@ If B equals O (we made no changes since the hand-off), there are no conflicts an
 
 ### Decisions
 
-- Each conflict accepts `mine` or `theirs`. (A third option, edit by hand, can be added later; it would open the passage in the editor with both versions and is not required for version 1.)
+- Each conflict accepts `mine`, `theirs`, or text the user writes for that passage. The hand-written text takes the place of a decision; choosing a side afterwards discards it. The written text is given the file's own line endings, and if the passage ended its line the text is made to end its line too, so the next line is never joined on. Whole-file items (a file added, deleted or not text) are a choice between files and cannot be rewritten.
 - Each automatic merge accepts `accept` (default) or `reject`. Reject restores B's text for that hunk.
 - Finish merge is enabled only when every conflict has a decision. It is refused if the working copy changed after the review began, because the merge was computed against the state captured then; the user starts the review again.
 
@@ -180,10 +180,10 @@ Restoring a version takes an automatic snapshot of the working copy if it differ
 
 These must hold after every operation and are the basis of the test suite for this area.
 
-1. **No silent loss.** For every hunk classified as a conflict, the user's explicit decision determines the result. No text from O or T is dropped without either a decision or the "same change" rule.
+1. **No silent loss.** For every hunk classified as a conflict, the user's explicit decision, or the text they wrote for it, determines the result. No text from O or T is dropped without either a decision or the "same change" rule.
 2. **Recoverability.** Before any operation that overwrites working-copy files (finish merge, restore), a version exists from which the pre-operation state can be restored byte for byte.
 3. **Cancel is a no-op.** After cancelling a review, every working-copy file is byte-identical to before the import began.
-4. **Source files stay clean.** No operation writes anything into a user file other than content that came from O, T or B.
+4. **Source files stay clean.** No operation writes anything into a user file other than content that came from O, T or B, or text the user wrote in the review for that passage.
 5. **Round trip.** Exporting a project and importing the bundle as a new project yields byte-identical files and an identical version graph.
 6. **Idempotent import.** Importing the same bundle twice does not create duplicate versions; the second import reopens or reports the existing review or merge.
 7. **Line endings and encoding are preserved.** Files are treated as bytes for storage. Disable git's automatic line-ending conversion for `history.git`. Diffing treats text as UTF-8 and falls back to whole-file comparison if decoding fails.

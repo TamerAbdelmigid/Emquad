@@ -1,0 +1,44 @@
+# Third-party notices
+
+Emquad is built from, and ships with, software and fonts made by other people. This file lists what is included in the installed app and under which licence. Each project's full licence text is available at the address given, and in the package's own files in this repository's dependency folders.
+
+## Programs shipped beside the app
+
+These are separate executables in the `sidecars` folder of the installed app. Emquad starts them and exchanges data with them; they are not part of the Emquad executable.
+
+| Program | What it does | Licence | Source |
+|---|---|---|---|
+| Tectonic | Compiles LaTeX to PDF | MIT | https://github.com/tectonic-typesetting/tectonic |
+| texlab | LaTeX language server | GPL-3.0 | https://github.com/latex-lsp/texlab |
+
+texlab is distributed unmodified under the GNU General Public License, version 3. Its complete source code is available from the address above for the version recorded in `README.md`. The licence of texlab applies to texlab only.
+
+Tectonic downloads LaTeX packages, classes and fonts from its package bundle when a document first needs them. Those files carry their own licences, mostly the LaTeX Project Public License.
+
+## Compiled into the app
+
+| Component | Licence | Source |
+|---|---|---|
+| Tauri, wry, tao | MIT or Apache-2.0 | https://github.com/tauri-apps |
+| libgit2 (through the `git2` crate) | GPL-2.0 with a linking exception that permits use in programs under any licence | https://github.com/libgit2/libgit2 |
+| `git2`, `similar`, `zip`, `flate2`, `regex`, `notify`, `serde`, `uuid`, `chrono`, `tempfile`, `thiserror`, `ts-rs` and their dependencies | MIT or Apache-2.0 (some dual, some BSD or Zlib) | https://crates.io |
+| React | MIT | https://github.com/facebook/react |
+| CodeMirror 6 and its packages | MIT | https://github.com/codemirror |
+| PDF.js | Apache-2.0 | https://github.com/mozilla/pdf.js |
+| KaTeX | MIT | https://github.com/KaTeX/KaTeX |
+| Zustand | MIT | https://github.com/pmndrs/zustand |
+
+The exact versions are in `pnpm-lock.yaml` and `src-tauri/Cargo.lock`. To list every Rust dependency with its licence, run `cargo tree --format "{p} {l}"` in `src-tauri`; for the JavaScript ones, `pnpm licenses list`.
+
+## Fonts
+
+| Font | Used for | Licence | Source |
+|---|---|---|---|
+| Hanken Grotesk | The interface | SIL Open Font License 1.1 | the `@fontsource/hanken-grotesk` package |
+| Geist Mono | Source code and file names | SIL Open Font License 1.1 | the `@fontsource/geist-mono` package |
+| DM Mono | Small labels | SIL Open Font License 1.1 | the `@fontsource/dm-mono` package |
+| KaTeX fonts | Mathematics in visual mode | SIL Open Font License 1.1 | https://github.com/KaTeX/KaTeX |
+
+## The Windows component Emquad relies on
+
+Emquad displays its interface with Microsoft Edge WebView2, which is part of Windows 11 and is not shipped with Emquad.

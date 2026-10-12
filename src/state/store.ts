@@ -35,6 +35,12 @@ interface State {
   view: View;
   layout: Layout;
   filesOpen: boolean;
+  /** texlab is running for the open project. */
+  languageServer: boolean;
+  /** The editor draws the source with headings, emphasis and typeset mathematics. */
+  visual: boolean;
+  /** What the side panel shows when it is open. */
+  sidePanel: "files" | "search";
   /** Width of the file panel in pixels. */
   filesWidth: number;
   /** Share of the remaining width given to the source pane, from 0 to 1. */
@@ -68,6 +74,9 @@ export const useStore = create<State>((set) => ({
   view: "start",
   layout: "split",
   filesOpen: true,
+  languageServer: false,
+  visual: false,
+  sidePanel: "files",
   filesWidth: 244,
   split: 0.52,
   root: null,

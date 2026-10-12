@@ -9,11 +9,12 @@ import {
   type CompletionResult,
 } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { serverCompletionSource } from "@codemirror/lsp-client";
 import { HighlightStyle, StreamLanguage, bracketMatching, syntaxHighlighting } from "@codemirror/language";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
 import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { EditorSelection, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -26,6 +27,8 @@ import { tags as t } from "@lezer/highlight";
 import type { Diagnostic } from "../../ipc/api";
 import { store } from "../../state/store";
 import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
+import { lspActive, lspFor } from "./lsp";
+import { visualMode } from "./visual";
 
 const states = new Map<string, EditorState>();
 /** Text as last read from or written to disk, to tell whether a buffer has unsaved edits. */
@@ -33,6 +36,9 @@ const saved = new Map<string, string>();
 let view: EditorView | null = null;
 let shownPath: string | null = null;
 let handlers = { save: () => {}, compile: () => {} };
+/** Holds visual mode's extensions, or nothing, in every file's state. */
+const visual = new Compartment();
+let visualOn = false;
 
 export function setHandlers(h: typeof handlers) {
   handlers = h;
@@ -129,7 +135,10 @@ function extensions(path: string): Extension[] {
     lintGutter(),
     StreamLanguage.define(stex),
     syntaxHighlighting(highlight),
-    autocompletion({ override: [complete] }),
+    // With the language server, completion comes from it; without, from the built-in lists.
+    autocompletion({ override: [lspActive() ? serverCompletionSource : complete] }),
+    lspFor(path),
+    visual.of(visualOn ? visualMode : []),
     EditorView.lineWrapping,
     theme,
     keymap.of([
@@ -162,6 +171,17 @@ function extensions(path: string): Extension[] {
 
 export const buffers = {
   has: (path: string) => states.has(path),
+
+  /** Switch every open file between plain source and visual mode. */
+  setVisual(on: boolean) {
+    if (on === visualOn) return;
+    visualOn = on;
+    const effects = visual.reconfigure(on ? visualMode : []);
+    for (const [path, state] of states) {
+      if (shownPath === path && view) view.dispatch({ effects });
+      else states.set(path, state.update({ effects }).state);
+    }
+  },
 
   open(path: string, text: string) {
     saved.set(path, text);

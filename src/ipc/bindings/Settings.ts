@@ -5,4 +5,8 @@ export type Settings = { authorId: string,
 /**
  * Empty until the user has been asked for it.
  */
-displayName: string, recent: Array<Recent>, compileOnSave: boolean, editorFontSize: number, };
+displayName: string, recent: Array<Recent>, compileOnSave: boolean, editorFontSize: number, 
+/**
+ * "fieldwork", "glass" or "onyx".
+ */
+theme: string, };

@@ -14,7 +14,7 @@ Three things carry the identity; keep them and keep everything else quiet:
 
 ## Tokens
 
-Port the `:root` block of the mockup to `src/design/tokens.css` unchanged, then build components only from those custom properties. The essential ones:
+`src/design/tokens.css` holds the mockup's `:root` block plus tokens for the surfaces and edges the mockup wrote out as literal colours (`--on-bg`, `--edge-a`, `--pop-bg` and so on), so a theme is a set of token values. Components are built only from these custom properties. The essential ones:
 
 | Token | Value | Use |
 |---|---|---|
@@ -151,8 +151,12 @@ Initial set; make them discoverable in menus and tooltips.
 
 Deliberate differences, so nobody "fixes" them back:
 
+- **Three themes.** Fieldwork is the default. Glass and Onyx (`src/design/themes.css`) redefine the tokens only; no component rule is repeated. The source editor stays dark and the PDF stays white in every theme.
+- **The side panel** also holds project search, opened from the rail.
+- **Review** offers "Edit by hand" under each text conflict.
+
 - **The mark.** The top bar and start screen show the Emquad mark beside the wordmark; the mockup predates the logo.
-- **No Code / Visual switch.** Visual mode is planned after version 1, and a switch that does nothing would mislead. The toolbar's right side holds **Show changes**, which opens History on the working copy.
+- **Code / Visual switch** as in the mockup. Beside it, **Changes** opens History on the working copy.
 - **No mode menu.** Change tracking is always derived from versions, so there is no editing mode to choose.
 - **Review panel.** It has a second key, "Start this review over". Automatic merges show accept and reject as a pressed pair, and a rejected one is struck through.
 - **File tree rows** have a "···" menu for rename, delete, and set as main file; the main file carries a "Main" tag.

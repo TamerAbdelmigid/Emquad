@@ -1,4 +1,5 @@
 import { redo, undo } from "@codemirror/commands";
+import { startCompletion } from "@codemirror/autocomplete";
 import { openSearchPanel } from "@codemirror/search";
 import { listen } from "@tauri-apps/api/event";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -7,7 +8,9 @@ import { Icon, Mark, Menu } from "../design/ui";
 import { EditorPane } from "../features/editor/EditorPane";
 import { buffers, setHandlers } from "../features/editor/buffers";
 import { outline } from "../features/editor/latex";
+import { lspReceive, stopLsp } from "../features/editor/lsp";
 import { Files } from "../features/files/Files";
+import { Search } from "../features/files/Search";
 import { History } from "../features/history/History";
 import { Preview } from "../features/preview/Preview";
 import { Start } from "../features/start/Start";
@@ -22,6 +25,7 @@ const historyBackend = {
   fileDiff: api.historyFileDiff,
   review: api.reviewGet,
   decide: api.reviewDecide,
+  edit: api.reviewEdit,
   finish: api.reviewFinish,
   cancel: api.reviewCancel,
 };
@@ -48,6 +52,12 @@ export function App() {
       }),
       listen<string[]>("project://changed", (e) => void act.filesChangedOnDisk(e.payload)),
       listen<string>("app://open-bundle", (e) => setStartupBundle(e.payload)),
+      listen<string>("lsp://message", (e) => lspReceive(e.payload)),
+      // If the language server stops, say so in the footer and stop waiting on it.
+      listen("lsp://closed", () => {
+        stopLsp();
+        store().set({ languageServer: false });
+      }),
     ];
     return () => off.forEach((p) => void p.then((stop) => stop()));
   }, [set]);
@@ -60,6 +70,11 @@ export function App() {
     setStartupBundle(null);
     void act.importBundle(startupBundle);
   }, [startupBundle, named]);
+
+  const theme = s.settings?.theme ?? "fieldwork";
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   // The outline follows the active buffer; reading it on a timer keeps typing cheap.
   useEffect(() => {
@@ -102,6 +117,7 @@ export function App() {
         work();
       };
       if (e.shiftKey && key === "s") run(() => void act.saveSnapshot());
+      else if (e.shiftKey && key === "f") run(() => set({ filesOpen: true, sidePanel: "search" }));
       else if (e.shiftKey && key === "h") run(() => openHistory());
       else if (e.shiftKey && key === "e") run(() => set({ dialog: "export" }));
       else if (e.shiftKey && key === "i") run(() => void act.importBundle());
@@ -211,7 +227,9 @@ export function App() {
                   { label: "Undo", hint: "Ctrl+Z", run: () => buffers.run(undo) },
                   { label: "Redo", hint: "Ctrl+Y", run: () => buffers.run(redo) },
                   "separator",
+                  { label: "Suggest completions", hint: "Ctrl+Space", run: () => buffers.run(startCompletion) },
                   { label: "Find and replace", hint: "Ctrl+F", run: () => buffers.run(openSearchPanel) },
+                  { label: "Search the project", hint: "Ctrl+Shift+F", run: () => set({ filesOpen: true, sidePanel: "search" }) },
                 ]}
               />
               <Menu
@@ -297,10 +315,22 @@ export function App() {
       {s.view === "editor" ? (
         <div className="work" style={{ gridTemplateColumns: cols.join(" ") }}>
           <nav className="mod rail" aria-label="Panels">
-            <button className="rb" aria-pressed={s.filesOpen} aria-label="File tree" title="File tree (Ctrl+B)" onClick={() => set({ filesOpen: !s.filesOpen })}>
+            <button
+              className="rb"
+              aria-pressed={s.filesOpen && s.sidePanel === "files"}
+              aria-label="File tree"
+              title="File tree (Ctrl+B)"
+              onClick={() => set(s.filesOpen && s.sidePanel === "files" ? { filesOpen: false } : { filesOpen: true, sidePanel: "files" })}
+            >
               <Icon name="file" />
             </button>
-            <button className="rb" aria-label="Find in this file" title="Find in this file (Ctrl+F)" onClick={() => buffers.run(openSearchPanel)}>
+            <button
+              className="rb"
+              aria-pressed={s.filesOpen && s.sidePanel === "search"}
+              aria-label="Search the project"
+              title="Search the project (Ctrl+Shift+F)"
+              onClick={() => set(s.filesOpen && s.sidePanel === "search" ? { filesOpen: false } : { filesOpen: true, sidePanel: "search" })}
+            >
               <Icon name="search" />
             </button>
             <button className="rb" aria-label="History and review" title="History and review (Ctrl+Shift+H)" onClick={() => openHistory()}>
@@ -317,7 +347,10 @@ export function App() {
           </nav>
 
           <span />
-          {s.filesOpen && (
+          {s.filesOpen && s.sidePanel === "search" && (
+            <Search search={api.projectSearch} onOpen={(path, line) => void act.openFile(path, line)} onClose={() => set({ sidePanel: "files" })} />
+          )}
+          {s.filesOpen && s.sidePanel === "files" && (
             <Files
               tree={s.tree}
               active={s.active}
@@ -351,7 +384,10 @@ export function App() {
               active={s.active}
               cursor={s.cursor}
               engine={s.build?.engine ?? null}
+              languageServer={s.languageServer}
               fontSize={s.settings?.editorFontSize ?? 13}
+              visual={s.visual}
+              onVisual={(visual) => set({ visual })}
               onSelect={(path) => set({ active: path })}
               onClose={(path) => void act.closeTab(path)}
               onShowChanges={() => openHistory(s.active)}

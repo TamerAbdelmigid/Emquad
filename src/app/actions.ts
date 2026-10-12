@@ -2,6 +2,7 @@
 // Components call these; they never talk to the backend for a multi-step action themselves.
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { buffers } from "../features/editor/buffers";
+import { startLsp, stopLsp } from "../features/editor/lsp";
 import { type OpenedProject, WORKING, api, errorOf } from "../ipc/api";
 import { confirm, prompt, store } from "../state/store";
 
@@ -27,6 +28,10 @@ export function persistUi() {
 
 async function enter(opened: OpenedProject) {
   buffers.closeAll();
+  // The language server is set up before any file opens, so each file's editor connects to it.
+  if (opened.languageServer) startLsp(opened.root, (message) => void api.lspSend(message).catch(() => {}));
+  else stopLsp();
+  store().set({ languageServer: opened.languageServer });
   store().set({
     root: opened.root,
     info: opened.info,
@@ -79,6 +84,7 @@ export async function closeProject() {
   if (!(await saveAll())) return;
   await api.projectClose();
   buffers.closeAll();
+  stopLsp();
   store().set({ root: null, info: null, tree: [], tabs: [], active: null, view: "start", settings: await api.settingsGet() });
 }
 

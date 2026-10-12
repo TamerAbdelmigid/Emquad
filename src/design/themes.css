@@ -1,0 +1,43 @@
+/* The two alternate themes. Each redefines the tokens from tokens.css; no component rule is
+   repeated here. The source editor stays dark and the PDF stays white in every theme. */
+
+:root[data-theme="onyx"]{
+  color-scheme:dark;
+  --bg:radial-gradient(70% 55% at 78% -8%,#1A1D22 0%,transparent 62%),radial-gradient(50% 40% at 0% 100%,#101613 0%,transparent 60%),#070809;
+  --page:#070809;
+  --mod-bg:linear-gradient(180deg,#141619,#0E0F11);--mod-sh:inset 0 0 0 1px #202327;
+  --tx:#EDEEF0;--mu:#959AA1;
+  --lcd-bg:#0A0B0C;--lcd-sh:inset 0 0 0 1px #202327;--lcd-tx:#EDEEF0;--lcd-mu:#8D9299;--lcd-div:#202327;--ok:#2BD97C;
+  --scr-bg:#0C0D0F;--scr-sh:inset 0 0 0 1px #202327;
+  --acc:#2BD97C;--acc-tx:#2BD97C;--go-bg:#2BD97C;--go-sh:0 0 24px rgba(43,217,124,.25);--go-tx:#04140B;
+  --theirs:#B7A1FF;--theirs-bg:rgba(167,139,250,.22);--mine:#2BD97C;--mine-bg:rgba(43,217,124,.18);
+  --btn-bg:#17191C;--btn-sh:inset 0 0 0 1px #2A2D31;
+  --hover:#1A1D21;--line:#202327;--card:#0C0D0F;--card-sh:inset 0 0 0 1px #202327;
+  --on-bg:#262A30;--on-tx:#FFFFFF;--on-edge:transparent;
+  --edge-a:#2A2D31;--edge-b:#2A2D31;--edge-c:transparent;--edge-d:#2A2D31;
+  --tick:#4A4E55;--tick2:#3A3E44;--tick3:#4A4E55;
+  --well:#0A0B0C;--dis-bg:#17191C;--dis-tx:#7C8188;
+  --dlg-bg:#101113;--pop-bg:#17191C;--toast-bg:#262A30;--focus:#7FB0FF;
+  --hl:rgba(127,176,255,.2);--hl-edge:rgba(127,176,255,.6);--mark-bg:#2A2F36;
+}
+
+:root[data-theme="glass"]{
+  color-scheme:dark;
+  --bg:radial-gradient(38% 46% at 12% 22%,rgba(168,186,196,.85),transparent 70%),radial-gradient(30% 34% at 3% 74%,rgba(196,160,52,.55),transparent 70%),radial-gradient(46% 40% at 55% 104%,rgba(214,170,128,.8),transparent 70%),radial-gradient(40% 50% at 92% 30%,rgba(28,24,22,.9),transparent 72%),linear-gradient(115deg,transparent 0 37%,rgba(20,18,16,.55) 37% 39.5%,transparent 39.5% 71%,rgba(20,18,16,.5) 71% 72.5%,transparent 72.5%),linear-gradient(160deg,#6A6661,#2C2927);
+  --page:#2C2927;
+  --mod-bg:rgba(92,88,84,.42);--mod-sh:inset 0 0 0 1px rgba(255,255,255,.14),inset 0 1px 0 rgba(255,255,255,.16),0 24px 60px rgba(0,0,0,.28);--r:20px;
+  --blur:blur(36px) saturate(1.3);
+  --tx:#F6F3EF;--mu:rgba(246,243,239,.74);
+  --lcd-bg:rgba(20,18,16,.42);--lcd-sh:inset 0 0 0 1px rgba(255,255,255,.09);--lcd-tx:#F6F3EF;--lcd-mu:rgba(246,243,239,.64);--lcd-div:rgba(255,255,255,.12);--ok:#5BE08F;
+  --scr-bg:rgba(22,20,18,.58);--scr-sh:inset 0 0 0 1px rgba(255,255,255,.12),0 24px 60px rgba(0,0,0,.28);
+  --acc:#F4623A;--acc-tx:#FFB49C;--go-bg:#F4623A;--go-sh:0 6px 18px rgba(244,98,58,.4);--go-tx:#FFFFFF;
+  --theirs:#A9CBFF;--theirs-bg:rgba(169,203,255,.24);--mine:#FFA98C;--mine-bg:rgba(244,98,58,.3);
+  --btn-bg:rgba(255,255,255,.10);--btn-sh:inset 0 0 0 1px rgba(255,255,255,.16);
+  --hover:rgba(255,255,255,.09);--line:rgba(255,255,255,.11);--card:rgba(255,255,255,.07);--card-sh:inset 0 0 0 1px rgba(255,255,255,.12);
+  --on-bg:rgba(255,255,255,.22);--on-tx:#FFFFFF;--on-edge:transparent;
+  --edge-a:rgba(255,255,255,.16);--edge-b:rgba(255,255,255,.16);--edge-c:transparent;--edge-d:rgba(255,255,255,.16);
+  --tick:rgba(255,255,255,.4);--tick2:rgba(255,255,255,.35);--tick3:rgba(255,255,255,.4);
+  --well:rgba(0,0,0,.22);--dis-bg:rgba(255,255,255,.08);--dis-tx:rgba(246,243,239,.55);
+  --dlg-bg:rgba(74,70,66,.82);--pop-bg:rgba(62,58,55,.94);--toast-bg:rgba(30,28,26,.92);--focus:#A9CBFF;
+  --hl:rgba(169,203,255,.22);--hl-edge:rgba(169,203,255,.65);
+}

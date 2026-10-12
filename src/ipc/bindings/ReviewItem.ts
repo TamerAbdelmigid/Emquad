@@ -18,4 +18,12 @@ segments: Array<Segment>,
 /**
  * Plain-language description for whole-file items.
  */
-note: string | null, decision: Decision | null, };
+note: string | null, decision: Decision | null, 
+/**
+ * Our text and theirs for this passage, for editing by hand. Empty for whole-file items.
+ */
+mine: string, theirs: string, 
+/**
+ * What the user wrote for this passage, when they resolved it by hand.
+ */
+custom: string | null, };

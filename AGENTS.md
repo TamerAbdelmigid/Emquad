@@ -59,11 +59,11 @@ For those areas, the invariants in `docs/03-bundles-and-history.md` must each be
 - **Boundary:** the webview never reads or writes files or starts processes. Add a Rust command instead.
 - **Rust:** module logic is plain functions tested without Tauri; the `commands` layer is a thin wrapper. One serialisable error type with a stable `code`.
 - **Types across the boundary** are generated from Rust with `ts-rs`, not hand-written twice. A new command is added in three places: `commands.rs`, the `handlers!` list in `lib.rs`, and `src/ipc/api.ts`.
-- **Styling:** plain CSS in `src/design/`, built on the custom properties in `tokens.css`. No inline colours in components, no runtime styling library.
+- **Styling:** plain CSS in `src/design/`, built on the custom properties in `tokens.css`. No inline colours in components, no runtime styling library. A colour that differs between themes is a token, defined for all three in `tokens.css` and `themes.css`.
 - **Frontend features** do not import one another's internals.
 - **User files are sacred:** never write markers or metadata into a project's source files. App data goes in `.emquad/`.
 - **No network at runtime** except what the compiler does to fetch LaTeX packages. Fonts and assets are bundled.
-- **Dependencies:** pin exact versions. Check licences against the notes in `docs/02-architecture.md`; texlab must stay a separate process.
+- **Dependencies:** pin exact versions. Check licences against the notes in `docs/02-architecture.md`; texlab must stay a separate process. Anything shipped in the installer is listed in `THIRD-PARTY-NOTICES.md`.
 - **Copy:** name things the way a user would ("snapshot", "bundle", "version"), never by their git implementation.
 
 ## When the documents are wrong

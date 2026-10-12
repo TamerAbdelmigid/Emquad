@@ -20,13 +20,13 @@ pnpm install
 pnpm tauri dev
 ```
 
-To compile documents the app needs a LaTeX engine. It uses the bundled Tectonic if present, otherwise a `latexmk` found on PATH. To fetch Tectonic into `src-tauri/sidecars/`:
+To compile documents the app needs a LaTeX engine. It uses the bundled Tectonic if present, otherwise a `latexmk` found on PATH. With texlab present it also gets hover, go to definition, references and rename. To fetch both into `src-tauri/sidecars/`:
 
 ```bash
 pwsh scripts/fetch-sidecars.ps1
 ```
 
-The script takes the latest release; the app was last verified with Tectonic 0.17.0. The first compile of a document downloads the LaTeX packages it uses, so it needs internet once.
+The script takes the latest releases; the app was last verified with Tectonic 0.17.0 and texlab 5.26.0. The first compile of a document downloads the LaTeX packages it uses, so it needs internet once.
 
 ## Build the installer
 
@@ -36,7 +36,7 @@ With Tectonic fetched into `src-tauri/sidecars/`:
 pnpm tauri build
 ```
 
-The installer is written to `src-tauri/target/release/bundle/nsis/`. It installs for the current user, includes Tectonic, and registers `.emquad` files so they open in Emquad. `docs/user-guide.md` is the guide for people using the app.
+The installer is written to `src-tauri/target/release/bundle/nsis/`. It installs for the current user, includes Tectonic, and registers `.emquad` files so they open in Emquad. `docs/user-guide.md` is the guide for people using the app, `docs/releasing.md` covers signing, and `THIRD-PARTY-NOTICES.md` lists what the installer contains.
 
 ## Check it
 

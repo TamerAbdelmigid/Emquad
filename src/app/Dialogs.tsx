@@ -11,6 +11,12 @@ const TEMPLATES = [
   { id: "letter", label: "Letter", note: "A formal letter" },
 ];
 
+const THEMES = [
+  { id: "fieldwork", label: "Fieldwork", note: "light instrument panels" },
+  { id: "glass", label: "Glass", note: "frosted panels over a warm room" },
+  { id: "onyx", label: "Onyx", note: "near-black with a green accent" },
+];
+
 const COMPILERS: { id: string; label: string; note: string; needs: "tectonic" | "latexmk" | null }[] = [
   { id: "auto", label: "Automatic", note: "Tectonic, or latexmk if it is missing", needs: null },
   { id: "tectonic", label: "Tectonic", note: "built in; fetches packages as needed", needs: "tectonic" },
@@ -23,6 +29,11 @@ const SHORTCUTS: [string, string][] = [
   ["Go to this place in the PDF", "Ctrl+Alt+J"],
   ["Go to the source", "Double-click in the PDF"],
   ["Find and replace", "Ctrl+F"],
+  ["Search the project", "Ctrl+Shift+F"],
+  ["Go to definition (with texlab)", "F12"],
+  ["Find references (with texlab)", "Shift+F12"],
+  ["Rename a label or command (with texlab)", "F2"],
+  ["Leave the editor with the keyboard", "Esc, then Tab"],
   ["Show or hide the file panel", "Ctrl+B"],
   ["Save snapshot", "Ctrl+Shift+S"],
   ["Open History", "Ctrl+Shift+H"],
@@ -230,6 +241,7 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   const [name, setName] = useState(settings?.displayName ?? "");
   const [compileOnSave, setCompileOnSave] = useState(settings?.compileOnSave ?? true);
   const [fontSize, setFontSize] = useState(settings?.editorFontSize ?? 13);
+  const [theme, setTheme] = useState(settings?.theme ?? "fieldwork");
   const info = useStore((s) => s.info);
   const [engine, setEngine] = useState(info?.engine ?? "auto");
   const [engines, setEngines] = useState<Engines | null>(null);
@@ -243,7 +255,7 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   }, [settings]);
   const submit = () =>
     guard(async () => {
-      set({ settings: await api.settingsUpdate({ displayName: name, compileOnSave, editorFontSize: fontSize }) });
+      set({ settings: await api.settingsUpdate({ displayName: name, compileOnSave, editorFontSize: fontSize, theme }) });
       if (info && engine !== info.engine) set({ info: await api.projectSetEngine(engine) });
       onClose();
     });
@@ -275,6 +287,16 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
               <label htmlFor="set-font">Editor text size</label>
               <input id="set-font" type="number" min={9} max={28} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} />
             </div>
+            <fieldset>
+              <legend>Theme</legend>
+              {THEMES.map((t) => (
+                <label className="ck" key={t.id}>
+                  <input id={`theme-${t.id}`} type="radio" name="theme" checked={theme === t.id} onChange={() => setTheme(t.id)} />
+                  <span>{t.label}</span>
+                  <small>{t.note}</small>
+                </label>
+              ))}
+            </fieldset>
             {info && (
               <fieldset>
                 <legend>Compiler for this project</legend>

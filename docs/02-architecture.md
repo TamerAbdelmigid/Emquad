@@ -12,7 +12,8 @@
 | Compiler | **Tectonic**, shipped as a sidecar executable; a system `latexmk` as fallback | Tectonic is self-contained and downloads LaTeX packages on demand. When it is absent the app uses `latexmk` if one is on PATH |
 | PDF rendering | **PDF.js** (`pdfjs-dist`) | Standard, renders to canvas with a text layer, lets us handle clicks for source lookup |
 | Source ↔ PDF lookup | **SyncTeX** data produced by the compiler | The standard mechanism; see "SyncTeX" below |
-| Completion and outline | Built in: a project index of labels and citation keys (Rust) and a completion source (TypeScript) | Covers commands, environments, `\ref` and `\cite` with no extra process. **texlab** over LSP remains the planned upgrade for references and richer diagnostics |
+| Completion and outline | Built in: a project index of labels and citation keys (Rust) and a completion source (TypeScript). With **texlab** present, completion, hover, definitions, references and rename come from it through `@codemirror/lsp-client` | The app works without the language server and gains from it when installed |
+| Visual mode | CodeMirror decorations, with **KaTeX** for mathematics | Draws the plain source as a document without changing it; `visualModel.ts` decides what to draw and is tested on its own |
 | History storage | **libgit2** through the Rust `git2` crate | Versions, ancestry and the common-ancestor lookup; no system git required |
 | Comparison and merge | The Rust `similar` crate, with a three-way pass in `diff.rs` | Review needs every hunk classified and individually rejectable, which a ready-made merge does not expose |
 | Archive format | zip, through the Rust `zip` crate | A `.emquad` file is a zip; recipients can also open it with any unzip tool |
@@ -161,7 +162,7 @@ A diagnostic is `{ severity, file, line, message }`.
 | `lsp_send(message)` | — |
 | event `lsp://message` | messages from texlab |
 
-Payload types are generated from the Rust definitions with `ts-rs` into `src/ipc/bindings/`; `src/ipc/api.ts` holds the thin typed wrappers. The authoritative command list is the `handlers!` macro in `src-tauri/src/lib.rs`; the tables above describe its shape, and there are no `lsp_*` commands yet.
+Payload types are generated from the Rust definitions with `ts-rs` into `src/ipc/bindings/`; `src/ipc/api.ts` holds the thin typed wrappers. The authoritative command list is the `handlers!` macro in `src-tauri/src/lib.rs`; the tables above describe its shape.
 
 ## Compile
 
@@ -194,7 +195,7 @@ The compiler writes a `.synctex.gz` file next to the PDF. The app needs two look
 
 - One CodeMirror `EditorState` per open file, kept alive while its tab is open so undo history survives tab switches.
 - Extensions: LaTeX language, diagnostics (from compile and from texlab), completion (texlab), search, and a change-highlighting extension that takes a list of hunks and renders deletions and insertions as decorations.
-- Completion comes from `latex.ts` (what is being typed) and the project index (labels, citation keys). A language server is not used yet; when texlab is added, bridge a CodeMirror LSP client to it through two commands.
+- Completion comes from `latex.ts` (what is being typed) and the project index (labels, citation keys). When `texlab.exe` is in the sidecar folder, `lsp.rs` starts it for the open project and carries JSON messages to and from `@codemirror/lsp-client` through the `lsp_send` command and the `lsp://message` event; completion then comes from the server. Its hover text is sanitised before it is shown. `EMQUAD_LSP_TRACE=1` prints the conversation.
 - The outline is a scan of sectioning commands in the open buffer.
 - Saving: explicit save and save-on-compile. External changes reported by `project://changed` reload a file silently if the buffer is clean, and prompt if it is dirty.
 

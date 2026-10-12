@@ -7,6 +7,7 @@ import "@fontsource/geist-mono/500.css";
 import "@fontsource/dm-mono/400.css";
 import "@fontsource/dm-mono/500.css";
 import "./design/tokens.css";
+import "./design/themes.css";
 import "./design/base.css";
 import "./design/app.css";
 import React from "react";

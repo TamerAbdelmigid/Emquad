@@ -10,4 +10,13 @@
   --acc:#FF4D00;--acc-tx:#C23A00;--go-bg:linear-gradient(180deg,#FF5A14,#F74700);--go-sh:0 0 0 1px #C93B00,0 3px 0 #B03400;
   --theirs:#2450F0;--theirs-bg:#DCE4FF;--mine:#C23A00;--mine-bg:#FFE0D0;
   --btn-bg:linear-gradient(180deg,#FBFAF7,#F3F2EE);--btn-sh:0 0 0 1px #BDBCB6,0 3px 0 #ADACA6;
-  --hover:#DFDED8;--line:#D2D1CB;--card:#F8F7F3;--card-sh:0 0 0 1px #C6C5BF,0 2px 0 #C6C5BF}
+  --hover:#DFDED8;--line:#D2D1CB;--card:#F8F7F3;--card-sh:0 0 0 1px #C6C5BF,0 2px 0 #C6C5BF;
+  /* Surfaces and edges that used to be written out in the component rules. */
+  --page:#CDCCC6;--blur:none;
+  --go-tx:#FFFFFF;
+  --on-bg:#141414;--on-tx:#ECEBE6;--on-edge:#000000;
+  --edge-a:#C6C5BF;--edge-b:#BDBCB6;--edge-c:#ADACA6;--edge-d:#B7B6AF;
+  --tick:#A5A49E;--tick2:#8F8E88;--tick3:#6F6E69;
+  --well:#D9D8D2;--dis-bg:#C9C8C2;--dis-tx:#5F5E59;
+  --dlg-bg:#ECEBE6;--pop-bg:#F8F7F3;--toast-bg:#141414;--focus:#2450F0;
+  --hl:rgba(36,80,240,.18);--hl-edge:rgba(36,80,240,.55)}

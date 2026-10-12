@@ -10,7 +10,10 @@ interface Props {
   active: string | null;
   cursor: { line: number; column: number };
   engine: string | null;
+  languageServer: boolean;
   fontSize: number;
+  visual: boolean;
+  onVisual: (on: boolean) => void;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onShowChanges: () => void;
@@ -32,6 +35,10 @@ export function EditorPane(p: Props) {
   useEffect(() => {
     buffers.show(p.active);
   }, [p.active]);
+
+  useEffect(() => {
+    buffers.setVisual(p.visual);
+  }, [p.visual]);
 
   const name = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
@@ -79,8 +86,16 @@ export function EditorPane(p: Props) {
           <Icon name="search" />
         </button>
         <div className="r">
+          <div className="seg" role="group" aria-label="Editor mode">
+            <button className={p.visual ? "" : "on"} aria-pressed={!p.visual} onClick={() => p.onVisual(false)}>
+              Code
+            </button>
+            <button className={p.visual ? "on" : ""} aria-pressed={p.visual} onClick={() => p.onVisual(true)}>
+              Visual
+            </button>
+          </div>
           <button className="mode" disabled={!p.active} onClick={p.onShowChanges} title="Compare this file with the last snapshot">
-            Show changes
+            Changes
           </button>
         </div>
       </div>
@@ -92,6 +107,7 @@ export function EditorPane(p: Props) {
         </span>
         <span>LaTeX</span>
         {p.engine && <span>{p.engine === "tectonic" ? "Tectonic engine" : "latexmk engine"}</span>}
+        {p.languageServer && <span title="Hover for information; F12 goes to a definition; Shift+F12 finds references; F2 renames">texlab</span>}
         <span style={{ marginLeft: "auto" }}>Works offline</span>
       </div>
     </main>

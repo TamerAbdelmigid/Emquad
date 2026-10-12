@@ -6,4 +6,8 @@ export type OpenedProject = { root: string, info: ProjectInfo, tree: Array<TreeN
 /**
  * Whatever the UI saved last time (open tabs and so on), as JSON text.
  */
-uiState: string | null, };
+uiState: string | null, 
+/**
+ * The language server is running for this project.
+ */
+languageServer: boolean, };
