@@ -14,6 +14,7 @@ import {
   type Table,
   anchorOf,
   captionOf,
+  captionPlace,
   copiedFromPlain,
   deleteColumn,
   deleteRow,
@@ -37,6 +38,7 @@ import {
   splitMerged,
   tableFromCopied,
   toggleBorders,
+  trimSpaces,
   writeTable,
 } from "./tableModel";
 
@@ -147,7 +149,7 @@ class Controller {
         }),
       );
       const now = this.table.rows[at.r][at.c].tex;
-      if (escapeTyped(this.input.value).trim() !== now) this.input.value = now;
+      if (trimSpaces(escapeTyped(this.input.value)) !== now) this.input.value = now;
       this.fit();
     } else {
       const editing = this.input ? { caret: this.input.selectionStart ?? 0 } : null;
@@ -315,7 +317,7 @@ class Controller {
       input.setSelectionRange(caret, caret);
     }
     this.fit();
-    const next = setCell(this.table, at.r, at.c, input.value.trim());
+    const next = setCell(this.table, at.r, at.c, trimSpaces(input.value));
     // What is typed must read back as this one cell, or it would break the table apart.
     const back = parseTable(writeTable(next));
     const sound = back.ok && same(back.table, next);
@@ -386,6 +388,8 @@ class Controller {
       const at = this.place();
       if (!at) return;
       const to = at.from + this.source.length;
+      const where = captionPlace(at.text, at.from, to);
+      if (where.kind === "no") return store().notify(where.reason, true);
       const had = captionOf(at.text, at.from, to);
       const caption = await prompt("Table caption", had ?? "", "Save", "Shown under the table in the PDF. Leave it empty to remove the caption.");
       const again = this.place();
@@ -742,22 +746,26 @@ export const tablePaste: Extension = EditorView.domEventHandlers({
     const plain = data.getData("text/plain");
     const copied = copiedFromHtml(data.getData("text/html")) ?? copiedFromPlain(plain);
     const table = copied && copied.flat().length > 1 ? tableFromCopied(copied) : null;
-    if (!table) return false;
+    // Offered only if it can be written as a table this editor would read back the same.
+    if (!table || !parseTable(writeTable(table)).ok) return false;
     event.preventDefault();
     const size = `${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"} and ${table.aligns.length} ${table.aligns.length === 1 ? "column" : "columns"}`;
     void confirm("Paste as a table?", `The clipboard holds a table of ${size}. Cancel pastes it as plain text instead.`, "Paste as table").then((yes) => {
       const insert = yes ? `${writeTable(table)}\n` : plain;
-      const pasted = view.state.replaceSelection(insert);
+      const main = view.state.selection.main;
+      const changes: ChangeSpec[] = [{ from: main.from, to: main.to, insert }];
+      let cursor = main.from + insert.length;
       // Cells that were merged downwards need the multirow package, here as anywhere.
       const need = yes && needsMultirow(table) ? ensureMultirow(view.state.doc.toString()) : "present";
-      const main = view.state.selection.main;
       if (typeof need === "object" && (need.from <= main.from || need.from >= main.to)) {
-        view.dispatch({ changes: [pasted.changes ?? [], need], userEvent: "input.paste", annotations: isolateHistory.of("full") });
+        changes.push(need);
+        if (need.from <= main.from) cursor += need.insert.length;
         store().notify("Added \\usepackage{multirow} to the preamble. Cells merged down a column need it.");
-      } else {
-        view.dispatch(pasted, { userEvent: "input.paste", annotations: isolateHistory.of("full") });
-        if (need === "no-preamble") store().notify("Cells merged down a column need \\usepackage{multirow}. This file has no preamble, so add it to your main file's.", true);
+      } else if (need !== "present") {
+        store().notify("Cells merged down a column need \\usepackage{multirow}. Add it to your main file's preamble.", true);
       }
+      // The cursor goes after what was pasted, so the table is drawn and typing does not replace it.
+      view.dispatch({ changes, selection: { anchor: cursor }, userEvent: "input.paste", annotations: isolateHistory.of("full") });
       view.focus();
     });
     return true;

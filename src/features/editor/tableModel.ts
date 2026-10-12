@@ -80,22 +80,30 @@ const UNKNOWN = new Set([
   "begin", "end", "tabularnewline", "noalign", "rowcolor", "columncolor", "endhead", "endfirsthead", "endfoot", "endlastfoot", "cmidrule",
   "specialrule", "addlinespace", "arrayrulecolor", "hhline", "input", "include", "newline", "cr", "omit", "span", "multispan", "hdashline",
   "cdashline", "morecmidrules", "extracolsep", "vline", "arraybackslash", "makecell", "diagbox", "nopagebreak", "pagebreak", "captionof",
-  "verb", "Verb", "lstinline", "mintinline",
+  "verb", "Verb", "lstinline", "mintinline", "path", "nolinkurl",
 ]);
 const RULES = new Set(["hline", "cline", "toprule", "midrule", "bottomrule"]);
 /** Any other command that draws a rule between rows, whatever package it comes from. */
 const SOME_RULE = /hline|rule$|cline|dashline/i;
 
 /**
+ * Take away the spaces TeX itself ignores at the ends of a cell: space, tab and line ends.
+ * Other characters that merely look like spaces, such as a no-break space, print, and stay.
+ */
+export function trimSpaces(text: string): string {
+  return text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+}
+
+/**
  * Trim, but keep the space of a `\ ` at the end: without it the backslash would swallow
  * whatever is written next.
  */
 function trimTex(text: string): string {
-  const out = text.trim();
+  const out = trimSpaces(text);
   const slashes = /\\+$/.exec(out)?.[0].length ?? 0;
-  return slashes % 2 === 1 && /\s$/.test(text) ? `${out} ` : out;
+  return slashes % 2 === 1 && /[ \t\r\n]$/.test(text) ? `${out} ` : out;
 }
-const RULE_AT_START = /^\s*(?:\\(hline|toprule|midrule|bottomrule)(?![a-zA-Z@])|\\cline\s*\{\s*(\d+)\s*-\s*(\d+)\s*\})/;
+const RULE_AT_START = /^[ \t\r\n]*(?:\\(hline|toprule|midrule|bottomrule)(?![a-zA-Z@])|\\cline[ \t\r\n]*\{[ \t\r\n]*(\d+)[ \t\r\n]*-[ \t\r\n]*(\d+)[ \t\r\n]*\})/;
 const RULE_ANYWHERE = /\\(?:hline|cline|toprule|midrule|bottomrule)(?![a-zA-Z@])/;
 const no = (reason: string): Parsed => ({ ok: false, reason });
 
@@ -113,17 +121,17 @@ export function parseTable(source: string): Parsed {
 }
 
 function readTable(source: string): Parsed {
-  const head = /^\\begin\{tabular\}\s*(?:\[([tbc])\])?\s*\{/.exec(source);
+  const head = /^\\begin\{tabular\}[ \t\r\n]*(?:\[([tbc])\])?[ \t\r\n]*\{/.exec(source);
   if (!head) return no("Only plain tabular tables can be edited here");
   const specEnd = closing(source, head[0].length - 1);
-  const tail = /\\end\{tabular\}\s*$/.exec(source);
+  const tail = /\\end\{tabular\}[ \t\r\n]*$/.exec(source);
   if (specEnd < 0 || !tail || tail.index < specEnd) return no("The table is not finished");
   const spec = source.slice(head[0].length, specEnd - 1);
-  if (!/^[lcr|\s]*$/.test(spec)) return no("It uses a column type other than l, c and r");
-  if (/\|\s*\|/.test(spec)) return no("It uses double vertical rules");
+  if (!/^[lcr| \t\r\n]*$/.test(spec)) return no("It uses a column type other than l, c and r");
+  if (/\|[ \t\r\n]*\|/.test(spec)) return no("It uses double vertical rules");
   const aligns: Align[] = [];
   const vrules: boolean[] = [false];
-  for (const ch of spec.replace(/\s/g, "")) {
+  for (const ch of spec.replace(/[ \t\r\n]/g, "")) {
     if (ch === "|") vrules[vrules.length - 1] = true;
     else {
       aligns.push(ch as Align);
@@ -146,12 +154,14 @@ function readTable(source: string): Parsed {
       const next = body[i + 1] ?? "";
       if (next === "\\" && depth === 0) {
         i++;
-        const after = /^\s*([*[])/.exec(body.slice(i + 1));
+        const after = /^[ \t\r\n]*([*[])/.exec(body.slice(i + 1));
         if (after) return no("It sets the space after a row by hand");
         chunks.push([""]);
       } else if (/[a-zA-Z@]/.test(next)) {
         const name = /^[a-zA-Z@]+/.exec(body.slice(i + 1))![0];
         if (UNKNOWN.has(name)) return no(name === "begin" ? "It has another environment inside it" : `It uses \\${name}, which cannot be edited here`);
+        // An address given between two bars instead of braces is verbatim as well.
+        if (name === "url" && body[i + 1 + name.length] !== "{") return no("It uses \\url without braces, which cannot be edited here");
         if (!RULES.has(name) && name !== "rule" && SOME_RULE.test(name)) return no(`It uses \\${name}, a kind of rule that cannot be edited here`);
         add(`\\${name}`);
         i += name.length;
@@ -181,7 +191,7 @@ function readTable(source: string): Parsed {
         if (rule.kind !== "none") return no("It has more than one rule between two rows");
         rule.kind = m[1] as Rule["kind"];
         // What follows a booktabs rule in brackets is its thickness, not text.
-        if (m[1] !== "hline" && /^\s*[[(]/.test(cells[0])) return no("It sets the thickness of a rule");
+        if (m[1] !== "hline" && /^[ \t\r\n]*\[/.test(cells[0])) return no("It sets the thickness of a rule");
       } else {
         const [a, b] = [Number(m[2]), Number(m[3])];
         if (rule.kind !== "none" && rule.kind !== "cline") return no("It has more than one rule between two rows");
@@ -194,7 +204,7 @@ function readTable(source: string): Parsed {
     if (cells.some((text) => RULE_ANYWHERE.test(text))) return no("It has a rule in the middle of a row");
     hrules.push(rule);
     const last = k === chunks.length - 1;
-    if (last && cells.length === 1 && cells[0].trim() === "") break;
+    if (last && cells.length === 1 && trimSpaces(cells[0]) === "") break;
     raw.push(cells.map(trimTex));
     // A last row written without its line end has no rule under it.
     if (last) hrules.push({ kind: "none" });
@@ -206,22 +216,22 @@ function readTable(source: string): Parsed {
     const row: Cell[] = [];
     for (let tex of texts) {
       const made = cell();
-      const multi = /^\\multicolumn\s*\{\s*(\d+)\s*\}\s*\{/.exec(tex);
+      const multi = /^\\multicolumn[ \t\r\n]*\{[ \t\r\n]*(\d+)[ \t\r\n]*\}[ \t\r\n]*\{/.exec(tex);
       if (multi) {
         const specClose = closing(tex, multi[0].length - 1);
         const open = specClose < 0 ? -1 : tex.indexOf("{", specClose);
         const end = open < 0 ? -1 : closing(tex, open);
-        if (end !== tex.length || tex.slice(specClose, open).trim() !== "") return no("A \\multicolumn is written in a way that cannot be edited here");
+        if (end !== tex.length || trimSpaces(tex.slice(specClose, open)) !== "") return no("A \\multicolumn is written in a way that cannot be edited here");
         made.colSpan = Number(multi[1]);
-        made.spec = tex.slice(multi[0].length, specClose - 1).replace(/\s/g, "");
+        made.spec = tex.slice(multi[0].length, specClose - 1).replace(/[ \t\r\n]/g, "");
         if (!/^\|?[lcr]\|?$/.test(made.spec) || made.colSpan < 1) return no("A \\multicolumn uses a column type other than l, c and r");
         tex = trimTex(tex.slice(open + 1, end - 1));
       }
-      const down = /^\\multirow\s*\{\s*(\d+)\s*\}\s*\{\s*\*\s*\}\s*\{/.exec(tex);
+      const down = /^\\multirow[ \t\r\n]*\{[ \t\r\n]*(\d+)[ \t\r\n]*\}[ \t\r\n]*\{[ \t\r\n]*\*[ \t\r\n]*\}[ \t\r\n]*\{/.exec(tex);
       if (down) {
         if (closing(tex, down[0].length - 1) !== tex.length) return no("A \\multirow is written in a way that cannot be edited here");
         made.rowSpan = Number(down[1]);
-        if (made.rowSpan < 1) return no("A \\multirow covers no rows");
+        if (made.rowSpan < 2) return no("A \\multirow covers fewer than two rows");
         tex = trimTex(tex.slice(down[0].length, -1));
       }
       if (/\\multi(?:column|row)(?![a-zA-Z@])/.test(tex)) return no("A merged cell is written in a way that cannot be edited here");
@@ -255,14 +265,7 @@ function readTable(source: string): Parsed {
     const partly = hrules[b].kind === "cline" && crossed(table, b).some((cut, c) => cut && hrules[b].cols?.[c]);
     if (through || partly) return no("A rule runs through a merged cell");
   }
-  normalize(table);
-  // A description that says only what the table's own columns say need not be remembered.
-  rows.forEach((row) =>
-    row.forEach((at, c) => {
-      if (at.spec && at.colSpan > 1 && at.spec === specFor(table, c, at.colSpan)) delete at.spec;
-    }),
-  );
-  return { ok: true, table };
+  return { ok: true, table: normalize(table) };
 }
 
 /** The cell that shows at row `r`, column `c`: the one there, or the merged cell covering it. */
@@ -326,7 +329,7 @@ export function writeTable(t: Table, indent = ""): string {
       out.push(top.colSpan > 1 ? `\\multicolumn{${top.colSpan}}{${top.spec ?? specFor(t, c, top.colSpan)}}{}` : "");
       c += top.colSpan - 1;
     }
-    lines.push(`${out.join(" & ").trim()} \\\\`.trimStart());
+    lines.push(trimSpaces(`${trimSpaces(out.join(" & "))} \\\\`));
     rule(r + 1);
   });
   lines.push("\\end{tabular}");
@@ -358,9 +361,17 @@ function normalize(t: Table): Table {
     if (rule.kind !== "cline") return cut.some(Boolean) ? { kind: "hline" } : { kind: rule.kind };
     const cols = cut.map((gone, c) => !gone && Boolean(rule.cols?.[c]));
     if (!cols.some(Boolean)) return { kind: "none" };
-    if (cols.every((on, c) => on || cut[c])) return { kind: "hline" };
+    // Running under everything a merged cell leaves free, it is a full rule drawn around
+    // the cell. With no merged cell in the way it stays the \cline it was written as.
+    if (cut.some(Boolean) && cols.every((on, c) => on || cut[c])) return { kind: "hline" };
     return { kind: "cline", cols };
   });
+  // A description that says only what the table's own columns say need not be remembered.
+  t.rows.forEach((row) =>
+    row.forEach((at, c) => {
+      if (at.spec && at.colSpan > 1 && at.spec === specFor(t, c, at.colSpan)) delete at.spec;
+    }),
+  );
   return t;
 }
 const fixRules = normalize;
@@ -553,7 +564,7 @@ export function setAlign(table: Table, block: Rect, align: Align): Table {
       if (at.spec && c >= rect.left && c <= rect.right) at.spec = at.spec.replace(/[lcr]/, align);
     });
   }
-  return t;
+  return normalize(t);
 }
 
 export const hasBorders = (t: Table) => t.vrules.some(Boolean) || t.hrules.some((r) => r.kind !== "none");
@@ -601,32 +612,67 @@ export function ensureMultirow(text: string): Change | "present" | "no-preamble"
   return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: "\\usepackage{multirow}\n" } : { from: begin, to: begin, insert: "\n\\usepackage{multirow}\n" };
 }
 
-const FLOATS = ["table", "table*", "sidewaystable", "figure", "figure*", "wraptable", "minipage"];
-const CAPTION = /\\caption\*?\s*(?:\[[^\]]*\])?\s*\{/;
+/** Environments that can carry a caption. */
+const FLOATS = new Set(["table", "table*", "sidewaystable", "figure", "figure*", "subtable", "subfigure"]);
+/** Environments a table may sit in, inside its float or on the page, and still take a caption. */
+const PLAIN = new Set(["document", "center", "flushleft", "flushright", "centering"]);
+const CAPTION = /\\caption\*?[ \t\r\n]*(?:\[[^\]]*\])?[ \t\r\n]*\{/g;
 
-/** The float a tabular at `from`..`to` sits in, if it sits in one: the nearest around it. */
-function floatAround(text: string, from: number, to: number): { from: number; to: number } | null {
-  let best: { from: number; to: number } | null = null;
-  for (const name of FLOATS) {
-    const [begin, end] = [`\\begin{${name}}`, `\\end{${name}}`];
-    const open = text.lastIndexOf(begin, from);
-    if (open < 0 || text.slice(open, from).includes(end)) continue;
-    const close = text.indexOf(end, to);
-    if (close < 0 || text.slice(to, close).includes(begin)) continue;
-    if (!best || open > best.from) best = { from: open, to: close };
+/** The text with every comment blanked out, each character still where it was. */
+function uncommented(text: string): string {
+  return text.replace(/(?<!\\)%.*$/gm, (m) => " ".repeat(m.length));
+}
+
+export type CaptionPlace =
+  /** In a float: where the float's body is, and its caption's braces if it has one. */
+  | { kind: "float"; from: number; to: number; open?: number; close?: number; start?: number }
+  /** On the page with nothing around it: a float can be put around it. */
+  | { kind: "bare" }
+  /** Somewhere a caption cannot be put without breaking the document. */
+  | { kind: "no"; reason: string };
+
+/** Where the caption of the tabular at `from`..`to` is or could go. */
+export function captionPlace(text: string, from: number, to: number): CaptionPlace {
+  const clean = uncommented(text);
+  // The environments open at the table, outermost first.
+  const open: { name: string; at: number }[] = [];
+  for (const m of clean.slice(0, from).matchAll(/\\(begin|end)\{([^}]*)\}/g)) {
+    if (m[1] === "begin") open.push({ name: m[2], at: m.index });
+    else if (open.length && open[open.length - 1].name === m[2]) open.pop();
   }
-  return best;
+  let floatAt = open.length - 1;
+  while (floatAt >= 0 && !FLOATS.has(open[floatAt].name)) floatAt--;
+  const inner = open.slice(floatAt + 1).filter((env) => !PLAIN.has(env.name));
+  if (inner.length) return { kind: "no", reason: `This table is inside a ${inner[inner.length - 1].name} environment, where a caption cannot go. Add one in the source.` };
+  // Inside the braces of a box such as \resizebox, a caption or a float would not compile.
+  let depth = 0;
+  const since = floatAt < 0 ? 0 : open[floatAt].at;
+  for (let i = since; i < from; i++) {
+    if (clean[i] === "\\") i++;
+    else if (clean[i] === "{") depth++;
+    else if (clean[i] === "}") depth--;
+  }
+  if (depth !== 0) return { kind: "no", reason: "This table is inside the braces of another command, where a caption cannot go. Add one in the source." };
+  if (floatAt < 0) return { kind: "bare" };
+  const float = open[floatAt];
+  const end = clean.indexOf(`\\end{${float.name}}`, to);
+  if (end < 0) return { kind: "no", reason: "The environment this table is in is not finished." };
+  const body = clean.slice(float.at, end);
+  if ((body.match(/\\begin\{tabular[x*]?\}/g) ?? []).length > 1) return { kind: "no", reason: "This table shares its float with another, so it is not clear whose caption is whose. Change it in the source." };
+  const found = [...body.matchAll(CAPTION)];
+  if (found.length > 1) return { kind: "no", reason: "This table's float has more than one caption. Change it in the source." };
+  if (found.length === 0) return { kind: "float", from: float.at, to: end };
+  const start = float.at + found[0].index;
+  const brace = start + found[0][0].length - 1;
+  const close = closing(clean, brace);
+  if (close < 0 || close > end) return { kind: "no", reason: "The caption this table has is not finished." };
+  return { kind: "float", from: float.at, to: end, open: brace + 1, close: close - 1, start };
 }
 
 /** The caption of the tabular at `from`..`to`, or null when it has none. */
 export function captionOf(text: string, from: number, to: number): string | null {
-  const float = floatAround(text, from, to);
-  if (!float) return null;
-  const at = CAPTION.exec(text.slice(float.from, float.to));
-  if (!at) return null;
-  const open = float.from + at.index + at[0].length - 1;
-  const end = closing(text, open);
-  return end < 0 || end > float.to ? null : text.slice(open + 1, end - 1);
+  const place = captionPlace(text, from, to);
+  return place.kind === "float" && place.open !== undefined ? text.slice(place.open, place.close) : null;
 }
 
 /** Whether text can be a caption as it stands: its braces match, and it ends no group early. */
@@ -646,29 +692,29 @@ export function soundCaption(caption: string): boolean {
 /**
  * Give the tabular at `from`..`to` a caption, change the one it has, or with an empty caption
  * take it away. A tabular that stands alone is put in a `table` environment to carry it.
+ * Nothing is changed where a caption cannot go.
  */
 export function setCaption(text: string, from: number, to: number, caption: string): Change[] {
-  const float = floatAround(text, from, to);
+  const place = captionPlace(text, from, to);
+  if (place.kind === "no") return [];
   const lineStart = text.lastIndexOf("\n", from - 1) + 1;
   const indent = /^[ \t]*/.exec(text.slice(lineStart, from))![0];
-  if (!float) {
+  if (place.kind === "bare") {
     if (!caption) return [];
     return [
       { from, to: from, insert: `\\begin{table}[h]\n${indent}\\centering\n${indent}` },
       { from: to, to, insert: `\n${indent}\\caption{${caption}}\n${indent}\\end{table}` },
     ];
   }
-  const at = CAPTION.exec(text.slice(float.from, float.to));
-  if (!at) return caption ? [{ from: to, to, insert: `\n${indent}\\caption{${caption}}` }] : [];
-  const start = float.from + at.index;
-  const open = start + at[0].length - 1;
-  const end = closing(text, open);
-  if (end < 0 || end > float.to) return [];
-  if (caption) return [{ from: open + 1, to: end - 1, insert: caption }];
+  if (place.open === undefined || place.close === undefined || place.start === undefined) {
+    return caption ? [{ from: to, to, insert: `\n${indent}\\caption{${caption}}` }] : [];
+  }
+  if (caption) return [{ from: place.open, to: place.close, insert: caption }];
   // Take the caption's whole line with it when nothing else is on that line.
+  const [start, end] = [place.start, place.close + 1];
   const before = text.lastIndexOf("\n", start - 1);
   const after = text.indexOf("\n", end);
-  const alone = text.slice(before + 1, start).trim() === "" && text.slice(end, after < 0 ? text.length : after).trim() === "";
+  const alone = trimSpaces(text.slice(before + 1, start)) === "" && trimSpaces(text.slice(end, after < 0 ? text.length : after)) === "";
   return [alone && before >= 0 ? { from: before, to: after < 0 ? text.length : after, insert: "" } : { from: start, to: end, insert: "" }];
 }
 
@@ -684,9 +730,25 @@ export function smallestChange(before: string, after: string, offset = 0): Chang
 
 // ---------- text going into cells ----------
 
-/** A bare & or % typed in a cell means the character, so it is written the way LaTeX prints it. */
+/**
+ * A bare & or % typed in a cell means the character, so it is written the way LaTeX prints
+ * it. Inside braces it is left alone: there it may be part of a matrix or a web address.
+ */
 export function escapeTyped(value: string): string {
-  return value.replace(/(?<!\\)((?:\\\\)*)([&%])/g, "$1\\$2");
+  let out = "";
+  let depth = 0;
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "\\") {
+      out += ch + (value[i + 1] ?? "");
+      i++;
+      continue;
+    }
+    if (ch === "{") depth++;
+    if (ch === "}") depth = Math.max(0, depth - 1);
+    out += depth === 0 && (ch === "&" || ch === "%") ? `\\${ch}` : ch;
+  }
+  return out;
 }
 
 // ---------- tables from the clipboard ----------

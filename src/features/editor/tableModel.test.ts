@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type Table,
   captionOf,
+  captionPlace,
   copiedFromPlain,
   deleteColumn,
   deleteRow,
@@ -394,6 +395,35 @@ describe("the text around a table", () => {
     expect(apply(had, setCaption(had, at, at + tabular.length, "New"))).toBe(`\\begin{table}\n${tabular}\n\\caption[Short]{New}\n\\end{table}`);
   });
 
+  it("refuses a caption where one cannot go, and never touches another table's", () => {
+    const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
+    const where = (text: string) => {
+      const from = text.lastIndexOf(tabular);
+      return { place: captionPlace(text, from, from + tabular.length), changes: setCaption(text, from, from + tabular.length, "New") };
+    };
+    for (const text of [
+      `\\begin{minipage}{5cm}\n${tabular}\n\\end{minipage}`,
+      `\\begin{table}\n\\resizebox{\\textwidth}{!}{${tabular}}\n\\end{table}`,
+      `\\resizebox{\\textwidth}{!}{${tabular}}`,
+      `\\fbox{${tabular}}`,
+      `\\begin{table}\n\\begin{minipage}{5cm}\n${tabular}\n\\end{minipage}\n\\caption{Old}\n\\end{table}`,
+      `\\begin{table}\n${tabular}\n\\caption{First}\n${tabular}\n\\caption{Second}\n\\end{table}`,
+    ]) {
+      expect(where(text).place.kind).toBe("no");
+      expect(where(text).changes).toEqual([]);
+    }
+    // Each table of a pair with its own sub-float has its own caption.
+    const pair = `\\begin{table}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{First}\n\\end{subtable}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{Second}\n\\end{subtable}\n\\end{table}`;
+    const at = pair.lastIndexOf(tabular);
+    expect(captionOf(pair, at, at + tabular.length)).toBe("Second");
+    expect(apply(pair, setCaption(pair, at, at + tabular.length, "New"))).toBe(pair.replace("Second", "New"));
+    // A caption in a comment is not the caption; a table centred in its float is still in it.
+    const commented = `\\begin{table}\n\\begin{center}\n${tabular}\n\\end{center}\n% \\caption{Old}\n\\caption{Real}\n\\end{table}`;
+    const from = commented.indexOf(tabular);
+    expect(captionOf(commented, from, from + tabular.length)).toBe("Real");
+    expect(apply(commented, setCaption(commented, from, from + tabular.length, "New"))).toBe(commented.replace("Real", "New"));
+  });
+
   it("knows a caption that would break the document", () => {
     expect(soundCaption("Results for \\textbf{2025}")).toBe(true);
     expect(soundCaption("50\\% done")).toBe(true);
@@ -458,6 +488,52 @@ describe("hand-written tables that must not be touched", () => {
     expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\midrule\n & d \\\\"))).toMatch(/through a merged cell/);
     expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\cline{1-2}\n & d \\\\"))).toMatch(/through a merged cell/);
     expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\cline{2-2}\n & d \\\\"))).toBe("editable");
+  });
+});
+
+describe("what a rewrite must leave alone", () => {
+  const wrap = (spec: string, body: string) => `\\begin{tabular}{${spec}}\n${body}\n\\end{tabular}`;
+
+  it("keeps spaces that print, such as a no-break space, at the edges of a cell", () => {
+    const t = read(wrap("rl", "\u00a0\u00a01\u00a0 & \u2007 \\\\"));
+    expect(t.rows[0][0].tex).toBe("\u00a0\u00a01\u00a0");
+    expect(t.rows[0][1].tex).toBe("\u2007");
+    expect(writeTable(insertRow(t, 1))).toContain("\u00a0\u00a01\u00a0 & \u2007 \\\\");
+  });
+
+  it("keeps a \\cline under every column as a \\cline, and refuses a merge over one row", () => {
+    const source = wrap("ll", "a & b \\\\\n\\cline{1-2}\nc & d \\\\");
+    expect(writeTable(read(source))).toBe(source);
+    expect(reason(wrap("ll", "\\multirow{1}{*}{a} & b \\\\"))).toMatch(/fewer than two rows/);
+  });
+
+  it("reads a row that begins with a bracket in round form after a booktabs rule", () => {
+    const source = wrap("lr", "\\toprule\nTerm & Value \\\\\n\\midrule\n(Intercept) & 1 \\\\\n\\bottomrule");
+    expect(writeTable(read(source))).toBe(source);
+  });
+
+  it("refuses addresses written between bars", () => {
+    expect(reason(wrap("ll", "\\path|a&b| \\\\"))).toMatch(/path/);
+    expect(reason(wrap("ll", "\\url|a&b| \\\\"))).toMatch(/url/);
+    expect(reason(wrap("ll", "\\url{http://x.org/?a=1&b=2} & b \\\\"))).toBe("editable");
+  });
+
+  it("lets a table with a hand-written heading be aligned, bordered and divided", () => {
+    const t = read(wrap("ll", "\\multicolumn{2}{c}{Head} \\\\\na & b \\\\"));
+    for (const next of [
+      setAlign(t, { top: 1, left: 0, bottom: 1, right: 0 }, "c"),
+      setAlign(t, { top: 0, left: 0, bottom: 0, right: 0 }, "r"),
+      toggleBorders(t),
+      toggleBorders(toggleBorders(t)),
+      splitIntoColumns(t, 1, 1),
+      insertColumn(t, 1),
+    ]) {
+      expect(read(writeTable(next))).toEqual(next);
+    }
+    expect(writeTable(setAlign(t, { top: 1, left: 1, bottom: 1, right: 1 }, "r")).split("\n")[1]).toBe("\\multicolumn{2}{c}{Head} \\\\");
+    const single = read(wrap("ll", "\\multicolumn{1}{c}{x} & b \\\\\na & b \\\\"));
+    const divided = splitIntoColumns(single, 1, 0);
+    expect(read(writeTable(divided))).toEqual(divided);
   });
 });
 
@@ -543,6 +619,10 @@ describe("text typed into a cell", () => {
     expect(escapeTyped("R&D 5%")).toBe("R\\&D 5\\%");
     expect(escapeTyped("R\\&D 5\\%")).toBe("R\\&D 5\\%");
     expect(escapeTyped("$x$ \\textbf{b}")).toBe("$x$ \\textbf{b}");
+    // Inside braces an ampersand may be part of a matrix or an address, and is left as typed.
+    expect(escapeTyped("$\\pmatrix{a & b}$ & c")).toBe("$\\pmatrix{a & b}$ \\& c");
+    expect(escapeTyped("\\url{x?a=1&b=2%20}")).toBe("\\url{x?a=1&b=2%20}");
+    expect(escapeTyped("ends \\")).toBe("ends \\");
   });
 });
 
