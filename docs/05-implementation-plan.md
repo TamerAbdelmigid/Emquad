@@ -10,8 +10,8 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 |---|---|---|
 | M0 Scaffold and shell | Done | A full keyboard-only pass over every control has not been done |
 | M1 Projects, files, editor | Done | |
-| M2 Compile and preview | Done, verified with `latexmk` | The Tectonic sidecar has not been downloaded or run on the development machine, so "compiles with no TeX installation" and "compiles offline after the first fetch" are unverified. `scripts/fetch-sidecars.ps1` fetches it |
-| M3 Source and PDF lookup | Done | Verified on pdfTeX output; XeTeX (Tectonic) output follows the same format but has not been run |
+| M2 Compile and preview | Done, verified with Tectonic 0.17.0 and with `latexmk` | The development machine also has TeX installed, so "a machine with no TeX installation" has been shown only in the sense that Tectonic did the compiling. "Compiles offline after the first fetch" has not been tried with the network off |
+| M3 Source and PDF lookup | Done | Verified on both pdfTeX and XeTeX (Tectonic) output |
 | M4 Snapshots and History | Done | "Showing changes since…" is offered as **Show changes**, which opens History on the working copy with an undo on each change, rather than as marks inside the editor |
 | M5 Bundles, review, merge | Done | Opening a bundle by double-clicking it in Explorer is configured (file association, start-up argument) but only testable from an installed build |
 | M6 Language intelligence and release | Partly done | Done: completion for commands, environments, labels and citation keys; templates; settings. Not done: texlab, resizable panels, the Windows installer build, the user guide |

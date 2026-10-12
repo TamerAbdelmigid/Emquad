@@ -26,6 +26,8 @@ To compile documents the app needs a LaTeX engine. It uses the bundled Tectonic 
 pwsh scripts/fetch-sidecars.ps1
 ```
 
+The script takes the latest release; the app was last verified with Tectonic 0.17.0. The first compile of a document downloads the LaTeX packages it uses, so it needs internet once.
+
 ## Check it
 
 ```bash

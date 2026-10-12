@@ -246,9 +246,14 @@ fn clean_file(raw: &str, main_file: &str) -> String {
     let f = raw.trim().replace('\\', "/");
     let f = f.strip_prefix("./").unwrap_or(&f);
     if f.is_empty() {
-        main_file.to_string()
-    } else {
+        return main_file.to_string();
+    }
+    // Tectonic names an included file the way the document did, usually without ".tex".
+    let has_extension = f.rsplit('/').next().is_some_and(|name| name.contains('.'));
+    if has_extension {
         f.to_string()
+    } else {
+        format!("{f}.tex")
     }
 }
 
@@ -259,8 +264,9 @@ pub fn parse_log(log: &str, main_file: &str) -> Vec<Diagnostic> {
     let file_line =
         Regex::new(r"^(?:error: )?([^\s:][^:\n]*\.(?:tex|sty|cls|bib|bbl|aux)):(\d+): (.+)$")
             .unwrap();
-    // "warning: main.tex:7: Overfull \hbox ..."  (Tectonic)
-    let tectonic_warn = Regex::new(r"^warning: ([^:\n]+\.tex):(\d+): (.+)$").unwrap();
+    // "warning: main.tex:7: Overfull \hbox ..." and "error: sections/proof:2: Undefined ..."
+    // (Tectonic; the file may be given without its extension)
+    let tectonic = Regex::new(r"^(warning|error): ([^:\n]+):(\d+): (.+)$").unwrap();
     // "LaTeX Warning: Reference `x' on page 1 undefined on input line 9."
     let latex_warn = Regex::new(r"^(?:LaTeX|Package \S+) Warning: (.+)$").unwrap();
     let on_line = Regex::new(r"on input line (\d+)").unwrap();
@@ -271,13 +277,15 @@ pub fn parse_log(log: &str, main_file: &str) -> Vec<Diagnostic> {
     let lines: Vec<&str> = log.lines().collect();
     let mut out: Vec<Diagnostic> = Vec::new();
     let mut seen_file_line_errors = false;
+    let mut unplaced: Vec<Diagnostic> = Vec::new();
     for (i, line) in lines.iter().enumerate() {
-        if let Some(c) = tectonic_warn.captures(line) {
+        if let Some(c) = tectonic.captures(line) {
+            seen_file_line_errors |= &c[1] == "error";
             out.push(Diagnostic {
-                severity: "warning".into(),
-                file: clean_file(&c[1], main_file),
-                line: c[2].parse().unwrap_or(0),
-                message: c[3].trim().into(),
+                severity: c[1].to_string(),
+                file: clean_file(&c[2], main_file),
+                line: c[3].parse().unwrap_or(0),
+                message: c[4].trim().into(),
             });
         } else if let Some(c) = file_line.captures(line) {
             seen_file_line_errors = true;
@@ -306,22 +314,24 @@ pub fn parse_log(log: &str, main_file: &str) -> Vec<Diagnostic> {
                 message,
             });
         } else if let Some(c) = bang.captures(line) {
-            if seen_file_line_errors {
-                continue;
-            }
             let line_no = lines[i + 1..]
                 .iter()
                 .take(12)
                 .find_map(|l| l_dot.captures(l))
                 .and_then(|c| c[1].parse().ok())
                 .unwrap_or(0);
-            out.push(Diagnostic {
+            unplaced.push(Diagnostic {
                 severity: "error".into(),
                 file: main_file.into(),
                 line: line_no,
                 message: c[1].trim().into(),
             });
         }
+    }
+    // A "! ..." error names no file. When the same run also reports errors with a file and a
+    // line, those describe the same problems better, so the unplaced ones are dropped.
+    if !seen_file_line_errors {
+        out.extend(unplaced);
     }
     out
 }
@@ -396,6 +406,22 @@ mod tests {
                 ),
                 d("error", "main.tex", 3, "Undefined control sequence"),
             ]
+        );
+    }
+
+    #[test]
+    fn tectonic_names_included_files_without_their_extension() {
+        // The engine's own log comes first and has only the "!" form; Tectonic's summary line,
+        // which names the file, comes after it.
+        let log = "(main.tex\n(sections/proof\n! Undefined control sequence.\nl.2 Broken \\undefinedcommand\n                             here.\nNo pages of output.\n\nnote: downloading size10.clo\nerror: sections/proof:2: Undefined control sequence\nerror: something bad happened inside XeTeX; its output follows:\nerror: the XeTeX engine had an unrecoverable error\n";
+        assert_eq!(
+            parse_log(log, "main.tex"),
+            [d(
+                "error",
+                "sections/proof.tex",
+                2,
+                "Undefined control sequence"
+            )]
         );
     }
 
