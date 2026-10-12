@@ -549,6 +549,8 @@ describe("the text around a table", () => {
     expect(soundCaption("$50^2$ metres, $x_i$, $$a_b$$, \\(c^d\\)")).toBe(true);
     expect(soundCaption("\\si{m^2}, \\ref{tab:a_b}, \\url{http://x.org/a_b#frag}")).toBe(true);
     expect(soundCaption("open \\( never closed")).toBe(false);
+    expect(soundCaption("$a$$")).toBe(false);
+    expect(soundCaption("$$a$")).toBe(false);
   });
 
   it("finds the smallest change between two versions of a table", () => {
@@ -817,7 +819,6 @@ describe("text typed into a box that already held text", () => {
     ]) {
       expect(typeOut(typed)).toBe(typed);
     }
-    expect(typeOut("\\hyperref[sec:a_b]{my_text}")).toBe("\\hyperref[sec:a_b]{my_text}");
     expect(typeOut("see [note_1]")).toBe("see [note\\_1]");
   });
 
@@ -832,6 +833,43 @@ describe("text typed into a box that already held text", () => {
     // A backslash that begins a command is nobody's leftover.
     expect(escapeInserted("\\alpha_1", "\\alpha1")).toBe("\\alpha1");
     expect(escapeInserted("a\\\\_b", "a\\\\b")).toBe("a\\\\b");
+  });
+
+  it("keeps a backslash typed in front of an escaped character, and the escape too", () => {
+    expect(escapeInserted("50\\%", "50\\,\\%")).toBe("50\\,\\%");
+    expect(escapeInserted("50\\%", "50\\\\%")).toBe("50\\\\%");
+    expect(escapeInserted("R\\&D", "R\\,\\&D")).toBe("R\\,\\&D");
+    expect(escapeInserted("a \\& b", "a \\quad\\& b")).toBe("a \\quad\\& b");
+    expect(escapeInserted("x\\_y", "x\\-\\_y")).toBe("x\\-\\_y");
+    expect(escapeInserted("\\#", "\\textbf{\\#")).toBe("\\textbf{\\#");
+    expect(escapeInserted("\\_id", "\\texttt{\\_id")).toBe("\\texttt{\\_id");
+    // Typed key by key in front of the escape, as it really happens.
+    let value = "50\\%";
+    for (const key of ["\\", ","]) value = escapeInserted(value, `50${value.slice(2, value.length - 2)}${key}\\%`);
+    expect(value).toBe("50\\,\\%");
+  });
+
+  it("escapes an underscore in the text of boxes, headers and other commands that hold prose", () => {
+    for (const [typed, written] of [
+      ["\\rotatebox{90}{unit_cost}", "\\rotatebox{90}{unit\\_cost}"],
+      ["\\thead{unit_cost}", "\\thead{unit\\_cost}"],
+      ["\\fbox{a_b} \\makebox[2cm]{a_b}", "\\fbox{a\\_b} \\makebox[2cm]{a\\_b}"],
+      ["\\textsuperscript{a_b}", "\\textsuperscript{a\\_b}"],
+      ["\\hyperref[sec:a_b]{my_text}", "\\hyperref[sec:a_b]{my\\_text}"],
+      ["\\footnotesize{a_b} {\\small c_d}", "\\footnotesize{a\\_b} {\\small c\\_d}"],
+      ["\\MakeUppercase{a_b}", "\\MakeUppercase{a\\_b}"],
+    ]) {
+      expect(typeOut(typed)).toBe(written);
+      expect(soundCaption(written)).toBe(true);
+      expect(soundCaption(typed)).toBe(false);
+    }
+  });
+
+  it("stays quick when a long text is pasted", () => {
+    const pasted = "\\textbf{word} [x] $a_b$ plain_text & more % ".repeat(120);
+    const started = Date.now();
+    expect(escapeInserted("", pasted).length).toBeGreaterThan(pasted.length);
+    expect(Date.now() - started).toBeLessThan(1500);
   });
 
   it("does not escape twice, however the keys come", () => {

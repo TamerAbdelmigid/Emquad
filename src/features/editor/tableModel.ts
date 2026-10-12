@@ -910,6 +910,7 @@ export function captionOf(text: string, from: number, to: number): string | null
  */
 export function soundCaption(caption: string): boolean {
   let depth = 0;
+  let dollars = 0;
   const math = mathAt(caption);
   for (let i = 0; i < caption.length; i++) {
     const ch = caption[i];
@@ -919,10 +920,11 @@ export function soundCaption(caption: string): boolean {
     } else if (ch === "{") depth++;
     else if (ch === "}" && --depth < 0) return false;
     else if (ch === "%") return false;
+    else if (ch === "$") dollars++;
     else if ((ch === "#" || ch === "_" || ch === "^") && !math[i] && inProse(caption.slice(0, i))) return false;
   }
   // Mathematics left open would swallow whatever comes after.
-  return depth === 0 && math[caption.length] === 0;
+  return depth === 0 && math[caption.length] === 0 && dollars % 2 === 0;
 }
 
 /**
@@ -994,13 +996,18 @@ export function escapeTyped(value: string): string {
  * which of their braced arguments that is.
  */
 const PROSE = new Map<string, number>([
-  ...["textbf", "textit", "emph", "texttt", "textsc", "textrm", "textsf", "textmd", "textup", "textsl", "textnormal", "underline", "mbox", "footnote", "caption", "makecell"].map((name): [string, number] => [name, 1]),
-  ["href", 2],
-  ["textcolor", 2],
-  ["colorbox", 2],
-  ["parbox", 2],
-  ["multicolumn", 3],
-  ["multirow", 3],
+  ...[
+    "textbf", "textit", "emph", "texttt", "textsc", "textrm", "textsf", "textmd", "textup", "textsl", "textnormal", "underline", "mbox", "footnote", "caption",
+    "makecell", "thead", "fbox", "makebox", "framebox", "shortstack", "textsuperscript", "textsubscript", "uppercase", "MakeUppercase", "MakeLowercase",
+    "hyperref", "enquote", "sout", "uline", "hl", "rlap", "llap", "hbox", "centerline", "tnote",
+  ].map((name): [string, number] => [name, 1]),
+  ...["href", "textcolor", "colorbox", "parbox", "rotatebox", "raisebox", "foreignlanguage", "scalebox"].map((name): [string, number] => [name, 2]),
+  ...["multicolumn", "multirow", "resizebox"].map((name): [string, number] => [name, 3]),
+]);
+/** Declarations, which take no argument: braces written after one are just a group of text. */
+const DECLARATIONS = new Set([
+  "tiny", "scriptsize", "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge", "bfseries", "mdseries", "itshape", "slshape",
+  "scshape", "upshape", "ttfamily", "sffamily", "rmfamily", "normalfont", "centering", "raggedright", "raggedleft", "em", "bf", "it", "tt", "rm", "sf", "sc",
 ]);
 
 /**
@@ -1022,7 +1029,7 @@ function inProse(text: string): boolean {
   return open.every((group) => {
     if (group.ch === "[") return false;
     const owner = /\\([a-zA-Z@]+)\*?((?:\[[^\]]*\]|\{[^{}]*\})*)$/.exec(text.slice(0, group.at));
-    if (!owner) return true;
+    if (!owner || (DECLARATIONS.has(owner[1]) && owner[2] === "")) return true;
     // Which braced argument of the command this group is.
     const nth = (owner[2].match(/\{[^{}]*\}/g) ?? []).length + 1;
     return PROSE.get(owner[1]) === nth;
@@ -1091,6 +1098,12 @@ export function escapeInserted(before: string, after: string): string {
   }
   const escapedIn = (text: string, i: number) => /\\*$/.exec(text.slice(0, i))![0].length % 2 === 1;
   const SPECIAL = "&%#_";
+  // For each place in `after`, which character of `before` the nearest kept one on either
+  // side is: what was typed in between does not make neighbours of old into strangers.
+  const keptBefore = new Int32Array(m).fill(-1);
+  const keptAfter = new Int32Array(m).fill(-1);
+  for (let j = 1; j < m; j++) keptBefore[j] = from[j - 1] >= 0 ? from[j - 1] : keptBefore[j - 1];
+  for (let j = m - 2; j >= 0; j--) keptAfter[j] = from[j + 1] >= 0 ? from[j + 1] : keptAfter[j + 1];
   let out = "";
   for (let j = 0; j < m; j++) {
     const ch = after[j];
@@ -1098,15 +1111,15 @@ export function escapeInserted(before: string, after: string): string {
     const escaped = /\\*$/.exec(out)![0].length % 2 === 1;
     if (i >= 0) {
       // There before. A backslash whose character has been deleted goes with it ...
-      const orphan = ch === "\\" && !escapedIn(before, i) && SPECIAL.includes(before[i + 1] ?? " ") && from[j + 1] !== i + 1;
+      const orphan = ch === "\\" && !escapedIn(before, i) && SPECIAL.includes(before[i + 1] ?? " ") && keptAfter[j] !== i + 1;
       if (orphan) continue;
       // ... and a character whose backslash has been deleted gets it back.
-      out += SPECIAL.includes(ch) && escapedIn(before, i) && !escaped ? `\\${ch}` : ch;
+      out += SPECIAL.includes(ch) && escapedIn(before, i) && keptBefore[j] !== i - 1 && !escaped ? `\\${ch}` : ch;
       continue;
     }
-    const math = mathAt(out)[out.length] === 1;
-    const prose = !math && inProse(out);
-    const bare = !escaped && (ch === "%" || ch === "#" || (ch === "&" && !math) || (ch === "_" && prose));
+    // Where the text stands is only worked out for the characters it matters to.
+    const math = (ch === "&" || ch === "_") && mathAt(out)[out.length] === 1;
+    const bare = !escaped && (ch === "%" || ch === "#" || (ch === "&" && !math) || (ch === "_" && !math && inProse(out)));
     out += bare ? `\\${ch}` : ch;
   }
   return out;
