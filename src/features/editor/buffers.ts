@@ -14,7 +14,7 @@ import { HighlightStyle, StreamLanguage, bracketMatching, syntaxHighlighting } f
 import { stex } from "@codemirror/legacy-modes/mode/stex";
 import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -24,21 +24,56 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import type { Diagnostic } from "../../ipc/api";
+import type { Comment, Diagnostic } from "../../ipc/api";
 import { store } from "../../state/store";
+import { type Anchor, describe, locate } from "./commentAnchor";
+import { commenting, focusComment, placeComments, placedComments } from "./comments";
 import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
 import { lspActive, lspFor } from "./lsp";
-import { visualMode } from "./visual";
+import { recheckSpelling, spelling } from "./spell";
+import { forgetPictures, redrawVisual, visualMode } from "./visual";
 
 const states = new Map<string, EditorState>();
 /** Text as last read from or written to disk, to tell whether a buffer has unsaved edits. */
 const saved = new Map<string, string>();
 let view: EditorView | null = null;
 let shownPath: string | null = null;
-let handlers = { save: () => {}, compile: () => {} };
+let handlers = { save: () => {}, compile: () => {}, comment: () => {} };
 /** Holds visual mode's extensions, or nothing, in every file's state. */
 const visual = new Compartment();
 let visualOn = false;
+/** Holds the spelling checker's extensions, or nothing. */
+const spell = new Compartment();
+let spellOn = false;
+/** The project's comments, to place in each file as it is opened. */
+let comments: Comment[] = [];
+
+/** Change one open file's editor state, whether or not it is the one on screen. */
+function apply(path: string, spec: TransactionSpec) {
+  const state = shownPath === path && view ? view.state : states.get(path);
+  if (!state) return;
+  if (shownPath === path && view) view.dispatch(spec);
+  else states.set(path, state.update(spec).state);
+}
+
+/**
+ * Put each comment of a file on its passage. A comment already being followed keeps its place,
+ * which is truer than its remembered words while the file has unsaved edits; `afresh` looks
+ * every one up again, for text that has just been read from disk.
+ */
+function place(path: string, afresh: boolean) {
+  const state = shownPath === path && view ? view.state : states.get(path);
+  if (!state) return;
+  const text = state.doc.toString();
+  const followed = new Map(afresh ? [] : placedComments(state).map((p) => [p.id, p]));
+  const placed = comments
+    .filter((c) => c.path === path)
+    .flatMap((c) => {
+      const at = followed.get(c.id) ?? locate(text, c);
+      return at ? [{ id: c.id, from: at.from, to: at.to, quiet: c.resolved }] : [];
+    });
+  apply(path, { effects: placeComments.of(placed) });
+}
 
 export function setHandlers(h: typeof handlers) {
   handlers = h;
@@ -139,11 +174,14 @@ function extensions(path: string): Extension[] {
     autocompletion({ override: [lspActive() ? serverCompletionSource : complete] }),
     lspFor(path),
     visual.of(visualOn ? visualMode : []),
+    spell.of(spellOn ? spelling : []),
+    commenting,
     EditorView.lineWrapping,
     theme,
     keymap.of([
       { key: "Mod-s", run: () => (handlers.save(), true) },
       { key: "Mod-Enter", run: () => (handlers.compile(), true) },
+      { key: "Mod-Alt-m", run: () => (handlers.comment(), true) },
       { key: "Enter", run: closeEnvironment },
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -163,7 +201,7 @@ function extensions(path: string): Extension[] {
       if (update.selectionSet || update.docChanged) {
         const head = update.state.selection.main.head;
         const line = update.state.doc.lineAt(head);
-        store().set({ cursor: { line: line.number, column: head - line.from + 1 } });
+        store().set({ cursor: { line: line.number, column: head - line.from + 1 }, selecting: !update.state.selection.main.empty });
       }
     }),
   ];
@@ -177,15 +215,66 @@ export const buffers = {
     if (on === visualOn) return;
     visualOn = on;
     const effects = visual.reconfigure(on ? visualMode : []);
-    for (const [path, state] of states) {
-      if (shownPath === path && view) view.dispatch({ effects });
-      else states.set(path, state.update({ effects }).state);
-    }
+    for (const path of states.keys()) apply(path, { effects });
+  },
+
+  /** Draw visual mode again: the references or the pictures changed, not the text. */
+  redrawVisual() {
+    if (visualOn) for (const path of states.keys()) apply(path, { effects: redrawVisual.of(null) });
+  },
+
+  /** Picture files changed: read them again where visual mode shows them. */
+  picturesChanged() {
+    forgetPictures();
+    buffers.redrawVisual();
+  },
+
+  /** Switch the spelling checker on or off in every open file, or check again after it changed. */
+  setSpelling(on: boolean) {
+    const effects = on === spellOn ? [recheckSpelling.of(null)] : [spell.reconfigure(on ? spelling : [])];
+    spellOn = on;
+    for (const path of states.keys()) apply(path, { effects });
+  },
+
+  /** Show these comments on their passages in every open file. */
+  setComments(all: Comment[]) {
+    comments = all;
+    for (const path of states.keys()) place(path, false);
+  },
+
+  /** Where each comment of a file sits now, for the ones whose passage still exists. */
+  commentAnchors(path: string): (Anchor & { id: string })[] {
+    const state = buffers.current(path);
+    if (!state) return [];
+    const text = state.doc.toString();
+    return placedComments(state)
+      .filter((p) => p.to > p.from)
+      .map((p) => ({ id: p.id, ...describe(text, p.from, p.to) }));
+  },
+
+  /** The selected passage of the file on screen, described so a comment can be put on it. */
+  selectionAnchor(): { path: string; anchor: Anchor } | null {
+    if (!view || !shownPath) return null;
+    const { from, to } = view.state.selection.main;
+    if (from === to) return null;
+    return { path: shownPath, anchor: describe(view.state.doc.toString(), from, to) };
+  },
+
+  /** Pick a comment out and bring its passage into view. False when it has no place here. */
+  showComment(id: string | null): boolean {
+    for (const path of states.keys()) if (path !== shownPath) apply(path, { effects: focusComment.of(id) });
+    if (!view || !shownPath) return false;
+    const at = placedComments(view.state).find((p) => p.id === id && p.to > p.from);
+    view.dispatch({
+      effects: at ? [focusComment.of(id), EditorView.scrollIntoView(at.from, { y: "center" })] : [focusComment.of(id)],
+    });
+    return Boolean(at);
   },
 
   open(path: string, text: string) {
     saved.set(path, text);
     states.set(path, EditorState.create({ doc: text, extensions: extensions(path) }));
+    place(path, true);
   },
 
   close(path: string) {
@@ -226,9 +315,8 @@ export const buffers = {
     const state = buffers.current(path);
     if (!state || state.doc.toString() === text) return saved.set(path, text);
     saved.set(path, text);
-    const spec = { changes: { from: 0, to: state.doc.length, insert: text } };
-    if (shownPath === path && view) view.dispatch(spec);
-    else states.set(path, state.update(spec).state);
+    apply(path, { changes: { from: 0, to: state.doc.length, insert: text } });
+    place(path, true);
   },
 
   attach(parent: HTMLElement) {

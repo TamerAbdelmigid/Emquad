@@ -13,7 +13,9 @@
 | PDF rendering | **PDF.js** (`pdfjs-dist`) | Standard, renders to canvas with a text layer, lets us handle clicks for source lookup |
 | Source ↔ PDF lookup | **SyncTeX** data produced by the compiler | The standard mechanism; see "SyncTeX" below |
 | Completion and outline | Built in: a project index of labels and citation keys (Rust) and a completion source (TypeScript). With **texlab** present, completion, hover, definitions, references and rename come from it through `@codemirror/lsp-client` | The app works without the language server and gains from it when installed |
-| Visual mode | CodeMirror decorations, with **KaTeX** for mathematics | Draws the plain source as a document without changing it; `visualModel.ts` decides what to draw and is tested on its own |
+| Visual mode | CodeMirror decorations, with **KaTeX** for mathematics and PDF.js for PDF figures | Draws the plain source as a document without changing it; `visualModel.ts` decides what to draw and is tested on its own |
+| Spell check | **nspell** with the Hunspell `dictionary-en` and `dictionary-en-gb` word lists, loaded on demand | Runs in the page with no network and no native code; `spellModel.ts` decides which words are prose and is tested on its own |
+| Comments | A Rust module over `.emquad/comments.json`; placement by quoted text in `commentAnchor.ts` | Keeps remarks out of source files, and lets them travel and merge in bundles |
 | History storage | **libgit2** through the Rust `git2` crate | Versions, ancestry and the common-ancestor lookup; no system git required |
 | Comparison and merge | The Rust `similar` crate, with a three-way pass in `diff.rs` | Review needs every hunk classified and individually rejectable, which a ready-made merge does not expose |
 | Archive format | zip, through the Rust `zip` crate | A `.emquad` file is a zip; recipients can also open it with any unzip tool |
@@ -31,7 +33,8 @@ Pin exact versions of every dependency and of the two sidecar binaries when scaf
 
 - **texlab** is GPL-3.0. It must remain a separate executable that the app starts and talks to over a pipe; do not link it into the app.
 - **libgit2** is GPL-2.0 with a linking exception that permits linking from software under other licenses.
-- Tectonic, CodeMirror, PDF.js, Tauri, React, `git2` and `zip` are under permissive licenses.
+- Tectonic, CodeMirror, PDF.js, Tauri, React, `git2`, `zip` and nspell are under permissive licenses. The English word lists are under MIT and BSD terms.
+- LaTeX package files that a bundle carries keep their own licences, mostly the LaTeX Project Public License, which permits passing them on unchanged.
 - No Overleaf source code is used. Overleaf is AGPL; the app only follows its layout conventions.
 
 Decide the app's own license before the first public release.
@@ -113,6 +116,8 @@ Names are indicative; keep the grouping. All paths in arguments are relative to 
 | `file_read(path)` | text, or a marker that the file is binary |
 | `file_write(path, text)` | — |
 | `file_create(path, kind)` / `file_rename(from, to)` / `file_delete(path)` / `file_import(sourcePaths, destDir)` | updated tree |
+| `project_index()` | labels, citation keys, and each reference's authors, year and title |
+| `project_image(path)` | bytes of a picture in the project, for visual mode; the extension may be left out as in LaTeX |
 | event `project://changed` | paths changed outside the app |
 
 **Compile**
@@ -147,13 +152,23 @@ A diagnostic is `{ severity, file, line, message }`.
 
 | Command | Returns |
 |---|---|
-| `bundle_export(options)` | path written |
+| `packages_info()` | whether the project's LaTeX packages can go in a bundle, and their size |
+| `bundle_export(options)` | path written; with packages, only after an offline compile from them succeeds |
 | `bundle_inspect(path)` | manifest summary, and whether it matches an existing project |
 | `bundle_import(path)` | either a new project, or a review session id |
 | `review_get(session)` | items: conflicts and automatic merges, with current decisions |
 | `review_decide(session, itemId, decision)` | updated item |
 | `review_finish(session)` | new merge version id |
 | `review_cancel(session)` | — |
+
+**Comments and spelling**
+
+| Command | Returns |
+|---|---|
+| `comments_list()` | the project's comments, without deleted ones |
+| `comment_add(path, anchor, text)` / `comment_reply(id, text)` / `comment_resolve(id, resolved)` / `comment_delete(id)` | the updated list |
+| `comments_reanchor(moved)` | the updated list, after the editor reports where edited passages now are |
+| `dictionary_add(word)` | settings, with the word added to the user's own dictionary |
 
 **LSP**
 
@@ -197,6 +212,9 @@ The compiler writes a `.synctex.gz` file next to the PDF. The app needs two look
 - Extensions: LaTeX language, diagnostics (from compile and from texlab), completion (texlab), search, and a change-highlighting extension that takes a list of hunks and renders deletions and insertions as decorations.
 - Completion comes from `latex.ts` (what is being typed) and the project index (labels, citation keys). When `texlab.exe` is in the sidecar folder, `lsp.rs` starts it for the open project and carries JSON messages to and from `@codemirror/lsp-client` through the `lsp_send` command and the `lsp://message` event; completion then comes from the server. Its hover text is sanitised before it is shown. `EMQUAD_LSP_TRACE=1` prints the conversation.
 - The outline is a scan of sectioning commands in the open buffer.
+- Spelling: `spellModel.ts` blanks out everything that is not prose and returns the remaining words; `spell.ts` checks the ones in view against the dictionary and underlines the unknown ones. The dictionary is imported only when spelling is on.
+- Comments: `comments.ts` holds each comment's range in editor state and maps it through every edit; `commentAnchor.ts` finds a range from a comment's remembered words when a file is opened or reloaded. On save the editor reports the ranges that moved, and the backend records the new words.
+- Visual mode's tables, figures and citations are widgets that replace their source range. A figure's bytes come from `project_image`; a PDF figure is drawn with PDF.js. Citations are named from the project index.
 - Saving: explicit save and save-on-compile. External changes reported by `project://changed` reload a file silently if the buffer is clean, and prompt if it is dirty.
 
 ## Preview integration

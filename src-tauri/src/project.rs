@@ -228,6 +228,26 @@ impl Project {
         Ok(parts.iter().fold(self.root.clone(), |p, c| p.join(c)))
     }
 
+    /// The picture file a document means by `name`: the file itself, or the first that exists
+    /// with one of the extensions LaTeX would try. Pictures over 30 MB are not offered.
+    pub fn find_image(&self, name: &str) -> Result<Option<PathBuf>> {
+        const EXTENSIONS: [&str; 5] = ["", ".pdf", ".png", ".jpg", ".jpeg"];
+        const SHOWN: [&str; 6] = ["pdf", "png", "jpg", "jpeg", "gif", "webp"];
+        for extension in EXTENSIONS {
+            let Ok(path) = self.resolve(&format!("{}{extension}", name.trim())) else {
+                continue;
+            };
+            let shown = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| SHOWN.contains(&e.to_ascii_lowercase().as_str()));
+            if shown && fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= 30 << 20) {
+                return Ok(Some(path));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn save_info(&self) -> Result<()> {
         let json = serde_json::to_vec_pretty(&self.info)?;
         atomic_write(&self.data_dir().join("project.json"), &json)

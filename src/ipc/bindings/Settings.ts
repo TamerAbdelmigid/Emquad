@@ -9,4 +9,12 @@ displayName: string, recent: Array<Recent>, compileOnSave: boolean, editorFontSi
 /**
  * "fieldwork", "glass" or "onyx".
  */
-theme: string, };
+theme: string, 
+/**
+ * The language to check spelling in, or "off".
+ */
+spellcheck: string, 
+/**
+ * Words the user has told the spelling checker to accept.
+ */
+dictionary: Array<string>, };

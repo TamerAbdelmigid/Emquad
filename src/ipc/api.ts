@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { BuildOutput } from "./bindings/BuildOutput";
 import type { BundleInfo } from "./bindings/BundleInfo";
 import type { ChangedFile } from "./bindings/ChangedFile";
+import type { Comment } from "./bindings/Comment";
 import type { Decision } from "./bindings/Decision";
 import type { Engines } from "./bindings/Engines";
 import type { FileContent } from "./bindings/FileContent";
@@ -10,6 +11,7 @@ import type { FileDiff } from "./bindings/FileDiff";
 import type { HistoryList } from "./bindings/HistoryList";
 import type { Manifest } from "./bindings/Manifest";
 import type { OpenedProject } from "./bindings/OpenedProject";
+import type { PackagesInfo } from "./bindings/PackagesInfo";
 import type { PdfRect } from "./bindings/PdfRect";
 import type { ProjectIndex } from "./bindings/ProjectIndex";
 import type { ProjectInfo } from "./bindings/ProjectInfo";
@@ -23,12 +25,14 @@ export type {
   BuildOutput,
   BundleInfo,
   ChangedFile,
+  Comment,
   Decision,
   Engines,
   FileDiff,
   HistoryList,
   Manifest,
   OpenedProject,
+  PackagesInfo,
   PdfRect,
   ProjectIndex,
   ProjectInfo,
@@ -38,6 +42,7 @@ export type {
   SourcePos,
   TreeNode,
 };
+export type { Anchor } from "./bindings/Anchor";
 export type { Block } from "./bindings/Block";
 export type { Diagnostic } from "./bindings/Diagnostic";
 export type { ReviewItem } from "./bindings/ReviewItem";
@@ -62,8 +67,9 @@ export function errorOf(e: unknown): AppError {
 
 export const api = {
   settingsGet: () => invoke<Settings>("settings_get"),
-  settingsUpdate: (patch: { displayName?: string; compileOnSave?: boolean; editorFontSize?: number; theme?: string }) =>
+  settingsUpdate: (patch: { displayName?: string; compileOnSave?: boolean; editorFontSize?: number; theme?: string; spellcheck?: string }) =>
     invoke<Settings>("settings_update", patch),
+  dictionaryAdd: (word: string) => invoke<Settings>("dictionary_add", { word }),
   startupFile: () => invoke<string | null>("startup_file"),
 
   projectCreate: (parentDir: string, name: string, template: string) =>
@@ -87,6 +93,17 @@ export const api = {
   fileImport: (sources: string[], destDir: string) =>
     invoke<TreeNode[]>("file_import", { sources, destDir }),
 
+  projectImage: (path: string) => invoke<ArrayBuffer>("project_image", { path }),
+
+  commentsList: () => invoke<Comment[]>("comments_list"),
+  commentAdd: (path: string, anchor: { quote: string; before: string; after: string; line: number }, text: string) =>
+    invoke<Comment[]>("comment_add", { path, anchor, text }),
+  commentReply: (id: string, text: string) => invoke<Comment[]>("comment_reply", { id, text }),
+  commentResolve: (id: string, resolved: boolean) => invoke<Comment[]>("comment_resolve", { id, resolved }),
+  commentDelete: (id: string) => invoke<Comment[]>("comment_delete", { id }),
+  commentsReanchor: (moved: { id: string; quote: string; before: string; after: string; line: number }[]) =>
+    invoke<Comment[]>("comments_reanchor", { moved }),
+
   compileRun: () => invoke<BuildOutput>("compile_run"),
   compileCancel: () => invoke<void>("compile_cancel"),
   pdfRead: () => invoke<ArrayBuffer>("pdf_read"),
@@ -104,8 +121,15 @@ export const api = {
     invoke<FileDiff>("history_file_diff", { version, against, path }),
   historyRestore: (version: string) => invoke<string>("history_restore", { version }),
 
-  bundleExport: (dest: string, note: string, includePdf: boolean) =>
-    invoke<Manifest>("bundle_export", { dest, note, includePdf }),
+  packagesInfo: () => invoke<PackagesInfo>("packages_info"),
+  bundleExport: (dest: string, note: string, include: { pdf: boolean; packages: boolean; comments: boolean }) =>
+    invoke<Manifest>("bundle_export", {
+      dest,
+      note,
+      includePdf: include.pdf,
+      includePackages: include.packages,
+      includeComments: include.comments,
+    }),
   bundleInspect: (path: string) => invoke<BundleInfo>("bundle_inspect", { path }),
   bundleImport: (path: string) => invoke<string>("bundle_import", { path }),
   bundleImportNew: (path: string, parentDir: string) =>

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Dialog } from "../design/ui";
-import { type Engines, api } from "../ipc/api";
+import { type Engines, type PackagesInfo, api } from "../ipc/api";
 import { useStore } from "../state/store";
-import { createProject, exportBundle, guard } from "./actions";
+import { applySpelling, createProject, exportBundle, guard } from "./actions";
 
 const TEMPLATES = [
   { id: "article", label: "Article", note: "A paper with abstract and sections" },
@@ -23,6 +23,14 @@ const COMPILERS: { id: string; label: string; note: string; needs: "tectonic" | 
   { id: "latexmk", label: "latexmk", note: "your own TeX installation; for pdfTeX-only documents", needs: "latexmk" },
 ];
 
+const SPELLING = [
+  { id: "en-US", label: "English (US)", note: "color, organize" },
+  { id: "en-GB", label: "English (UK)", note: "colour, organise" },
+  { id: "off", label: "Off", note: "no words are underlined" },
+];
+
+const megabytes = (bytes: number) => `${Math.max(1, Math.round(bytes / (1 << 20)))} MB`;
+
 const SHORTCUTS: [string, string][] = [
   ["Recompile", "Ctrl+Enter"],
   ["Save (and recompile, when compile on save is on)", "Ctrl+S"],
@@ -30,6 +38,8 @@ const SHORTCUTS: [string, string][] = [
   ["Go to the source", "Double-click in the PDF"],
   ["Find and replace", "Ctrl+F"],
   ["Search the project", "Ctrl+Shift+F"],
+  ["Comment on the selected text", "Ctrl+Alt+M"],
+  ["Correct the misspelled word at the cursor", "Ctrl+."],
   ["Go to definition (with texlab)", "F12"],
   ["Find references (with texlab)", "Shift+F12"],
   ["Rename a label or command (with texlab)", "F2"],
@@ -119,13 +129,24 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
   const hasPdf = useStore((s) => !!s.build?.hasPdf || s.pdfVersion > 0);
   const [note, setNote] = useState("");
   const [includePdf, setIncludePdf] = useState(true);
+  const comments = useStore((s) => s.comments.length);
+  const [includeComments, setIncludeComments] = useState(true);
+  const [packages, setPackages] = useState<PackagesInfo | null>(null);
+  const [includePackages, setIncludePackages] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void guard(async () => setPackages(await api.packagesInfo()));
+  }, []);
   return (
     <Dialog title="Export bundle" intro="One file. Opens in Emquad on any computer, ready to continue." onClose={onClose}>
       <form
         className="dlg"
         onSubmit={(e) => {
           e.preventDefault();
-          void exportBundle(note, includePdf && hasPdf);
+          if (busy) return;
+          setBusy(true);
+          const include = { pdf: includePdf && hasPdf, packages: includePackages && !!packages?.available, comments: includeComments && comments > 0 };
+          void exportBundle(note, include).finally(() => setBusy(false));
         }}
       >
         <fieldset>
@@ -145,6 +166,26 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
             <span>Compiled PDF</span>
             <small>{hasPdf ? "readable without Emquad" : "compile first to include it"}</small>
           </label>
+          <label className="ck">
+            <input id="inc-comments" type="checkbox" checked={includeComments && comments > 0} disabled={comments === 0} onChange={(e) => setIncludeComments(e.target.checked)} />
+            <span>Comments</span>
+            <small>{comments > 0 ? "with their replies" : "there are none yet"}</small>
+          </label>
+          <label className="ck">
+            <input
+              id="inc-packages"
+              type="checkbox"
+              checked={includePackages && !!packages?.available}
+              disabled={!packages?.available}
+              onChange={(e) => setIncludePackages(e.target.checked)}
+            />
+            <span>LaTeX packages</span>
+            <small>
+              {packages?.available
+                ? `compiles with no internet; adds up to ${megabytes(packages.bytes)}`
+                : "compile once with the built-in compiler to include them"}
+            </small>
+          </label>
         </fieldset>
         <div className="f">
           <label htmlFor="note">Note to the recipient</label>
@@ -154,8 +195,8 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn go">
-            Choose where to save…
+          <button type="submit" className="btn go" disabled={busy}>
+            {busy ? (includePackages ? "Checking it compiles offline…" : "Exporting…") : "Choose where to save…"}
           </button>
         </div>
       </form>
@@ -242,6 +283,7 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   const [compileOnSave, setCompileOnSave] = useState(settings?.compileOnSave ?? true);
   const [fontSize, setFontSize] = useState(settings?.editorFontSize ?? 13);
   const [theme, setTheme] = useState(settings?.theme ?? "fieldwork");
+  const [spellcheck, setSpellcheck] = useState(settings?.spellcheck ?? "en-US");
   const info = useStore((s) => s.info);
   const [engine, setEngine] = useState(info?.engine ?? "auto");
   const [engines, setEngines] = useState<Engines | null>(null);
@@ -255,7 +297,8 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   }, [settings]);
   const submit = () =>
     guard(async () => {
-      set({ settings: await api.settingsUpdate({ displayName: name, compileOnSave, editorFontSize: fontSize, theme }) });
+      set({ settings: await api.settingsUpdate({ displayName: name, compileOnSave, editorFontSize: fontSize, theme, spellcheck }) });
+      void applySpelling();
       if (info && engine !== info.engine) set({ info: await api.projectSetEngine(engine) });
       onClose();
     });
@@ -294,6 +337,16 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
                   <input id={`theme-${t.id}`} type="radio" name="theme" checked={theme === t.id} onChange={() => setTheme(t.id)} />
                   <span>{t.label}</span>
                   <small>{t.note}</small>
+                </label>
+              ))}
+            </fieldset>
+            <fieldset>
+              <legend>Spelling</legend>
+              {SPELLING.map((l) => (
+                <label className="ck" key={l.id}>
+                  <input id={`spell-${l.id}`} type="radio" name="spellcheck" checked={spellcheck === l.id} onChange={() => setSpellcheck(l.id)} />
+                  <span>{l.label}</span>
+                  <small>{l.note}</small>
                 </label>
               ))}
             </fieldset>

@@ -8,10 +8,29 @@ export type Piece =
   | { kind: "style"; from: number; to: number; style: string }
   /** Draw this range as typeset mathematics. */
   | { kind: "math"; from: number; to: number; tex: string; display: boolean }
+  /** Draw this range, a whole tabular environment, as a table. */
+  | { kind: "table"; from: number; to: number; rows: Row[] }
+  /** Draw this range, an \includegraphics command, as the picture it names. */
+  | { kind: "image"; from: number; to: number; path: string }
+  /** Draw this range, a citation command, as the references it names. */
+  | { kind: "cite"; from: number; to: number; keys: string[] }
   /** Draw this range as a list bullet. */
   | { kind: "bullet"; from: number; to: number }
   /** Style the whole line that starts at `from`. */
   | { kind: "line"; from: number; style: string };
+
+export interface Cell {
+  tex: string;
+  /** How many columns the cell covers. */
+  span: number;
+}
+
+export interface Row {
+  cells: Cell[];
+  /** A horizontal rule is drawn above, or below, this row. */
+  ruleAbove: boolean;
+  ruleBelow: boolean;
+}
 
 export interface Range {
   from: number;
@@ -33,8 +52,12 @@ const INLINE: Record<string, string> = {
   emph: "italic",
   texttt: "mono",
   underline: "underline",
+  caption: "caption",
 };
-const CHIPS = new Set(["label", "ref", "eqref", "pageref", "cite", "citep", "citet", "footnote", "includegraphics", "input", "include"]);
+const CITES = new Set(["cite", "citep", "citet", "parencite", "textcite", "autocite", "footcite"]);
+const TABLE = /\\begin\{(tabular\*?|tabularx|longtable)\}/g;
+const RULE = /^\s*(?:\\(?:hline|toprule|midrule|bottomrule)\b|\\(?:cline|cmidrule)(?:\([^)]*\))?\{[^}]*\})/;
+const CHIPS = new Set(["label", "ref", "eqref", "pageref", "footnote", "includegraphics", "input", "include", ...CITES]);
 const MATH_ENV = /\\begin\{((?:equation|align|gather|multline)\*?|displaymath)\}([\s\S]*?)\\end\{\1\}/g;
 
 /** Offset just past the brace that closes the one at `open`, or -1 if it never closes. */
@@ -48,6 +71,35 @@ export function closingBrace(text: string, open: number): number {
     else if (c === "\n" && text[i + 1] === "\n") return -1; // a blank line ends any argument
   }
   return -1;
+}
+
+/** The rows of a table, from what is written between \begin{tabular}{...} and \end{tabular}. */
+export function tableRows(body: string): Row[] {
+  const rows: Row[] = [];
+  const chunks = body.replace(/(?<!\\)%.*$/gm, "").split(/\\\\(?:\[[^\]]*\])?/);
+  for (let chunk of chunks) {
+    let ruleAbove = false;
+    for (let m = RULE.exec(chunk); m; m = RULE.exec(chunk)) {
+      ruleAbove = true;
+      chunk = chunk.slice(m[0].length);
+    }
+    if (!chunk.trim()) {
+      // Rules after the last row belong under it.
+      if (ruleAbove && rows.length) rows[rows.length - 1].ruleBelow = true;
+      continue;
+    }
+    const cells = chunk.split(/(?<!\\)&/).map((raw): Cell => {
+      const tex = raw.trim();
+      const multi = /^\\multicolumn\s*\{(\d+)\}\s*\{[^}]*\}\s*\{/.exec(tex);
+      if (multi) {
+        const end = closingBrace(tex, multi[0].length - 1);
+        if (end > 0) return { tex: tex.slice(multi[0].length, end - 1).trim(), span: Math.max(1, Math.min(50, Number(multi[1]))) };
+      }
+      return { tex, span: 1 };
+    });
+    rows.push({ cells, ruleAbove, ruleBelow: false });
+  }
+  return rows;
 }
 
 /**
@@ -73,6 +125,28 @@ export function visualPieces(text: string, selection: Range[]): Piece[] {
       if (!text.startsWith("\\title", at)) pieces.push({ kind: "line", from: at, style: "preamble" });
       if (text.indexOf("\n", at) < 0) break;
     }
+  }
+
+  // Tables first: one that is drawn covers everything inside it. One being edited is left as
+  // source, with whatever it contains drawn as usual.
+  for (const m of text.matchAll(TABLE)) {
+    const from = m.index;
+    let at = from + m[0].length;
+    // The column layout, after a width for the kinds of table that take one.
+    for (let groups = m[1] === "tabular" || m[1] === "longtable" ? 1 : 2; groups > 0; groups--) {
+      if (text[at] === "[") at = text.indexOf("]", at) + 1 || at;
+      at = text[at] === "{" ? closingBrace(text, at) : -1;
+      if (at < 0) break;
+    }
+    const close = `\\end{${m[1]}}`;
+    const end = at < 0 ? -1 : text.indexOf(close, at);
+    // A comment inside a table is part of it; a table that is itself commented out is not one.
+    if (end < 0 || !free(from, from + 1)) continue;
+    const to = end + close.length;
+    const rows = tableRows(text.slice(at, end));
+    if (touched(from, to) || rows.length === 0 || to - from > 20_000) continue;
+    taken.push({ from, to });
+    pieces.push({ kind: "table", from, to, rows });
   }
 
   const math = (from: number, to: number, tex: string, display: boolean) => {
@@ -113,6 +187,12 @@ export function visualPieces(text: string, selection: Range[]): Piece[] {
         pieces.push({ kind: "hide", from, to: open + 1 });
         pieces.push({ kind: "hide", from: end - 1, to: end });
       }
+    } else if (name === "includegraphics" && !touched(from, end) && text.slice(open + 1, end - 1).trim()) {
+      pieces.push({ kind: "image", from, to: end, path: text.slice(open + 1, end - 1).trim() });
+    } else if (CITES.has(name) && !touched(from, end)) {
+      const keys = text.slice(open + 1, end - 1).split(",").map((k) => k.trim()).filter(Boolean);
+      if (keys.length) pieces.push({ kind: "cite", from, to: end, keys });
+      else pieces.push({ kind: "style", from, to: end, style: "chip" });
     } else if (CHIPS.has(name)) {
       pieces.push({ kind: "style", from, to: end, style: "chip" });
     } else if (name === "begin" || name === "end") {
@@ -127,4 +207,27 @@ export function visualPieces(text: string, selection: Range[]): Piece[] {
     if (free(from, to) && !touched(from, to)) pieces.push({ kind: "bullet", from, to });
   }
   return pieces;
+}
+
+export interface References {
+  citeKeys: string[];
+  citations: { key: string; authors: string; year: string; title: string }[];
+}
+
+/** How a citation reads in the text, and what it stands for. */
+export function describeCitation(keys: string[], index: References) {
+  let unknown = false;
+  const details: string[] = [];
+  const names = keys.map((key) => {
+    const found = index.citations.find((c) => c.key === key);
+    if (found) {
+      details.push([found.authors, found.year, found.title].filter(Boolean).join(". ") || key);
+      return [found.authors, found.year].filter(Boolean).join(" ") || key;
+    }
+    if (index.citeKeys.includes(key)) return key;
+    unknown = true;
+    details.push(`No reference called ${key} was found in this project`);
+    return `${key}?`;
+  });
+  return { label: `[${names.join("; ")}]`, detail: details.join("\n"), unknown };
 }

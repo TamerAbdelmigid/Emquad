@@ -25,7 +25,17 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 ### Code and Visual
 
-**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets. Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile.
+**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets, tables as tables, `\includegraphics` as the picture itself, and citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark). Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile.
+
+### Spelling
+
+Words Emquad does not know are underlined with a wavy line. Only prose is checked: commands, labels, file names, mathematics, comments and the preamble are left alone. Right-click an underlined word, or put the cursor in it and press Ctrl+., to choose a correction or to add the word to your own dictionary. Choose English (US), English (UK) or Off in Settings. The dictionaries are part of the app; nothing you type leaves your computer.
+
+### Comments
+
+Select some text and press the speech-bubble button in the toolbar (Ctrl+Alt+M), write your remark and press **Add comment**. The passage is tinted, and the comment appears in the Comments panel, opened from the speech bubble in the left rail. There you can reply, **Resolve** a comment that is dealt with, reopen it, or delete it. Click a comment to go to its passage; click a tinted passage to see its comment.
+
+Comments are kept beside your project, never inside your `.tex` files, and they follow their passage as you edit around it. They travel in bundles: your collaborator sees your comments and you see their replies when the bundle comes back.
 
 ### Searching
 
@@ -67,7 +77,7 @@ Emquad has no accounts and no server. You collaborate by sending one file.
 ### Send your work
 
 1. Press **Export bundle**.
-2. Optionally include the compiled PDF and write a note about what to look at.
+2. Choose what else to include: the compiled PDF, your comments, and the **LaTeX packages**. With the packages included, the other person can compile with no internet at all; the bundle is larger (the dialog says by how much), and Emquad first checks that your project really does compile offline from them, which takes a few seconds. Write a note about what to look at.
 3. Choose where to save. You get one file ending in `.emquad`. Send it any way you like.
 
 Exporting saves a snapshot, so Emquad remembers exactly what you sent.
@@ -91,7 +101,7 @@ The state of your project from just before the import is always kept as a versio
 
 ## Settings
 
-The gear at the bottom of the left rail: your name, whether saving also compiles, the editor's text size, the theme (Fieldwork, Glass or Onyx), and the compiler for the open project.
+The gear at the bottom of the left rail: your name, whether saving also compiles, the editor's text size, the theme (Fieldwork, Glass or Onyx), the spelling language, and the compiler for the open project.
 
 The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, or `latexmk` if Tectonic is missing. Choose **latexmk** for a document that needs your own TeX installation, for example one that relies on pdfTeX-only features. The choice is saved with the project and travels in its bundles; a compiler that is not on the computer is shown as not found, and compiling with it is refused with a message rather than silently using the other one.
 
@@ -105,6 +115,8 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Go to the source | Double-click in the PDF |
 | Find and replace | Ctrl+F |
 | Search the project | Ctrl+Shift+F |
+| Comment on the selected text | Ctrl+Alt+M |
+| Correct the misspelled word at the cursor | Ctrl+. |
 | Suggest completions | Ctrl+Space |
 | Go to definition, find references, rename | F12, Shift+F12, F2 |
 | Leave the editor with the keyboard | Esc, then Tab |
@@ -122,5 +134,6 @@ When the footer of the source pane shows **texlab**, the LaTeX language server i
 
 - **Your files stay plain.** Emquad never writes anything into your `.tex` files except what you type. Its own data is in a hidden `.emquad` folder inside the project; deleting that folder removes the project's history but not your documents.
 - **The compiler.** Emquad uses its bundled compiler, Tectonic. It handles most documents, but ones that depend on pdfTeX-only features or on running external programs (for example the `minted` package) may not compile. If you have a TeX installation, switch such a project to `latexmk` in Settings.
+- **Packages that came in a bundle.** A project opened from a bundle that carried LaTeX packages keeps them in its own `.emquad` folder and compiles from there. They are used by that project only.
 - **File names.** Files whose names contain `~` followed by a digit (such as `notes~1.tex`), and folders named `.git` inside the project, are left alone by Emquad: they are not listed and not saved in versions.
 - **One project and one window at a time.** Opening another project closes the current one. Starting Emquad again, or double-clicking a bundle, uses the window that is already open.

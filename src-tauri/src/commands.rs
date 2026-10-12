@@ -2,10 +2,12 @@
 //! module function; every file and process action in the app goes through here.
 
 use crate::bundle::{self, Manifest};
+use crate::comments::{self, Anchor, Comment, Moved};
 use crate::compile::{self, BuildOutput};
 use crate::error::{Error, Result};
 use crate::history::{ChangedFile, FileDiff, History, HistoryList, WORKING};
 use crate::index::{self, ProjectIndex};
+use crate::packages::{self, PackagesInfo};
 use crate::project::{DATA_DIR, FileContent, Project, ProjectInfo, TreeNode, atomic_write};
 use crate::review::{self, Decision, Review};
 use crate::settings::Settings;
@@ -133,6 +135,7 @@ pub fn settings_update(
     compile_on_save: Option<bool>,
     editor_font_size: Option<u32>,
     theme: Option<String>,
+    spellcheck: Option<String>,
 ) -> Result<Settings> {
     Settings::update(&state.config_dir, |s| {
         if let Some(v) = display_name {
@@ -146,6 +149,28 @@ pub fn settings_update(
         }
         if let Some(v) = theme.filter(|t| crate::settings::THEMES.contains(&t.as_str())) {
             s.theme = v;
+        }
+        if let Some(v) = spellcheck.filter(|l| crate::settings::SPELLCHECK.contains(&l.as_str())) {
+            s.spellcheck = v;
+        }
+    })
+}
+
+/// Teach the spelling checker a word, for every project.
+#[tauri::command(async)]
+pub fn dictionary_add(state: State<AppState>, word: String) -> Result<Settings> {
+    let word = word.trim().to_string();
+    let is_word = !word.is_empty()
+        && word.chars().count() <= 60
+        && word
+            .chars()
+            .all(|c| c.is_alphabetic() || "'\u{2019}-".contains(c));
+    if !is_word {
+        return Err(Error::app("bad_word", "That is not a word"));
+    }
+    Settings::update(&state.config_dir, |s| {
+        if !s.dictionary.contains(&word) && s.dictionary.len() < 20_000 {
+            s.dictionary.push(word);
         }
     })
 }
@@ -276,6 +301,9 @@ pub fn file_create(state: State<AppState>, path: String, is_dir: bool) -> Result
 pub fn file_rename(state: State<AppState>, from: String, to: String) -> Result<Vec<TreeNode>> {
     let p = current(&state)?;
     p.rename(&from, &to)?;
+    // Comments stay with the file they are about. Losing track of them is not worth failing
+    // a rename that has already happened.
+    let _ = comments::follow_rename(&p, &from, &to);
     p.tree()
 }
 
@@ -320,6 +348,17 @@ pub fn compile_cancel(state: State<AppState>) {
     if let Some(pid) = state.compile_pid.lock().unwrap().take() {
         compile::kill_tree(pid);
     }
+}
+
+/// A picture of the project, for drawing figures in visual mode. `path` is what the source
+/// names, which may leave the extension out, as LaTeX allows.
+#[tauri::command(async)]
+pub fn project_image(state: State<AppState>, path: String) -> Result<tauri::ipc::Response> {
+    let p = current(&state)?;
+    let found = p
+        .find_image(&path)?
+        .ok_or_else(|| Error::app("no_image", format!("There is no picture called {path}")))?;
+    Ok(tauri::ipc::Response::new(fs::read(found)?))
 }
 
 #[tauri::command(async)]
@@ -443,22 +482,81 @@ pub fn history_restore(state: State<AppState>, version: String) -> Result<String
 
 // ---------- bundles and review ----------
 
+/// The Tectonic program and the package store the open project compiles from, when it
+/// compiles with Tectonic and a store exists.
+fn package_source(state: &AppState, project: &Project) -> Option<(PathBuf, PathBuf)> {
+    if project.info.engine == "latexmk" {
+        return None;
+    }
+    let tectonic = compile::find_exe("tectonic", &state.sidecar_dirs)?;
+    let store = packages::store_for(project, &tectonic)?;
+    Some((tectonic, store))
+}
+
+/// Whether this project's LaTeX packages can be put in a bundle, and how much they weigh.
+#[tauri::command(async)]
+pub fn packages_info(state: State<AppState>) -> Result<PackagesInfo> {
+    let p = current(&state)?;
+    Ok(match package_source(&state, &p) {
+        Some((_, store)) => packages::info(&packages::list(&store)?),
+        None => PackagesInfo::default(),
+    })
+}
+
 #[tauri::command(async)]
 pub fn bundle_export(
     state: State<AppState>,
     dest: String,
     note: String,
     include_pdf: bool,
+    include_packages: bool,
+    include_comments: bool,
 ) -> Result<Manifest> {
     let p = current(&state)?;
+    let mut carried = Vec::new();
+    if include_packages {
+        let (tectonic, store) = package_source(&state, &p).ok_or_else(|| {
+            Error::app(
+                "packages_unavailable",
+                "LaTeX packages can be included only for a project that compiles with the built-in Tectonic and has been compiled once",
+            )
+        })?;
+        carried = packages::list(&store)?;
+        // The check is a compile of its own, so it waits for one in flight.
+        let _one_at_a_time = state.compile_lock.lock().unwrap();
+        packages::verify(&tectonic, &p, &carried)?;
+    }
+    let extras = bundle::Extras {
+        pdf: include_pdf,
+        packages: &carried,
+        comments: if include_comments {
+            comments::for_bundle(&p)?
+        } else {
+            None
+        },
+    };
     bundle::export(
         &p,
         &History::open(&p)?,
         &author(&state)?,
         Path::new(&dest),
         &note,
-        include_pdf,
+        &extras,
     )
+}
+
+/// A project that has just been given packages by a bundle compiles from its own store from
+/// now on; fill that store with what this computer already has, so nothing it could compile
+/// before stops compiling offline.
+fn top_up_packages(state: &AppState, project: &Project) {
+    if !packages::project_cache(project).is_dir() {
+        return;
+    }
+    if let Some(shared) = compile::find_exe("tectonic", &state.sidecar_dirs)
+        .and_then(|exe| packages::shared_store(&exe))
+    {
+        let _ = packages::top_up(project, &shared);
+    }
 }
 
 #[tauri::command(async)]
@@ -482,7 +580,9 @@ pub fn bundle_inspect(state: State<AppState>, path: String) -> Result<BundleInfo
 #[tauri::command(async)]
 pub fn bundle_import(state: State<AppState>, path: String) -> Result<String> {
     let p = current(&state)?;
-    Ok(bundle::import_into(&p, &History::open(&p)?, Path::new(&path))?.bundle_id)
+    let manifest = bundle::import_into(&p, &History::open(&p)?, Path::new(&path))?;
+    top_up_packages(&state, &p);
+    Ok(manifest.bundle_id)
 }
 
 #[tauri::command(async)]
@@ -493,6 +593,7 @@ pub fn bundle_import_new(
     parent_dir: String,
 ) -> Result<OpenedProject> {
     let project = bundle::import_new(Path::new(&path), Path::new(&parent_dir))?;
+    top_up_packages(&state, &project);
     activate(&app, &state, project)
 }
 
@@ -541,6 +642,45 @@ pub fn review_cancel(state: State<AppState>, bundle_id: String) -> Result<()> {
 // ---------- language server ----------
 
 /// Pass one JSON message from the editor to texlab.
+// ---------- comments ----------
+
+#[tauri::command(async)]
+pub fn comments_list(state: State<AppState>) -> Result<Vec<Comment>> {
+    Ok(comments::visible(comments::load(&current(&state)?)?))
+}
+
+#[tauri::command(async)]
+pub fn comment_add(
+    state: State<AppState>,
+    path: String,
+    anchor: Anchor,
+    text: String,
+) -> Result<Vec<Comment>> {
+    let p = current(&state)?;
+    comments::add(&p, &author(&state)?, &path, anchor, &text).map(comments::visible)
+}
+
+#[tauri::command(async)]
+pub fn comment_reply(state: State<AppState>, id: String, text: String) -> Result<Vec<Comment>> {
+    let p = current(&state)?;
+    comments::reply(&p, &author(&state)?, &id, &text).map(comments::visible)
+}
+
+#[tauri::command(async)]
+pub fn comment_resolve(state: State<AppState>, id: String, resolved: bool) -> Result<Vec<Comment>> {
+    comments::set_resolved(&current(&state)?, &id, resolved).map(comments::visible)
+}
+
+#[tauri::command(async)]
+pub fn comment_delete(state: State<AppState>, id: String) -> Result<Vec<Comment>> {
+    comments::delete(&current(&state)?, &id).map(comments::visible)
+}
+
+#[tauri::command(async)]
+pub fn comments_reanchor(state: State<AppState>, moved: Vec<Moved>) -> Result<Vec<Comment>> {
+    comments::reanchor(&current(&state)?, moved).map(comments::visible)
+}
+
 #[tauri::command(async)]
 pub fn lsp_send(state: State<AppState>, message: String) -> Result<()> {
     match state.language_server.lock().unwrap().as_ref() {

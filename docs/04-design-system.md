@@ -79,7 +79,7 @@ In History the left zone becomes a single "Back to editor" key and the right zon
 
 Columns, left to right: `50px | 244px | 1.08fr | 1fr`
 
-1. **Icon rail.** File tree, search, history (same badge as the top bar); help and settings pinned to the bottom. The active item is a dark key.
+1. **Icon rail.** File tree, search, comments (with a count of open comments), history (same badge as the top bar); help and settings pinned to the bottom. The active item is a dark key.
 2. **Files panel.** "File tree" header with new file, new folder, add from disk, close. Then the tree. Then a grip divider. Then "File outline".
 3. **Source screen** (dark). File tabs on top (active tab has an orange top edge); a one-row toolbar (undo, redo, heading level, bold, italic, table, symbol; then, right-aligned, the Code / Visual switch and the mode menu); the editor; a footer with cursor position, language, engine and offline state.
 4. **PDF panel.** Header: Recompile split key (orange) with its options arrow, logs, save PDF; right-aligned page navigation and zoom. Below: a ruler strip, then the page centred on the bed with crop marks at its corners.
@@ -100,7 +100,7 @@ Columns otherwise: `250px | 1fr | 300px`
 
 ### Export dialog
 
-A centred modal on a dimmed backdrop: title and one-line explanation; file name; an "Include" group of four checkbox rows each with a short reason on the right; a note to the recipient; Cancel and an orange Export key.
+A centred modal on a dimmed backdrop: title and one-line explanation; file name; an "Include" group of checkbox rows (sources, history, PDF, comments, LaTeX packages) each with a short reason on the right; a note to the recipient; Cancel and an orange Export key.
 
 ## Components
 
@@ -142,6 +142,8 @@ Initial set; make them discoverable in menus and tooltips.
 | Save | Ctrl+S |
 | Jump to PDF / jump to source | Ctrl+Alt+J / double-click in the PDF |
 | Find / replace | Ctrl+F / Ctrl+H |
+| Comment on the selection | Ctrl+Alt+M |
+| Correct the word at the cursor | Ctrl+. |
 | Toggle file panel | Ctrl+B |
 | Save snapshot | Ctrl+Shift+S |
 | Open History | Ctrl+Shift+H |
@@ -152,7 +154,10 @@ Initial set; make them discoverable in menus and tooltips.
 Deliberate differences, so nobody "fixes" them back:
 
 - **Three themes.** Fieldwork is the default. Glass and Onyx (`src/design/themes.css`) redefine the tokens only; no component rule is repeated. The source editor stays dark and the PDF stays white in every theme.
-- **The side panel** also holds project search, opened from the rail.
+- **The side panel** also holds project search and comments, each opened from the rail. A comment is a card: the quoted passage on an accent rule, then the remark and its replies, then Reply, Resolve and delete.
+- **In the source**, a commented passage is tinted with the accent and underlined; the picked one is tinted more strongly. A misspelled word has a wavy accent underline, and its corrections open as a small menu under the word.
+- **The source toolbar** has a speech-bubble button for commenting on the selection.
+- **Visual mode** draws tables as plain ruled grids, figures as the picture on a quiet card, and citations as a quiet chip reading author and year.
 - **Review** offers "Edit by hand" under each text conflict.
 
 - **The mark.** The top bar and start screen show the Emquad mark beside the wordmark; the mockup predates the logo.

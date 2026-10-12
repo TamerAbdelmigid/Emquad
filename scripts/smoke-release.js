@@ -101,8 +101,14 @@
     await ok((await document.fonts.load('16px "KaTeX_Main"')).length > 0, "visual mode draws headings and its mathematics font can be loaded");
     button("Code").click();
 
-    const sent = await invoke("bundle_export", { dest: `${work}\\smoke.emquad`, note: "", includePdf: true });
+    // Spelling: the dictionary is a large file loaded on demand, which must work when packaged.
+    await invoke("file_write", { path: "main.tex", text: (await invoke("file_read", { path: "main.tex" })).text.replace("\\end{document}", "A sentense to check.\n\\end{document}") });
+    await until("the misspelled word to be underlined", () => $$(".cm-misspelled").some((w) => w.textContent === "sentense"), 30000);
+    await ok(true, "the bundled dictionary loads and a misspelled word is underlined");
+
+    const sent = await invoke("bundle_export", { dest: `${work}\\smoke.emquad`, note: "", includePdf: true, includePackages: true, includeComments: true });
     await ok(sent.includes.pdf, "a bundle with the PDF can be exported");
+    await ok(sent.includes.packages, "and it carries the LaTeX packages, checked to compile with no internet");
     await ok(failures.length === 0, `no script errors or policy violations${failures.length ? `: ${failures.join(" | ")}` : ""}`);
     await log(`PASS: all ${step} checks passed`);
     await invoke("e2e_exit", { code: 0 });

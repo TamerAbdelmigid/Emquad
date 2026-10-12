@@ -55,17 +55,15 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 
 ## Added after the first release
 
-- **Visual mode.** The Code / Visual switch in the editor draws headings, emphasis, typeset mathematics and list bullets in place. The text underneath stays plain LaTeX, and whatever the cursor is in is shown as source.
+- **Visual mode.** The Code / Visual switch in the editor draws headings, emphasis, typeset mathematics, list bullets, tables, figures and citations in place. The text underneath stays plain LaTeX, and whatever the cursor is in is shown as source.
 - **Compiler choice.** Each project uses Automatic, Tectonic or `latexmk`; a compiler that is missing is refused with a message, not swapped.
 - **Editing a conflict by hand** in review, as a third way to resolve it.
 - **Search across the project.**
 - **Themes.** Fieldwork, Glass and Onyx on the same layout.
 - **texlab**, the LaTeX language server, when installed with the app: richer completion, hover, go to definition, find references, rename.
-
-## Planned
-
-- **Fully offline bundles.** Including the LaTeX packages a document used inside the `.emquad` file, so the recipient can compile with no internet at all.
-- **Spell check and comments.**
+- **Fully offline bundles.** A bundle can carry the LaTeX packages the sender's computer holds, so the recipient compiles with no internet at all. The app checks this by compiling offline before it writes the bundle. The recipient's project keeps those packages to itself; they never affect another project.
+- **Spell check.** Misspelled words in prose are underlined; commands, their technical arguments, mathematics, comments and the preamble are not checked. Right-click or Ctrl+. offers corrections and "add to my dictionary". English (US) and English (UK) dictionaries ship with the app; nothing is sent anywhere.
+- **Comments.** A remark on a selected passage, with replies, resolve and delete. Comments are kept beside the project, never inside its files, follow their passage as the text is edited, travel in bundles, and are combined with the recipient's without loss.
 
 ## Out of scope
 

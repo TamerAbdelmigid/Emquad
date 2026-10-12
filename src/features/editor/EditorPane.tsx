@@ -17,6 +17,7 @@ interface Props {
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onShowChanges: () => void;
+  onComment: () => void;
 }
 
 const HEADINGS = ["section", "subsection", "subsubsection", "paragraph"];
@@ -84,6 +85,9 @@ export function EditorPane(p: Props) {
         <Menu className="ib" ariaLabel="Insert symbol" label="Ω" items={SYMBOLS.map((s) => ({ label: s, run: () => buffers.insert(s) }))} />
         <button className="ib" aria-label="Find and replace" title="Find and replace (Ctrl+F)" onClick={() => buffers.run(openSearchPanel)}>
           <Icon name="search" />
+        </button>
+        <button className="ib" aria-label="Comment on the selection" title="Comment on the selected text (Ctrl+Alt+M)" disabled={!p.active} onClick={p.onComment}>
+          <Icon name="comment" />
         </button>
         <div className="r">
           <div className="seg" role="group" aria-label="Editor mode">

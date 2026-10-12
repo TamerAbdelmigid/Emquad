@@ -79,7 +79,11 @@ manifest.json
 history/objects.pack     every version reachable from the head, as one git packfile
 tree/                    the head version's files, as plain files
 output/<name>.pdf        optional: the compiled PDF at export time
-packages/                optional, later: LaTeX package cache for offline compile
+comments.json            optional: the project's comments
+packages/                optional: the LaTeX package files, for compiling with no internet
+  hashes/<source>          which package source a name stands for (a 64-digit digest)
+  data/<digest>.index      the list of what that source holds
+  data/<digest>/<file>     one package file, class or font
 ```
 
 `tree/` duplicates what `history/` can reconstruct. It is there so the bundle is useful without the app: unzip it and the sources are right there.
@@ -96,13 +100,13 @@ packages/                optional, later: LaTeX package cache for offline compil
   "author": { "id": "<uuid>", "name": "Lina" },
   "head": "<commit hash of the exported version>",
   "note": "Tightened the proof wording and added a reference.",
-  "includes": { "history": true, "pdf": true, "packages": false }
+  "includes": { "history": true, "pdf": true, "packages": false, "comments": false }
 }
 ```
 
 Rules:
 
-- `formatVersion` is an integer. A reader refuses a bundle whose `formatVersion` is higher than it understands and says so plainly. Additive fields do not bump it.
+- `formatVersion` is an integer. A reader refuses a bundle whose `formatVersion` is higher than it understands and says so plainly. Additive fields do not bump it: `includes.comments`, `comments.json` and `packages/` were added this way, and a reader that predates them ignores them.
 - `project.id` is how a bundle is matched to a project on the recipient's machine.
 - `head` must exist in the history; `tree/` must match it. A reader verifies both and rejects a bundle that fails.
 - `project.mainFile` must be a safe path inside the project.
@@ -113,7 +117,7 @@ Rules:
 1. Save all open buffers.
 2. Take an export snapshot (see table above).
 3. Write the history reachable from the new head into a single packfile.
-4. Write `tree/` from the head version, the PDF if requested and present, and the manifest.
+4. Write `tree/` from the head version, the PDF if requested and present, the comments and packages if requested, and the manifest.
 5. Write the zip to a temporary file next to the destination, then rename it into place, so a failed export never leaves a truncated file.
 
 History is always included. A bundle without it could not be merged back, so the dialog shows it as a fixed part of the bundle rather than a choice.
@@ -124,6 +128,41 @@ History is always included. A bundle without it could not be merged back, so the
 2. **No project with this `project.id` is known:** offer to create a new project from the bundle. Its `history.git` is initialised from the bundle's history and its files from `tree/`. Done.
 3. **A matching project exists:** fetch the bundle's history into that project's `history.git` under `refs/bundles/<bundleId>`. Then start a review (next section).
 4. **A matching project exists but the bundle has no history, or shares no common ancestor:** do not attempt a merge. Offer to open it as a separate new project instead, and explain why.
+
+## LaTeX packages in a bundle
+
+Tectonic keeps every package file, class and font it has fetched in a store on disk, shared by all projects. A bundle can carry a copy of that store, so its recipient can compile with no internet.
+
+**What is carried.** Everything in the store the project compiles from: the source records, their indexes and the data files. This is every package file this computer has fetched for that source, which is at least what the project needs and usually somewhat more; Tectonic does not record which files one compile used. The export dialog shows the size. A file whose name fails the file-name rule is left out. The compiled *format* Tectonic keeps beside the store is never carried: it is a memory image the engine loads, and it is rebuilt from the package files in a second or two.
+
+**The promise is checked.** Before a bundle with packages is written, the project is compiled in a scratch folder from exactly the files about to be carried, with fetching switched off. If that fails, the export is refused with an explanation. A bundle never claims to compile offline unless it has just been shown to.
+
+**Where they go.** Package files from a bundle are untrusted. They are installed into the project's own store, `.emquad/packages/`, and from then on that project compiles from it instead of from the shared store. They never reach the shared store, so a bundle cannot change what any other project compiles with. Installing:
+
+1. Check the whole `packages/` folder first. Only the three kinds of entry in the layout above are allowed; a digest must be 64 lower-case hexadecimal digits; every source must point at a digest whose index is present; every data folder must belong to a source; no folders inside a data folder. Anything else makes the bundle invalid, and nothing is installed.
+2. Add the files. A package file the project's store already has is never replaced. The source records are replaced, so the project compiles with the packages that came with the work being opened.
+3. Fill the project's store with what the shared store holds for the same source, so that moving the project onto its own store never takes away a package it could use before.
+
+A project with its own store exports from it. If the recipient later needs a package the store lacks, Tectonic fetches it into the project's store when there is a connection.
+
+Packages are installed when a bundle is imported, for a new project and for an existing one alike. They are app data: no file of the project is touched, and cancelling the review leaves them in place.
+
+## Comments
+
+A comment is a remark on a passage of one file, with replies. Comments are kept in `.emquad/comments.json` and are never written into the files they are about.
+
+**Finding the passage.** A comment remembers the words it was made on, about thirty characters either side, and the line. To place it, the editor looks for those words; where they occur more than once, the surroundings decide, then the nearest line. While a file is open the comment follows its passage through every edit, and on save its remembered words are brought up to date. A comment whose words are gone from the file is still listed, without a place.
+
+**State.** A comment is open or resolved. A reply reopens it. A deleted comment stays in the file as an empty marker, so that a bundle still carrying it cannot bring it back.
+
+**Merging.** Comments travel in a bundle as `comments.json` and are combined with the recipient's when the bundle is imported, for every comment by its identifier:
+
+- A comment only one side has is kept.
+- For a comment both have, the copy changed most recently decides its text, place and state. Replies from both are kept.
+
+The result is the same whatever the order bundles arrive in, and importing one twice changes nothing. This is a merge of app data, separate from the review: it never asks a question and cannot conflict, and cancelling the review does not undo it.
+
+**From a bundle they are untrusted.** A comment is dropped if its identifier is not plain, its path is not a safe path inside the project, or any of its text is over length. The file is ignored if it is larger than 4 MB. Comment text is only ever shown as plain text.
 
 ## Review and merge
 
@@ -187,6 +226,9 @@ These must hold after every operation and are the basis of the test suite for th
 5. **Round trip.** Exporting a project and importing the bundle as a new project yields byte-identical files and an identical version graph.
 6. **Idempotent import.** Importing the same bundle twice does not create duplicate versions; the second import reopens or reports the existing review or merge.
 7. **Line endings and encoding are preserved.** Files are treated as bytes for storage. Disable git's automatic line-ending conversion for `history.git`. Diffing treats text as UTF-8 and falls back to whole-file comparison if decoding fails.
+8. **Extras stay out of the project and out of other projects.** Installing a bundle's packages and comments changes nothing outside `.emquad/` of the project being imported into. In particular it changes no source file, and no other project's packages.
+9. **A bundle that says it carries packages compiles offline.** `includes.packages` is true only if the project was compiled, with fetching off, from exactly the package files in the bundle.
+10. **Comments are never lost by merging.** After combining two sets of comments, every comment and every reply either side had is present, and the result does not depend on the order.
 
 ## Test plan for this area
 
@@ -195,3 +237,5 @@ These must hold after every operation and are the basis of the test suite for th
 - **Round trip:** invariant 5 on projects with nested folders, binary files, CRLF and LF files, non-ASCII file names and an empty file.
 - **Hostile input:** bundles with path traversal entries, names that alias another file on Windows (in the archive and in an older version of the history), a main file outside the project, a `head` not present in history, a `tree/` that disagrees with `head`, a future `formatVersion`, and a truncated zip. Each must be rejected with a specific error and leave the project untouched.
 - **Failure part-way:** a merge and a restore that cannot write one of their files must leave every file as it was.
+- **Packages:** a round trip carries the store and installs it in the project's own store without replacing a file already there; `packages/` laid out in any other way (a format image, a path that climbs out, a Windows device name, a nested folder, a source that names no digest, a data folder no source points at, a stray file) is rejected and installs nothing, for both kinds of import. Against the real Tectonic, with the network blocked: a bundle with packages compiles in a new project from that project's own store, and a document needing a package nobody has is refused at export.
+- **Comments:** kept outside the project's files; follow a renamed file or folder; malformed or oversized comments from a bundle are dropped while the work still arrives; property-based, that merging is the same in any order, any number of times, and loses nothing (invariant 10).

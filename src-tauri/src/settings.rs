@@ -21,6 +21,10 @@ pub struct Settings {
     pub editor_font_size: u32,
     /// "fieldwork", "glass" or "onyx".
     pub theme: String,
+    /// The language to check spelling in, or "off".
+    pub spellcheck: String,
+    /// Words the user has told the spelling checker to accept.
+    pub dictionary: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -40,6 +44,8 @@ impl Default for Settings {
             compile_on_save: true,
             editor_font_size: 13,
             theme: "fieldwork".into(),
+            spellcheck: "en-US".into(),
+            dictionary: Vec::new(),
         }
     }
 }
@@ -49,6 +55,7 @@ impl Default for Settings {
 static LOCK: Mutex<()> = Mutex::new(());
 
 pub const THEMES: [&str; 3] = ["fieldwork", "glass", "onyx"];
+pub const SPELLCHECK: [&str; 3] = ["off", "en-US", "en-GB"];
 
 impl Settings {
     fn read(dir: &Path) -> Result<Settings> {

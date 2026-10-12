@@ -1,5 +1,6 @@
 pub mod bundle;
 pub mod commands;
+pub mod comments;
 pub mod compile;
 pub mod diff;
 mod e2e;
@@ -7,6 +8,7 @@ pub mod error;
 pub mod history;
 pub mod index;
 pub mod lsp;
+pub mod packages;
 pub mod project;
 pub mod review;
 pub mod settings;
@@ -62,6 +64,15 @@ macro_rules! handlers {
             commands::review_finish,
             commands::review_cancel,
             commands::lsp_send,
+            commands::packages_info,
+            commands::comments_list,
+            commands::comment_add,
+            commands::comment_reply,
+            commands::comment_resolve,
+            commands::comment_delete,
+            commands::comments_reanchor,
+            commands::dictionary_add,
+            commands::project_image,
             $($extra),*
         ]
     };

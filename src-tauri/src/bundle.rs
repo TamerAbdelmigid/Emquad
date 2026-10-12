@@ -16,6 +16,8 @@ use zip::write::SimpleFileOptions;
 
 pub const BUNDLE_FORMAT: u32 = 1;
 const PACK_ENTRY: &str = "history/objects.pack";
+const COMMENTS_ENTRY: &str = "comments.json";
+const PACKAGES_DIR: &str = "packages";
 /// Ceiling on the total uncompressed size of a bundle.
 const MAX_BYTES: u64 = 1 << 30;
 
@@ -63,6 +65,18 @@ pub struct Includes {
     pub history: bool,
     pub pdf: bool,
     pub packages: bool,
+    #[serde(default)]
+    pub comments: bool,
+}
+
+/// What a bundle carries beyond the project's files and history.
+#[derive(Default)]
+pub struct Extras<'a> {
+    pub pdf: bool,
+    /// The LaTeX package files to carry, so the recipient can compile with no internet.
+    pub packages: &'a [crate::packages::Entry],
+    /// The project's comments, as stored.
+    pub comments: Option<Vec<u8>>,
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -77,7 +91,7 @@ pub fn export(
     author: &Author,
     dest: &Path,
     note: &str,
-    include_pdf: bool,
+    extras: &Extras,
 ) -> Result<Manifest> {
     let label = match note.lines().next().map(str::trim).filter(|l| !l.is_empty()) {
         Some(first) => format!("Exported: {first}"),
@@ -95,7 +109,7 @@ pub fn export(
     }
 
     let pdf = crate::compile::pdf_path(project);
-    let has_pdf = include_pdf && pdf.is_file();
+    let has_pdf = extras.pdf && pdf.is_file();
     let manifest = Manifest {
         format_version: BUNDLE_FORMAT,
         app: AppRef {
@@ -119,7 +133,8 @@ pub fn export(
         includes: Includes {
             history: true,
             pdf: has_pdf,
-            packages: false,
+            packages: !extras.packages.is_empty(),
+            comments: extras.comments.is_some(),
         },
     };
 
@@ -146,6 +161,14 @@ pub fn export(
                 .unwrap_or("output.pdf");
             zip.start_file(format!("output/{name}"), options)?;
             zip.write_all(&fs::read(&pdf)?)?;
+        }
+        if let Some(comments) = &extras.comments {
+            zip.start_file(COMMENTS_ENTRY, options)?;
+            zip.write_all(comments)?;
+        }
+        for entry in extras.packages {
+            zip.start_file(format!("{PACKAGES_DIR}/{}", entry.name), options)?;
+            std::io::copy(&mut fs::File::open(&entry.path)?, &mut zip)?;
         }
         zip.finish()?;
     }
@@ -318,10 +341,20 @@ pub fn import_into(project: &Project, history: &History, path: &Path) -> Result<
         fs::remove_dir_all(&dir)?;
     }
     fs::create_dir_all(&dir)?;
-    let checked = extract(path, &dir).and_then(|_| validate(&dir, &manifest));
+    let result = take_in(project, history, path, &dir, &manifest);
     let _ = fs::remove_dir_all(&dir);
-    let (head, pack) = checked?;
+    result.map(|_| manifest)
+}
 
+fn take_in(
+    project: &Project,
+    history: &History,
+    path: &Path,
+    dir: &Path,
+    manifest: &Manifest,
+) -> Result<()> {
+    extract(path, dir)?;
+    let (head, pack) = validate(dir, manifest)?;
     // A bundle imported before has already delivered its objects.
     if history.repo.find_commit(head).is_err() {
         index_pack(&history.repo, &pack)?;
@@ -340,13 +373,28 @@ pub fn import_into(project: &Project, history: &History, path: &Path) -> Result<
             ));
         }
     }
+    take_extras(project, dir)?;
     history.repo.reference(
         &format!("refs/bundles/{}", manifest.bundle_id),
         head,
         true,
         "import bundle",
     )?;
-    Ok(manifest)
+    Ok(())
+}
+
+/// Take in what an extracted bundle carries beside its files: packages and comments. Both go
+/// into the project's app data and neither touches a file of the project.
+fn take_extras(project: &Project, dir: &Path) -> Result<()> {
+    let packages = dir.join(PACKAGES_DIR);
+    if packages.is_dir() {
+        crate::packages::install(&packages, project)?;
+    }
+    let comments = dir.join(COMMENTS_ENTRY);
+    if comments.is_file() && fs::metadata(&comments)?.len() <= crate::comments::MAX_BYTES {
+        crate::comments::import(project, &fs::read(&comments)?)?;
+    }
+    Ok(())
 }
 
 /// Create a new project folder from a bundle, with the bundle's full history.
@@ -400,6 +448,7 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
         )?;
         history.checkout(&project, history.repo.find_commit(head)?.tree_id())?;
         project.save_info()?;
+        take_extras(&project, scratch.path())?;
         Ok(project)
     };
     let project = build();
@@ -459,8 +508,15 @@ mod tests {
         a.write_file("main.tex", "second\n").unwrap();
 
         let file = tmp.path().join("paper.emquad");
-        let manifest =
-            export(&a, &ha, &me, &file, "Please check section 2\nthanks", false).unwrap();
+        let manifest = export(
+            &a,
+            &ha,
+            &me,
+            &file,
+            "Please check section 2\nthanks",
+            &Extras::default(),
+        )
+        .unwrap();
         assert_eq!(read_manifest(&file).unwrap().head, manifest.head);
 
         let b = import_new(&file, &tmp.path().join("elsewhere")).unwrap();
@@ -485,12 +541,226 @@ mod tests {
     }
 
     #[test]
+    fn packages_and_comments_travel_with_a_bundle_and_stay_out_of_the_projects_files() {
+        use crate::comments::{self, Anchor};
+        use crate::packages::{self, tests::DIGEST, tests::make_store};
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, ha) = new_project(&tmp.path().join("a"));
+        let me = author("Tamer");
+        let store = tmp.path().join("store");
+        make_store(
+            &store,
+            &[("article.cls", "the class"), ("lmroman10.otf", "a font")],
+        );
+        let quote = |q: &str| Anchor {
+            quote: q.into(),
+            before: String::new(),
+            after: String::new(),
+            line: 1,
+        };
+        comments::add(&a, &me, "main.tex", quote("documentclass"), "Which class?").unwrap();
+
+        let file = tmp.path().join("paper.emquad");
+        let carried = packages::list(&store).unwrap();
+        let extras = Extras {
+            pdf: false,
+            packages: &carried,
+            comments: comments::for_bundle(&a).unwrap(),
+        };
+        let manifest = export(&a, &ha, &me, &file, "", &extras).unwrap();
+        assert!(manifest.includes.packages && manifest.includes.comments);
+        let names: Vec<String> = entries_of(&file).into_iter().map(|(n, _)| n).collect();
+        assert!(names.contains(&"comments.json".to_string()));
+        assert!(names.contains(&format!("packages/data/{DIGEST}/article.cls")));
+        assert!(names.contains(&"packages/hashes/source.tar".to_string()));
+        assert!(!names.iter().any(|n| n.ends_with(".lock")));
+
+        // A new project made from the bundle has both, and its files are only the project's.
+        let b = import_new(&file, &tmp.path().join("elsewhere")).unwrap();
+        assert_eq!(read_all(&b), read_all(&a));
+        let data = packages::project_cache(&b)
+            .join("bundles/data")
+            .join(DIGEST);
+        assert_eq!(
+            fs::read_to_string(data.join("article.cls")).unwrap(),
+            "the class"
+        );
+        let theirs = comments::load(&b).unwrap();
+        assert_eq!(theirs.len(), 1);
+        assert_eq!(theirs[0].text, "Which class?");
+
+        // The reply brings back an answer and one more package file; both are taken in when
+        // the bundle is imported, before any of its text is accepted.
+        let hb = History::open(&b).unwrap();
+        let lina = author("Lina");
+        comments::reply(&b, &lina, &theirs[0].id, "The usual one.").unwrap();
+        b.write_file("main.tex", "changed\n").unwrap();
+        fs::write(data.join("extra.sty"), "one more").unwrap();
+        let reply = tmp.path().join("reply.emquad");
+        let carried = packages::list(&packages::project_cache(&b).join("bundles")).unwrap();
+        let extras = Extras {
+            pdf: false,
+            packages: &carried,
+            comments: comments::for_bundle(&b).unwrap(),
+        };
+        export(&b, &hb, &lina, &reply, "", &extras).unwrap();
+        let before = read_all(&a);
+        import_into(&a, &ha, &reply).unwrap();
+        assert_eq!(
+            read_all(&a),
+            before,
+            "importing changes no file of the project"
+        );
+        let mine = comments::load(&a).unwrap();
+        assert_eq!(mine[0].replies.len(), 1);
+        let own = packages::project_cache(&a)
+            .join("bundles/data")
+            .join(DIGEST);
+        assert!(own.join("extra.sty").is_file() && own.join("article.cls").is_file());
+    }
+
+    #[test]
+    fn a_bundle_from_before_comments_existed_still_opens() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, ha) = new_project(&tmp.path().join("a"));
+        let file = tmp.path().join("new.emquad");
+        export(&a, &ha, &author("Tamer"), &file, "", &Extras::default()).unwrap();
+        let old = tmp.path().join("old.emquad");
+        tamper(&file, &old, |entries| {
+            let manifest = &mut entries
+                .iter_mut()
+                .find(|(n, _)| n == "manifest.json")
+                .unwrap()
+                .1;
+            let mut json: serde_json::Value = serde_json::from_slice(manifest).unwrap();
+            json["includes"].as_object_mut().unwrap().remove("comments");
+            *manifest = serde_json::to_vec(&json).unwrap();
+        });
+        assert!(!read_manifest(&old).unwrap().includes.comments);
+        assert!(import_new(&old, &tmp.path().join("b")).is_ok());
+    }
+
+    #[test]
+    fn hostile_packages_and_comments_are_refused_or_dropped_and_install_nothing() {
+        use crate::packages::tests::DIGEST;
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, ha) = new_project(&tmp.path().join("a"));
+        let me = author("Tamer");
+        let good = tmp.path().join("good.emquad");
+        export(&a, &ha, &me, &good, "", &Extras::default()).unwrap();
+        let b = import_new(&good, &tmp.path().join("b")).unwrap();
+        let hb = History::open(&b).unwrap();
+        b.write_file("main.tex", "theirs\n").unwrap();
+        let reply = tmp.path().join("reply.emquad");
+        export(&b, &hb, &author("Lina"), &reply, "", &Extras::default()).unwrap();
+
+        let digest_line = format!("{DIGEST}\n").into_bytes();
+        let index = format!("packages/data/{DIGEST}.index");
+        let sound = |extra: Vec<(String, Vec<u8>)>| -> Vec<(String, Vec<u8>)> {
+            let mut all = vec![
+                (
+                    "packages/hashes/source.tar".to_string(),
+                    digest_line.clone(),
+                ),
+                (index.clone(), b"index".to_vec()),
+            ];
+            all.extend(extra);
+            all
+        };
+        type Added = Vec<(String, Vec<u8>)>;
+        let cases: Vec<(&str, Added)> = vec![
+            (
+                "a format image for the engine to load",
+                sound(vec![("packages/formats/latex.fmt".into(), vec![0; 8])]),
+            ),
+            (
+                "a package file that climbs out of the store",
+                sound(vec![(
+                    format!("packages/data/{DIGEST}/../../../../main.tex"),
+                    b"x".to_vec(),
+                )]),
+            ),
+            (
+                "a package file under a Windows device name",
+                sound(vec![(
+                    format!("packages/data/{DIGEST}/nul.sty"),
+                    b"x".to_vec(),
+                )]),
+            ),
+            (
+                "a store nested inside a data folder",
+                sound(vec![(
+                    format!("packages/data/{DIGEST}/sub/a.sty"),
+                    b"x".to_vec(),
+                )]),
+            ),
+            (
+                "a source that points somewhere else",
+                vec![(
+                    "packages/hashes/source.tar".into(),
+                    b"..\\..\\..\\secrets".to_vec(),
+                )],
+            ),
+            (
+                "a data folder nothing points at",
+                sound(vec![(
+                    format!("packages/data/{}/a.sty", "e".repeat(64)),
+                    b"x".to_vec(),
+                )]),
+            ),
+            (
+                "a stray file",
+                sound(vec![("packages/readme.txt".into(), b"x".to_vec())]),
+            ),
+        ];
+        for (n, (what, extra)) in cases.into_iter().enumerate() {
+            let bad = tmp.path().join(format!("bad{n}.emquad"));
+            tamper(&reply, &bad, |entries| entries.extend(extra.clone()));
+            let before = read_all(&a);
+            let err = import_into(&a, &ha, &bad).unwrap_err();
+            assert!(
+                matches!(err.code(), "bundle_invalid" | "bundle_unsafe_path"),
+                "{what}: {}",
+                err.code()
+            );
+            assert_eq!(read_all(&a), before, "{what}");
+            assert!(!crate::packages::project_cache(&a).exists(), "{what}");
+            assert!(ha.repo.find_reference("refs/bundles").is_err());
+            let fresh = tmp.path().join(format!("new{n}"));
+            assert!(import_new(&bad, &fresh).is_err(), "{what}");
+            assert!(
+                !fresh.join("paper").exists(),
+                "{what}: no half-made project is left"
+            );
+        }
+
+        // Comments that are not what they should be are dropped; the work still arrives.
+        let odd = tmp.path().join("odd.emquad");
+        let comment = serde_json::json!({
+            "formatVersion": 1,
+            "comments": [{
+                "id": "../../evil", "path": "../outside.tex", "quote": "q", "authorId": "x",
+                "authorName": "x", "createdAt": "t", "text": "<img src=x onerror=alert(1)>",
+                "updatedAt": "t"
+            }]
+        });
+        tamper(&reply, &odd, |entries| {
+            entries.push((
+                "comments.json".into(),
+                serde_json::to_vec(&comment).unwrap(),
+            ))
+        });
+        import_into(&a, &ha, &odd).unwrap();
+        assert!(crate::comments::load(&a).unwrap().is_empty());
+    }
+
+    #[test]
     fn importing_twice_adds_nothing_and_already_merged_bundles_say_so() {
         let tmp = tempfile::tempdir().unwrap();
         let (a, ha) = new_project(&tmp.path().join("a"));
         let me = author("Tamer");
         let first = tmp.path().join("first.emquad");
-        export(&a, &ha, &me, &first, "", false).unwrap();
+        export(&a, &ha, &me, &first, "", &Extras::default()).unwrap();
         let err = import_into(&a, &ha, &first).unwrap_err();
         assert_eq!(err.code(), "already_merged");
 
@@ -498,7 +768,7 @@ mod tests {
         let hb = History::open(&b).unwrap();
         b.write_file("main.tex", "from b\n").unwrap();
         let reply = tmp.path().join("reply.emquad");
-        export(&b, &hb, &author("Lina"), &reply, "", false).unwrap();
+        export(&b, &hb, &author("Lina"), &reply, "", &Extras::default()).unwrap();
 
         let before = read_all(&a);
         let m1 = import_into(&a, &ha, &reply).unwrap();
@@ -536,7 +806,7 @@ mod tests {
         hc.commit(bad_tree, &[], &lina, "snapshot", "old", None)
             .unwrap();
         let file = tmp.path().join("c.emquad");
-        export(&c, &hc, &lina, &file, "", false).unwrap();
+        export(&c, &hc, &lina, &file, "", &Extras::default()).unwrap();
         let err = import_new(&file, &tmp.path().join("elsewhere")).unwrap_err();
         assert_eq!(err.code(), "bundle_unsafe_path");
         assert!(!tmp.path().join("elsewhere").exists());
@@ -548,13 +818,13 @@ mod tests {
         let (a, ha) = new_project(&tmp.path().join("a"));
         let me = author("Tamer");
         let good = tmp.path().join("good.emquad");
-        export(&a, &ha, &me, &good, "", false).unwrap();
+        export(&a, &ha, &me, &good, "", &Extras::default()).unwrap();
         // Make the good bundle mergeable in principle: move A ahead of it on a different path.
         let b = import_new(&good, &tmp.path().join("b")).unwrap();
         let hb = History::open(&b).unwrap();
         b.write_file("main.tex", "from b\n").unwrap();
         let reply = tmp.path().join("reply.emquad");
-        export(&b, &hb, &author("Lina"), &reply, "", false).unwrap();
+        export(&b, &hb, &author("Lina"), &reply, "", &Extras::default()).unwrap();
 
         let before = read_all(&a);
         let versions = ha.list(&a).unwrap().versions.len();
@@ -633,7 +903,7 @@ mod tests {
         // A bundle from an unrelated project is refused for merging.
         let (c, hc) = new_project(&tmp.path().join("c"));
         let other = tmp.path().join("other.emquad");
-        export(&c, &hc, &me, &other, "", false).unwrap();
+        export(&c, &hc, &me, &other, "", &Extras::default()).unwrap();
         assert_eq!(
             import_into(&a, &ha, &other).unwrap_err().code(),
             "bundle_other_project"

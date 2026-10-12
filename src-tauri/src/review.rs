@@ -719,7 +719,7 @@ mod tests {
         a.write_file("refs.bib", "@book{a}\n").unwrap();
         a.write_file("old.tex", "old\n").unwrap();
         let out = tmp.path().join("out.emquad");
-        export(&a, &ha, &me, &out, "", false).unwrap();
+        export(&a, &ha, &me, &out, "", &Default::default()).unwrap();
 
         let b = import_new(&out, &tmp.path().join("b")).unwrap();
         let hb = History::open(&b).unwrap();
@@ -733,7 +733,7 @@ mod tests {
         };
         apply(&b, theirs);
         let back = tmp.path().join("back.emquad");
-        export(&b, &hb, &author("Lina"), &back, "", false).unwrap();
+        export(&b, &hb, &author("Lina"), &back, "", &Default::default()).unwrap();
         apply(&a, ours);
         let bundle_id = import_into(&a, &ha, &back).unwrap().bundle_id;
         Pair {
@@ -1069,7 +1069,7 @@ mod tests {
         let c = Project::adopt(&dir, "paper", Some(a.info.clone())).unwrap();
         let hc = History::open(&c).unwrap();
         let file = tmp.path().join("c.emquad");
-        export(&c, &hc, &author("Lina"), &file, "", false).unwrap();
+        export(&c, &hc, &author("Lina"), &file, "", &Default::default()).unwrap();
 
         let before = read_all(&a);
         assert_eq!(

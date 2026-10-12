@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { BuildOutput, ProjectIndex, ProjectInfo, Settings, TreeNode } from "../ipc/api";
+import type { BuildOutput, Comment, ProjectIndex, ProjectInfo, Settings, TreeNode } from "../ipc/api";
 
 export type View = "start" | "editor" | "history";
 export type Layout = "split" | "editor" | "pdf";
@@ -40,7 +40,11 @@ interface State {
   /** The editor draws the source with headings, emphasis and typeset mathematics. */
   visual: boolean;
   /** What the side panel shows when it is open. */
-  sidePanel: "files" | "search";
+  sidePanel: "files" | "search" | "comments";
+  /** The project's comments, without the deleted ones. */
+  comments: Comment[];
+  /** The comment picked out in the panel and in the text. */
+  comment: string | null;
   /** Width of the file panel in pixels. */
   filesWidth: number;
   /** Share of the remaining width given to the source pane, from 0 to 1. */
@@ -52,6 +56,8 @@ interface State {
   tabs: Tab[];
   active: string | null;
   cursor: { line: number; column: number };
+  /** Some text is selected in the editor. */
+  selecting: boolean;
   compiling: boolean;
   build: BuildOutput | null;
   log: string[];
@@ -77,15 +83,18 @@ export const useStore = create<State>((set) => ({
   languageServer: false,
   visual: false,
   sidePanel: "files",
+  comments: [],
+  comment: null,
   filesWidth: 244,
   split: 0.52,
   root: null,
   info: null,
   tree: [],
-  index: { labels: [], citeKeys: [] },
+  index: { labels: [], citeKeys: [], citations: [] },
   tabs: [],
   active: null,
   cursor: { line: 1, column: 1 },
+  selecting: false,
   compiling: false,
   build: null,
   log: [],

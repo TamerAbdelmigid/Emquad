@@ -3,7 +3,8 @@
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { buffers } from "../features/editor/buffers";
 import { startLsp, stopLsp } from "../features/editor/lsp";
-import { type OpenedProject, WORKING, api, errorOf } from "../ipc/api";
+import { loadSpelling } from "../features/editor/spell";
+import { type Comment, type OpenedProject, WORKING, api, errorOf } from "../ipc/api";
 import { confirm, prompt, store } from "../state/store";
 
 /** Run an action and show any failure to the user instead of losing it. */
@@ -28,6 +29,8 @@ export function persistUi() {
 
 async function enter(opened: OpenedProject) {
   buffers.closeAll();
+  buffers.picturesChanged();
+  setComments([]);
   // The language server is set up before any file opens, so each file's editor connects to it.
   if (opened.languageServer) startLsp(opened.root, (message) => void api.lspSend(message).catch(() => {}));
   else stopLsp();
@@ -60,6 +63,7 @@ async function enter(opened: OpenedProject) {
   store().set({ active: active ?? null });
   void refreshIndex();
   void refreshPending();
+  void refreshComments();
   // Show the last PDF if one exists from an earlier session.
   store().set({ pdfVersion: store().pdfVersion + 1 });
 }
@@ -84,12 +88,18 @@ export async function closeProject() {
   if (!(await saveAll())) return;
   await api.projectClose();
   buffers.closeAll();
+  setComments([]);
   stopLsp();
   store().set({ root: null, info: null, tree: [], tabs: [], active: null, view: "start", settings: await api.settingsGet() });
 }
 
 export const refreshTree = () => guard(async () => store().set({ tree: await api.projectTree() }));
-export const refreshIndex = () => guard(async () => store().set({ index: await api.projectIndex() }));
+export const refreshIndex = () =>
+  guard(async () => {
+    store().set({ index: await api.projectIndex() });
+    // Visual mode names references from the index.
+    buffers.redrawVisual();
+  });
 
 /** Count bundles waiting for review, for the History badge. Counting must not start a review. */
 export async function refreshPending() {
@@ -140,6 +150,13 @@ export async function save(path: string | null = store().active): Promise<boolea
     buffers.markSaved(path, text);
     const s = store();
     s.set({ tabs: s.tabs.map((t) => (t.path === path ? { ...t, dirty: false } : t)) });
+    // Comments remember the words they are on; record where the edits have taken them.
+    const known = new Map(s.comments.map((c) => [c.id, c]));
+    const moved = buffers.commentAnchors(path).filter((a) => {
+      const c = known.get(a.id);
+      return c && (c.quote !== a.quote || c.before !== a.before || c.after !== a.after || c.line !== a.line);
+    });
+    if (moved.length) setComments(await api.commentsReanchor(moved));
     return true;
   });
   if (done) void refreshIndex();
@@ -186,6 +203,7 @@ export async function renameEntry(path: string) {
     if (s.info?.mainFile && moved(s.info.mainFile) !== s.info.mainFile) {
       store().set({ info: await api.projectSetMain(moved(s.info.mainFile)) });
     }
+    await refreshComments();
     persistUi();
   });
 }
@@ -216,6 +234,9 @@ export async function setMainFile(path: string) {
 /** Files changed outside the app: reload clean buffers, leave edited ones alone. */
 export async function filesChangedOnDisk(paths: string[]) {
   void refreshTree();
+  if (paths.some((p) => /\.(pdf|png|jpe?g|gif|webp)$/i.test(p))) buffers.picturesChanged();
+  // Labels and references may have changed with them.
+  if (paths.some((p) => /\.(tex|bib)$/i.test(p))) void refreshIndex();
   const s = store();
   for (const tab of s.tabs.filter((t) => paths.includes(t.path))) {
     const content = await api.fileRead(tab.path).catch(() => null);
@@ -301,7 +322,7 @@ export async function restoreVersion(version: string, label: string) {
   });
 }
 
-export async function exportBundle(note: string, includePdf: boolean) {
+export async function exportBundle(note: string, include: { pdf: boolean; packages: boolean; comments: boolean }) {
   const s = store();
   if (!s.info) return;
   const dest = await saveDialog({
@@ -312,7 +333,7 @@ export async function exportBundle(note: string, includePdf: boolean) {
   if (!dest) return;
   if (!(await saveAll())) return;
   await guard(async () => {
-    await api.bundleExport(dest, note, includePdf);
+    await api.bundleExport(dest, note, include);
     store().set({ dialog: null });
     store().notify("Bundle exported");
   });
@@ -347,6 +368,90 @@ export async function importBundle(path?: string) {
     if (!(await saveAll())) return;
     const bundleId = await api.bundleImport(picked);
     await refreshPending();
+    // A bundle's comments arrive with it, before any of its text is accepted.
+    await refreshComments();
     store().set({ view: "history", focusBundle: bundleId });
+  });
+}
+
+// ---------- comments ----------
+
+function setComments(comments: Comment[]) {
+  store().set({ comments });
+  buffers.setComments(comments);
+}
+
+export const refreshComments = () => guard(async () => setComments(await api.commentsList()));
+
+/** Open the comments panel, ready to write a comment on the selected text. */
+export function startComment() {
+  if (!buffers.selectionAnchor()) return store().notify("Select the text you want to comment on first");
+  store().set({ filesOpen: true, sidePanel: "comments" });
+  requestAnimationFrame(() => document.getElementById("comment-draft")?.focus());
+}
+
+export async function addComment(text: string): Promise<boolean> {
+  const at = buffers.selectionAnchor();
+  if (!at) {
+    store().notify("Select the text you want to comment on first");
+    return false;
+  }
+  const done = await guard(async () => {
+    const before = new Set(store().comments.map((c) => c.id));
+    const all = await api.commentAdd(at.path, at.anchor, text);
+    setComments(all);
+    const added = all.find((c) => !before.has(c.id));
+    if (added) {
+      store().set({ comment: added.id });
+      buffers.showComment(added.id);
+    }
+    return true;
+  });
+  return done === true;
+}
+
+export async function replyToComment(id: string, text: string): Promise<boolean> {
+  return (await guard(async () => (setComments(await api.commentReply(id, text)), true))) === true;
+}
+
+export const resolveComment = (id: string, resolved: boolean) =>
+  guard(async () => {
+    setComments(await api.commentResolve(id, resolved));
+    // A resolved comment is put away: its passage is no longer picked out.
+    if (resolved && store().comment === id) {
+      store().set({ comment: null });
+      buffers.showComment(null);
+    }
+  });
+
+export async function deleteComment(id: string) {
+  if (!(await confirm("Delete this comment?", "The comment and its replies are removed for everyone who merges your next bundle.", "Delete", true))) return;
+  await guard(async () => setComments(await api.commentDelete(id)));
+}
+
+/** Pick a comment out and show the passage it is on. */
+export async function pickComment(comment: Comment) {
+  await openFile(comment.path, undefined, true);
+  store().set({ comment: comment.id });
+  // The editor shows the file on the next frame.
+  requestAnimationFrame(() => {
+    if (!buffers.showComment(comment.id)) store().notify("The text this comment was on is no longer in the file");
+  });
+}
+
+// ---------- spelling ----------
+
+/** Make the spelling checker match the settings: its language and the user's own words. */
+export async function applySpelling() {
+  const settings = store().settings;
+  if (!settings) return;
+  await guard(async () => {
+    await loadSpelling(settings.spellcheck, settings.dictionary, (word) => {
+      void guard(async () => {
+        store().set({ settings: await api.dictionaryAdd(word) });
+        await applySpelling();
+      });
+    });
+    buffers.setSpelling(settings.spellcheck !== "off");
   });
 }

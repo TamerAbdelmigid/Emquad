@@ -184,6 +184,11 @@ pub fn run(
     let started = Instant::now();
 
     let mut command = engine.command(main_name, &build);
+    // A project that was given packages by a bundle compiles from its own store of them.
+    let own_packages = crate::packages::project_cache(project);
+    if engine.name() == "tectonic" && own_packages.is_dir() {
+        command.env("TECTONIC_CACHE_DIR", &own_packages);
+    }
     quiet(&mut command)
         .current_dir(cwd)
         .stdin(Stdio::null())

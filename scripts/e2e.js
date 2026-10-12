@@ -7,7 +7,8 @@
 //   pnpm tauri dev
 //
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
-// lookup, snapshot, export, opening a bundle as a new project, and a merge with a conflict.
+// lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
+// visual mode, comments, and a bundle that carries its LaTeX packages.
 // Native file dialogs cannot be driven from a page, so those steps call the backend directly.
 // Lines starting "SHOT" mark moments worth a screenshot; the script pauses briefly after each.
 (async () => {
@@ -266,7 +267,7 @@
     // --- hand off: A exports, B opens it as a new project and edits, A edits too
     await invoke("history_snapshot", { label: "Draft 1" });
     const out = `${work}\\out.emquad`;
-    const sent = await invoke("bundle_export", { dest: out, note: "Please review", includePdf: true });
+    const sent = await invoke("bundle_export", { dest: out, note: "Please review", includePdf: true, includePackages: false, includeComments: true });
     await ok(sent.includes.pdf && sent.includes.history, "export writes a bundle with history and the PDF");
     await invoke("settings_update", { displayName: "Lina" });
     const b = await invoke("bundle_import_new", { path: out, parentDir: `${work}\\lina` });
@@ -276,7 +277,7 @@
       .replace("A short summary of the paper.", "A short summary, tightened by Lina.");
     await invoke("file_write", { path: "main.tex", text: theirs });
     const back = `${work}\\back.emquad`;
-    await invoke("bundle_export", { dest: back, note: "Tightened the wording", includePdf: false });
+    await invoke("bundle_export", { dest: back, note: "Tightened the wording", includePdf: false, includePackages: false, includeComments: true });
     await invoke("settings_update", { displayName: "Tamer" });
 
     await act.openProject(a.root);
@@ -327,6 +328,127 @@
     await click("Back to editor");
     await until("the merged text in the editor", () => text(".cm-content").includes("said both of us"));
     await ok(true, "the editor shows the merged file");
+
+    // --- spelling: prose is checked, LaTeX is not, and a correction is one click
+    const figure = `${a.root}\\plot.pdf`;
+    await invoke("pdf_save", { dest: figure });
+    await invoke("file_write", {
+      path: "refs.bib",
+      text: "@book{knuth84,\n  author = {Knuth, Donald E.},\n  title = {The TeXbook},\n  year = {1984}\n}\n",
+    });
+    const paper = [
+      "\\documentclass{article}",
+      "\\usepackage{graphicx}",
+      "\\begin{document}",
+      "This sentense mentions zorblat once.",
+      "",
+      "\\begin{tabular}{ll}",
+      "\\hline",
+      " Name & Value \\\\",
+      " $x$ & \\textbf{two} \\\\",
+      "\\hline",
+      "\\end{tabular}",
+      "",
+      "\\includegraphics[width=3cm]{plot}",
+      "",
+      "As shown by \\cite{knuth84} and \\cite{nobody}.",
+      "\\bibliographystyle{plain}",
+      "\\bibliography{refs}",
+      "\\end{document}",
+      "",
+    ].join("\n");
+    await invoke("file_write", { path: "main.tex", text: paper });
+    await until("the new text", () => text(".cm-content").includes("sentense"));
+    const wrong = () => $$(".cm-misspelled").map((w) => w.textContent);
+    await until("the misspelled words to be underlined", () => wrong().length === 2, 30000);
+    await ok(wrong().join() === "sentense,zorblat", "only the two misspelled words of prose are underlined, no command, key or file name");
+    const rightClick = (el) => {
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
+    };
+    rightClick($$(".cm-misspelled")[0]);
+    const fixes = await until("the corrections", () => $(".cm-spell") && $$(".cm-spell button"));
+    await ok(fixes[0].textContent === "sentence" && document.activeElement === fixes[0], "right-clicking offers corrections, the likeliest first and focused");
+    await shot("07-spelling");
+    fixes[0].click();
+    await until("the correction", () => text(".cm-content").includes("This sentence mentions"));
+    await ok(wrong().join() === "zorblat", "choosing one corrects the word");
+    rightClick($$(".cm-misspelled")[0]);
+    (await until("the dictionary button", () => $(".cm-spell-learn"))).click();
+    await until("the word to be accepted", () => wrong().length === 0);
+    await ok((await invoke("settings_get")).dictionary.includes("zorblat"), "a word added to the dictionary is remembered and no longer underlined");
+    await act.save();
+
+    // --- visual mode draws tables, figures and citations in place
+    buffers.goToLine(1);
+    await click("Visual");
+    await until("the table", () => $$(".cm-v-table td").length === 4);
+    await ok($$(".cm-v-table tr.rule-above").length === 1 && $(".cm-v-table .katex") && $(".cm-v-table b")?.textContent === "two", "a table is drawn as a table, with its rules, mathematics and bold text");
+    await until("the figure", () => $(".cm-v-figure img")?.naturalWidth > 0, 30000);
+    await ok(true, "a figure is drawn as its picture, here the first page of a PDF");
+    const cites = () => $$(".cm-v-cite").map((c) => c.textContent);
+    await until("the citations", () => cites().length === 2 && cites()[0] === "[Knuth 1984]", 15000);
+    await ok(cites()[1] === "[nobody?]" && $$(".cm-v-cite")[1].classList.contains("cm-v-cite-unknown"), "citations are named by author and year, and one nobody defines is marked");
+    await shot("08-visual");
+    buffers.goToLine(7);
+    await until("the table's source", () => $$(".cm-v-table").length === 0);
+    await ok(true, "putting the cursor in the table shows its source again");
+    buffers.goToLine(1);
+    await click("Code");
+    await until("plain source", () => !$(".cm-visual"));
+
+    // --- comments: on a passage, kept out of the file, following the text
+    const onDisk = (await invoke("file_read", { path: "main.tex" })).text;
+    const select = (word) => {
+      const from = buffers.text("main.tex").indexOf(word);
+      buffers.run((v) => (v.dispatch({ selection: { anchor: from, head: from + word.length } }), true));
+    };
+    select("mentions zorblat");
+    await click("Comment on the selection");
+    const draft = await until("the comment box", () => (!$("#comment-draft")?.disabled ? $("#comment-draft") : null));
+    type(draft, "Is zorblat a real word?");
+    await click("Add comment");
+    await until("the comment", () => text(".comment").includes("Is zorblat a real word?"));
+    await ok($(".cm-comment")?.textContent === "mentions zorblat", "a comment is put on the selected passage, which is tinted");
+    await ok((await invoke("file_read", { path: "main.tex" })).text === onDisk, "and nothing is written into the file");
+    buffers.goToLine(4);
+    buffers.insert("A new first paragraph.\n\n");
+    await act.save();
+    const moved = (await invoke("comments_list"))[0];
+    await ok(moved.line === 6 && moved.quote === "mentions zorblat", "the comment follows its passage when text is added above it");
+    await click("Reply");
+    type(await until("the reply box", () => $(".comment-reply textarea")), "It is now.");
+    $(".comment-reply").requestSubmit();
+    await until("the reply", () => $$(".comment-entry").length === 2);
+    await ok(text(".rail .badge") === "1" || $$(".rail .badge").some((b) => b.textContent === "1"), "the reply is listed and the rail counts the open comment");
+    misses = audit();
+    await ok(misses.length === 0, `every control in the comments panel is focusable and named${misses.length ? `: ${misses.join("; ")}` : ""}`);
+    await shot("09-comments");
+
+    // --- a bundle can carry the comments and the LaTeX packages
+    await act.compile();
+    await ok(store().build?.ok, "the document with a table, a figure and a bibliography compiles");
+    store().set({ dialog: "export" });
+    await until("the packages choice", () => $("#inc-packages") && !$("#inc-packages").disabled, 20000);
+    await ok(/MB/.test($("#inc-packages").closest("label").textContent) && !$("#inc-comments").disabled, "the export dialog offers the packages, with their size, and the comments");
+    await click("Cancel");
+    const full = `${work}\\full.emquad`;
+    const carried = await invoke("bundle_export", { dest: full, note: "", includePdf: false, includePackages: true, includeComments: true });
+    await ok(carried.includes.packages && carried.includes.comments, "the bundle is exported once it is shown to compile with no internet");
+    await click("Resolve");
+    await until("the comment to leave the list", () => !$(".comment"));
+    await ok(!$(".cm-comment") && text(".comment-toggle").includes("(1)"), "a resolved comment is put away, and can be shown again");
+
+    await invoke("settings_update", { displayName: "Lina" });
+    const c = await invoke("bundle_import_new", { path: full, parentDir: `${work}\\offline` });
+    await act.openProject(c.root);
+    await until("the bundle's project", () => store().root === c.root && text(".cm-content").includes("\\documentclass"));
+    await until("its comments", () => store().comments.length === 1);
+    await ok(store().comments[0].replies.length === 1 && !store().comments[0].resolved, "the recipient gets the comment and its reply, as they were when the bundle was made");
+    await click("Recompile");
+    await until("a PDF from the bundle's own packages", () => text(".proj .st") === "Compiled", 300000);
+    await ok(true, "and compiles the project from the packages that came with it");
+    await invoke("settings_update", { displayName: "Tamer" });
 
     await ok(failures.length === 0, `no script errors in the page${failures.length ? `: ${failures.join(" | ")}` : ""}`);
     await log(`PASS: all ${step} checks passed`);

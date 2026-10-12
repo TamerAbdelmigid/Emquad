@@ -13,7 +13,7 @@ These are separate executables in the `sidecars` folder of the installed app. Em
 
 texlab is distributed unmodified under the GNU General Public License, version 3. Its complete source code is available from the address above for the version recorded in `README.md`. The licence of texlab applies to texlab only.
 
-Tectonic downloads LaTeX packages, classes and fonts from its package bundle when a document first needs them. Those files carry their own licences, mostly the LaTeX Project Public License.
+Tectonic downloads LaTeX packages, classes and fonts from its package bundle when a document first needs them. Those files carry their own licences, mostly the LaTeX Project Public License. When you export a bundle with its LaTeX packages, copies of those files, unchanged, travel inside it under the same licences.
 
 ## Compiled into the app
 
@@ -27,6 +27,8 @@ Tectonic downloads LaTeX packages, classes and fonts from its package bundle whe
 | PDF.js | Apache-2.0 | https://github.com/mozilla/pdf.js |
 | KaTeX | MIT | https://github.com/KaTeX/KaTeX |
 | Zustand | MIT | https://github.com/pmndrs/zustand |
+| nspell | MIT | https://github.com/wooorm/nspell |
+| English word lists (`dictionary-en`, `dictionary-en-gb`), from SCOWL and the Hunspell en_US and en_GB dictionaries | MIT and BSD | https://github.com/wooorm/dictionaries |
 
 The exact versions are in `pnpm-lock.yaml` and `src-tauri/Cargo.lock`. To list every Rust dependency with its licence, run `cargo tree --format "{p} {l}"` in `src-tauri`; for the JavaScript ones, `pnpm licenses list`.
 

@@ -18,6 +18,11 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 
 Known limitations, none of which lose data:
 
+- A bundle's LaTeX packages are every package file the sender's computer holds for the compiler's source, not only the ones the document uses, so the bundle can be larger than strictly needed. The export dialog shows the size.
+- Spelling is English only (US or UK), and one language applies to every project.
+- A comment whose words were all deleted or rewritten outside the app is listed without a place in the text.
+- Visual mode draws `tabular`, `tabularx`, `tabular*` and `longtable` as plain grids: column alignment, vertical rules and merged rows are not shown. Figures are PNG, JPEG, GIF, WebP and PDF; `\graphicspath` is not followed. Citation names come from `.bib` files in the project.
+
 - A file in the user's folder whose name contains `~` followed by a digit (such as `chapter~1.tex`), or a folder named `.git` below the top level, is ignored by the app: it is not listed and not stored in versions. The rule behind this is in `03-bundles-and-history.md`.
 - One window only: starting Emquad while it is open, including by double-clicking a bundle, brings the open window forward and hands it the file.
 - If one side turned a folder into a file of the same name while the other added files inside it, Finish merge fails and puts everything back each time, until a decision in the review is changed. The message does not yet say which decision.
@@ -159,15 +164,15 @@ Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js
 
 ## After version 1
 
-Done since the first release: visual mode, the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab.
+Done since the first release: visual mode (with tables, figures and citations), the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab, LaTeX packages inside bundles, spell check, comments.
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.
 
-1. **Offline packages in bundles**: include the compiler's cached package files that the last build used, and seed the recipient's cache from them on import.
-2. **Spell check and comments.**
-3. **Signing the installer** (see `docs/releasing.md`).
-4. **macOS and Linux builds.**
-5. **Visual mode, further**: tables, figures and citations drawn in place; toolbar actions that act on the drawn document.
+1. **Signing the installer** (see `docs/releasing.md`).
+2. **macOS and Linux builds.**
+3. **Visual mode, further**: toolbar actions that act on the drawn document; editing a table cell in place.
+4. **Smaller offline bundles**: carry only the package files the document used. This needs the compiler to report them.
+5. **More spelling languages**, and a language per project.
 
 ## Working agreements
 

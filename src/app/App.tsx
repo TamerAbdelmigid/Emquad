@@ -10,6 +10,8 @@ import { buffers, setHandlers } from "../features/editor/buffers";
 import { outline } from "../features/editor/latex";
 import { lspReceive, stopLsp } from "../features/editor/lsp";
 import { Files } from "../features/files/Files";
+import { Comments } from "../features/comments/Comments";
+import { setCommentPick } from "../features/editor/comments";
 import { Search } from "../features/files/Search";
 import { History } from "../features/history/History";
 import { Preview } from "../features/preview/Preview";
@@ -42,9 +44,15 @@ export function App() {
   useEffect(() => {
     void act.guard(async () => {
       set({ settings: await api.settingsGet() });
+      void act.applySpelling();
       setStartupBundle(await api.startupFile());
     });
-    setHandlers({ save: () => void act.saveAndMaybeCompile(), compile: () => void act.compile() });
+    setHandlers({ save: () => void act.saveAndMaybeCompile(), compile: () => void act.compile(), comment: act.startComment });
+    // Clicking a commented passage shows its comment.
+    setCommentPick((id) => {
+      store().set({ comment: id, filesOpen: true, sidePanel: "comments" });
+      buffers.showComment(id);
+    });
     const off = [
       listen<string>("compile://log", (e) => {
         const log = store().log;
@@ -130,6 +138,7 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [openHistory, set]);
 
+  const openComments = s.comments.filter((c) => !c.resolved).length;
   const errors = s.build?.diagnostics.filter((d) => d.severity === "error") ?? [];
   const warnings = s.build?.diagnostics.filter((d) => d.severity === "warning").length ?? 0;
   const errorCounts = useMemo(() => {
@@ -333,6 +342,16 @@ export function App() {
             >
               <Icon name="search" />
             </button>
+            <button
+              className="rb"
+              aria-pressed={s.filesOpen && s.sidePanel === "comments"}
+              aria-label="Comments"
+              title="Comments"
+              onClick={() => set(s.filesOpen && s.sidePanel === "comments" ? { filesOpen: false } : { filesOpen: true, sidePanel: "comments" })}
+            >
+              <Icon name="comment" />
+              {openComments > 0 && <i className="badge">{openComments}</i>}
+            </button>
             <button className="rb" aria-label="History and review" title="History and review (Ctrl+Shift+H)" onClick={() => openHistory()}>
               <Icon name="history" />
               {s.pendingReviews > 0 && <i className="badge">{s.pendingReviews}</i>}
@@ -349,6 +368,20 @@ export function App() {
           <span />
           {s.filesOpen && s.sidePanel === "search" && (
             <Search search={api.projectSearch} onOpen={(path, line) => void act.openFile(path, line)} onClose={() => set({ sidePanel: "files" })} />
+          )}
+          {s.filesOpen && s.sidePanel === "comments" && (
+            <Comments
+              comments={s.comments}
+              active={s.active}
+              picked={s.comment}
+              canAdd={s.selecting && !!s.active}
+              onAdd={act.addComment}
+              onPick={(c) => void act.pickComment(c)}
+              onReply={act.replyToComment}
+              onResolve={(id, resolved) => void act.resolveComment(id, resolved)}
+              onDelete={(id) => void act.deleteComment(id)}
+              onClose={() => set({ sidePanel: "files" })}
+            />
           )}
           {s.filesOpen && s.sidePanel === "files" && (
             <Files
@@ -390,7 +423,8 @@ export function App() {
               onVisual={(visual) => set({ visual })}
               onSelect={(path) => set({ active: path })}
               onClose={(path) => void act.closeTab(path)}
-              onShowChanges={() => openHistory(s.active)}
+              onComment={act.startComment}
+            onShowChanges={() => openHistory(s.active)}
             />
           )}
 

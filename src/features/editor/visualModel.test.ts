@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Piece, closingBrace, visualPieces } from "./visualModel";
+import { type Piece, closingBrace, describeCitation, tableRows, visualPieces } from "./visualModel";
 
 const of = (pieces: Piece[], kind: Piece["kind"]) => pieces.filter((p) => p.kind === kind);
 const slice = (text: string, p: Piece) => ("to" in p ? text.slice(p.from, p.to) : "");
@@ -68,5 +68,75 @@ describe("visualPieces", () => {
     expect(of(pieces, "line").filter((p) => (p as Extract<Piece, { kind: "line" }>).style === "preamble")).toHaveLength(1);
     expect(of(pieces, "style").map((p) => slice(text, p))).toContain("My Paper");
     expect(of(pieces, "style").map((p) => slice(text, p))).not.toContain("\\documentclass{article}");
+  });
+});
+
+describe("tables, figures and citations", () => {
+  const table = "\\begin{tabular}{|l|r|}\n\\hline\n Name & Value \\\\\n\\hline\n $x$ & 1 \\\\ % a note\n \\multicolumn{2}{c}{Both \\& all} \\\\\n\\hline\n\\end{tabular}";
+
+  it("reads a table's rows, cells, rules and spanning cells", () => {
+    const body = table.slice(table.indexOf("}", 16) + 1, table.indexOf("\\end"));
+    expect(tableRows(body)).toEqual([
+      { cells: [{ tex: "Name", span: 1 }, { tex: "Value", span: 1 }], ruleAbove: true, ruleBelow: false },
+      { cells: [{ tex: "$x$", span: 1 }, { tex: "1", span: 1 }], ruleAbove: true, ruleBelow: false },
+      { cells: [{ tex: "Both \\& all", span: 2 }], ruleAbove: false, ruleBelow: true },
+    ]);
+  });
+
+  it("draws a whole table as one piece, and nothing separately inside it", () => {
+    const text = `before\n${table}\nafter $y$`;
+    const pieces = visualPieces(text, [{ from: 0, to: 0 }]);
+    const tables = of(pieces, "table");
+    expect(tables.map((p) => slice(text, p))).toEqual([table]);
+    expect(of(pieces, "math").map((p) => slice(text, p))).toEqual(["$y$"]);
+    expect(of(pieces, "style").filter((p) => slice(text, p).includes("tabular"))).toHaveLength(0);
+  });
+
+  it("shows a table being edited as source, with its mathematics still drawn", () => {
+    const text = `before\n${table}\nafter`;
+    const pieces = visualPieces(text, [{ from: text.indexOf("Name"), to: text.indexOf("Name") }]);
+    expect(of(pieces, "table")).toHaveLength(0);
+    expect(of(pieces, "math").map((p) => slice(text, p))).toEqual(["$x$"]);
+  });
+
+  it("handles tables that take a width, and leaves an unfinished one alone", () => {
+    const wide = "\\begin{tabularx}{\\textwidth}{lX}\n a & b \\\\\n\\end{tabularx}";
+    expect(of(visualPieces(wide + "\n", [{ from: wide.length + 1, to: wide.length + 1 }]), "table")).toHaveLength(1);
+    expect(of(visualPieces("\\begin{tabular}{ll}\n a & b \\\\\n", []), "table")).toHaveLength(0);
+  });
+
+  it("draws a picture command as its picture, unless it is being edited", () => {
+    const text = "x \\includegraphics[width=\\linewidth]{figs/plot} y";
+    const away = visualPieces(text, [{ from: 0, to: 0 }]);
+    expect(of(away, "image")).toEqual([{ kind: "image", from: 2, to: text.length - 2, path: "figs/plot" }]);
+    const inside = visualPieces(text, [{ from: 10, to: 10 }]);
+    expect(of(inside, "image")).toHaveLength(0);
+    expect(of(inside, "style").map((p) => slice(text, p))).toEqual([text.slice(2, text.length - 2)]);
+  });
+
+  it("draws a citation with all its keys", () => {
+    const text = "as shown \\citep[p. 3]{knuth84, lamport94} here";
+    const cites = of(visualPieces(text, [{ from: 0, to: 0 }]), "cite");
+    expect(cites).toHaveLength(1);
+    expect(cites[0]).toMatchObject({ keys: ["knuth84", "lamport94"] });
+  });
+
+  it("names a citation by author and year, and marks a key nobody defines", () => {
+    const index = {
+      citeKeys: ["knuth84", "byhand"],
+      citations: [{ key: "knuth84", authors: "Knuth", year: "1984", title: "The TeXbook" }],
+    };
+    expect(describeCitation(["knuth84"], index)).toEqual({ label: "[Knuth 1984]", detail: "Knuth. 1984. The TeXbook", unknown: false });
+    expect(describeCitation(["knuth84", "byhand"], index).label).toBe("[Knuth 1984; byhand]");
+    const missing = describeCitation(["nobody"], index);
+    expect(missing.label).toBe("[nobody?]");
+    expect(missing.unknown).toBe(true);
+  });
+
+  it("styles a caption as a caption", () => {
+    const text = "\\caption{Results by year}";
+    expect(of(visualPieces(text + "\n", [{ from: text.length + 1, to: text.length + 1 }]), "style")).toEqual([
+      { kind: "style", from: 9, to: text.length - 1, style: "caption" },
+    ]);
   });
 });
