@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en" data-theme="synthwave">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quire mockup: theme options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&family=Archivo+Black&family=Chakra+Petch:wght@400;500;600;700&family=Exo+2:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Orbitron:wght@500;700;900&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&family=Share+Tech+Mono&family=Space+Grotesk:wght@400;500;700&family=Space+Mono:wght@400;700&family=Unbounded:wght@500;700;900&family=VT323&display=swap">
+<style>
+/* ---------- themes ---------- */
+:root[data-theme="synthwave"]{
+  --bg:#12092B; --panel:#1B0F3F; --panel2:#2A1860; --deep:#0E0722; --line:#5132A8;
+  --text:#F6F0FF; --muted:#BBA9EC; --accent:#FF3EA5; --ink:#1B0320;
+  --mine:#FFB02E; --theirs:#35E0FF; --cmd:#35E0FF; --math:#FFD166; --hl:#FFC9E6; --paper:#FFFDF8;
+  --ui:'Exo 2',system-ui,sans-serif; --disp:'Orbitron','Exo 2',sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  --r:10px; --rl:16px; --bw:1px; --tt:uppercase; --ls:.08em;
+  --shadow:0 24px 70px rgba(0,0,0,.6); --glow:0 0 22px rgba(255,62,165,.65); --btn-shadow:none;
+}
+:root[data-theme="phosphor"]{
+  --bg:#030603; --panel:#071007; --panel2:#0D1D0D; --deep:#020402; --line:#1E6B2C;
+  --text:#7DFF8C; --muted:#52C466; --accent:#39FF14; --ink:#021002;
+  --mine:#FFB000; --theirs:#D4FFDA; --cmd:#D4FFDA; --math:#FFB000; --hl:#BFF5B5; --paper:#EEF6E8;
+  --ui:'IBM Plex Mono',ui-monospace,monospace; --disp:'VT323','IBM Plex Mono',monospace; --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --r:0px; --rl:0px; --bw:1px; --tt:uppercase; --ls:.06em;
+  --shadow:0 0 40px rgba(57,255,20,.25); --glow:0 0 18px rgba(57,255,20,.7); --btn-shadow:none;
+}
+:root[data-theme="atomic"]{
+  --bg:#F1E8D6; --panel:#FFF8E8; --panel2:#EBDDC0; --deep:#FFFCF4; --line:#1B1B1B;
+  --text:#1B1B1B; --muted:#5A5246; --accent:#FF5A1F; --ink:#1B1B1B;
+  --mine:#B93A06; --theirs:#0A6A94; --cmd:#0A6A94; --math:#B93A06; --hl:#FFD6C2; --paper:#FFFFFF;
+  --ui:'Space Grotesk',system-ui,sans-serif; --disp:'Unbounded','Space Grotesk',sans-serif; --mono:'Space Mono',ui-monospace,monospace;
+  --r:999px; --rl:24px; --bw:2px; --tt:none; --ls:0;
+  --shadow:0 18px 0 rgba(27,27,27,.12); --glow:none; --btn-shadow:none;
+}
+:root[data-theme="brutal"]{
+  --bg:#FFE600; --panel:#FFFFFF; --panel2:#F1F1F1; --deep:#FFFFFF; --line:#000000;
+  --text:#000000; --muted:#3A3A3A; --accent:#0038FF; --ink:#FFFFFF;
+  --mine:#C43200; --theirs:#0038FF; --cmd:#0038FF; --math:#C43200; --hl:#FFE600; --paper:#FFFFFF;
+  --ui:'Archivo',system-ui,sans-serif; --disp:'Archivo Black','Archivo',sans-serif; --mono:'Space Mono',ui-monospace,monospace;
+  --r:0px; --rl:0px; --bw:3px; --tt:uppercase; --ls:.02em;
+  --shadow:10px 10px 0 #000; --glow:5px 5px 0 #000; --btn-shadow:4px 4px 0 #000;
+}
+:root[data-theme="hud"]{
+  --bg:#04070B; --panel:#09111A; --panel2:#0F1D29; --deep:#060B11; --line:#1F4257;
+  --text:#D9F5FF; --muted:#82AABC; --accent:#C6FF00; --ink:#0A1200;
+  --mine:#FF7A1A; --theirs:#00E5FF; --cmd:#00E5FF; --math:#C6FF00; --hl:#E6FF8F; --paper:#F7FAFB;
+  --ui:'Chakra Petch',system-ui,sans-serif; --disp:'Chakra Petch',system-ui,sans-serif; --mono:'Share Tech Mono','JetBrains Mono',monospace;
+  --r:0px; --rl:0px; --bw:1px; --tt:uppercase; --ls:.14em;
+  --shadow:0 0 0 1px #1F4257, 0 30px 70px rgba(0,0,0,.7); --glow:0 0 20px rgba(198,255,0,.5); --btn-shadow:none;
+}
+
+/* ---------- base ---------- */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:14px;line-height:1.45}
+button,input,textarea{font:inherit;color:inherit}
+[hidden]{display:none!important}
+
+.themebar{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 16px;background:#111;color:#fff;font:500 13px/1.3 system-ui,sans-serif;border-bottom:1px solid #333}
+.themebar strong{margin-right:4px}
+.tbtn{display:flex;align-items:center;gap:8px;min-height:36px;padding:0 12px;background:#222;color:#fff;border:1px solid #444;border-radius:6px;cursor:pointer;font:inherit}
+.tbtn[aria-pressed="true"]{background:#fff;color:#111;border-color:#fff}
+.tbtn i{display:flex;gap:2px}
+.tbtn i b{width:10px;height:10px;border-radius:50%;border:1px solid rgba(128,128,128,.6)}
+.tbtn small{opacity:.7;font-size:12px}
+
+.app{min-height:calc(100vh - 53px);display:flex;flex-direction:column}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:10px 20px;background:var(--panel);border-bottom:var(--bw) solid var(--line)}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--disp);font-size:20px;font-weight:900;letter-spacing:var(--ls);text-transform:var(--tt)}
+.logo svg{stroke:var(--accent)}
+.status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+.status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:var(--glow)}
+.grow{flex:1 1 0}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;background:var(--panel2);color:var(--text);border:var(--bw) solid var(--line);border-radius:var(--r);font-weight:600;font-size:13px;letter-spacing:var(--ls);text-transform:var(--tt);box-shadow:var(--btn-shadow);cursor:pointer;text-decoration:none}
+.btn:hover{border-color:var(--accent)}
+.btn:focus-visible,.tbtn:focus-visible,.item:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.btn.primary{background:var(--accent);color:var(--ink);border-color:var(--accent);box-shadow:var(--glow)}
+.btn.ghost{background:transparent}
+.btn.sm{min-height:32px;padding:0 12px;font-size:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+
+.cap{font-family:var(--disp);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+
+/* ---------- editor view ---------- */
+.work{flex:1 1 auto;display:flex;flex-wrap:wrap;align-items:stretch}
+.side{flex:1 1 230px;padding:20px 12px;background:var(--panel);border-right:var(--bw) solid var(--line);display:flex;flex-direction:column;gap:26px}
+.side .cap{padding:0 10px 8px}
+.item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:34px;padding:0 12px;background:transparent;border:0;border-radius:var(--r);text-align:left;cursor:pointer;color:var(--text)}
+.item.dir{color:var(--muted)}
+.item.in{padding-left:28px}
+.item.on{background:var(--accent);color:var(--ink);font-weight:700}
+.item:hover:not(.on){background:var(--panel2)}
+.snap{padding:6px 12px}
+.snap small{display:block;color:var(--muted)}
+
+.edit{flex:999 1 440px;min-width:0;display:flex;flex-direction:column;background:var(--deep);border-right:var(--bw) solid var(--line)}
+.bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:8px 16px;border-bottom:var(--bw) solid var(--line);font-size:13px;color:var(--muted)}
+.tab{min-height:34px;padding:0 14px;background:transparent;border:0;border-bottom:3px solid transparent;color:var(--muted);cursor:pointer;font-weight:600}
+.tab.on{color:var(--text);border-bottom-color:var(--accent)}
+.seg{display:flex;border:var(--bw) solid var(--line);border-radius:var(--r);overflow:hidden}
+.seg button{min-height:32px;padding:0 14px;background:transparent;border:0;color:var(--muted);cursor:pointer;font-weight:600;font-size:12px;letter-spacing:var(--ls);text-transform:var(--tt)}
+.seg button.on{background:var(--text);color:var(--bg)}
+
+.code{flex:1 1 auto;padding:16px 20px 16px 0;font-family:var(--mono);font-size:13px;line-height:24px;counter-reset:ln}
+.ln{display:flex;counter-increment:ln}
+.ln::before{content:counter(ln);flex:none;width:52px;padding-right:16px;text-align:right;color:var(--muted);opacity:.8}
+.ln>span{flex:1;min-width:0;white-space:pre-wrap}
+.ln.cur{background:var(--panel2)}
+.ln.cur::before{color:var(--accent);opacity:1;font-weight:700}
+.k{color:var(--cmd)} .m{color:var(--math)}
+del{color:var(--mine);text-decoration:line-through}
+ins{color:var(--theirs);text-decoration:underline;text-underline-offset:4px}
+[data-state="accepted"] del,[data-state="rejected"] ins{display:none}
+[data-state="accepted"] ins,[data-state="rejected"] del{color:inherit;text-decoration:none}
+[data-state] .acts{display:none}
+.sug{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:2px 0 10px 52px;background:var(--panel2);font-family:var(--ui);font-size:13px}
+.av{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--theirs);color:var(--bg);font-size:12px;font-weight:700}
+.foot{display:flex;flex-wrap:wrap;gap:8px 20px;padding:10px 20px;border-top:var(--bw) solid var(--line);font-size:12px;color:var(--muted)}
+.foot .on{margin-left:auto;color:var(--accent);font-weight:700}
+
+.prev{position:relative;overflow:hidden;flex:999 1 440px;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+.prev .bar{position:relative;z-index:1;background:var(--panel)}
+.stage{position:relative;z-index:1;flex:1 1 auto;display:flex;justify-content:center;padding:28px 24px}
+.paper{width:100%;max-width:540px;min-height:680px;padding:64px 56px 36px;background:var(--paper);color:#1A1A1A;box-shadow:var(--shadow);font-family:'STIX Two Text','Times New Roman',serif;font-size:13px;line-height:1.5;display:flex;flex-direction:column;gap:14px;text-shadow:none}
+.paper h1{margin:0;font-size:22px;font-weight:400;text-align:center;line-height:1.25}
+.paper h2{margin:8px 0 0;font-family:inherit;font-size:16px;font-weight:700;letter-spacing:0;text-transform:none;text-shadow:none}
+.paper p{margin:0;text-align:justify}
+.paper .abs{padding:10px 36px 4px;font-size:12px;text-align:justify}
+.paper .abs b{display:block;text-align:center;margin-bottom:4px}
+.paper mark{background:var(--hl);color:inherit;box-shadow:0 0 0 2px var(--hl)}
+.eq{display:flex;align-items:center;padding:4px 0}
+.eq div{flex:1;text-align:center;font-size:15px}
+.int{font-size:24px;vertical-align:middle}
+
+/* ---------- review view ---------- */
+.review{flex:1 1 auto;width:100%;max-width:1200px;margin:0 auto;padding:32px 24px;display:flex;flex-direction:column;gap:32px}
+.card{background:var(--panel);border:var(--bw) solid var(--line);border-radius:var(--rl);box-shadow:var(--btn-shadow)}
+.bundle{display:flex;flex-wrap:wrap;align-items:center;gap:20px;padding:24px}
+.bundle svg{stroke:var(--accent)}
+.bundle .name{font-family:var(--mono);font-size:15px;font-weight:600}
+.bundle .who{flex:1 1 300px;min-width:0}
+.bundle .who div+div{color:var(--muted)}
+.count{padding:10px 16px;background:var(--panel2);border:var(--bw) solid var(--line);border-radius:var(--r);white-space:nowrap}
+.count b{font-family:var(--disp);font-size:22px;margin-right:8px}
+.count.warn{border-color:var(--mine)}
+h2{margin:0;font-family:var(--disp);font-size:20px;font-weight:700;letter-spacing:var(--ls);text-transform:var(--tt)}
+.sub{color:var(--muted)}
+.stack{display:flex;flex-direction:column;gap:16px}
+.conf{padding:20px;display:flex;flex-direction:column;gap:16px}
+.conf .hd{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+.conf .st{font-family:var(--ui);font-weight:700;color:var(--text)}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.opt{display:flex;flex-direction:column;gap:12px;padding:16px;background:var(--deep);border:2px solid var(--line);border-radius:var(--rl)}
+.opt .who{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.opt .who::before{content:"";width:10px;height:10px;background:currentColor}
+.opt.mine .who{color:var(--mine)} .opt.theirs .who{color:var(--theirs)}
+.opt.theirs .who::before{border-radius:50%}
+.opt .txt{flex:1;font-family:var(--mono);font-size:13px;line-height:22px}
+.opt .btn{align-self:flex-start;min-height:44px}
+.conf[data-pick="mine"] .opt.mine,.conf[data-pick="both"] .opt.mine{border-color:var(--mine);border-width:3px}
+.conf[data-pick="theirs"] .opt.theirs,.conf[data-pick="both"] .opt.theirs{border-color:var(--theirs);border-width:3px}
+.chg{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:16px 20px;border-bottom:var(--bw) solid var(--line)}
+.chg:last-child{border-bottom:0}
+.chg .body{flex:1 1 340px;min-width:0;font-family:var(--mono);font-size:13px}
+.chg .body small{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+.chg .res{display:none;font-weight:700;color:var(--muted)}
+.chg[data-state] .res{display:block}
+.chg .btn{min-height:44px}
+.rfoot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;background:var(--panel);border-top:var(--bw) solid var(--line)}
+.rfoot .btn{min-height:44px}
+
+/* ---------- export dialog ---------- */
+dialog{width:calc(100% - 32px);max-width:580px;padding:28px;background:var(--panel);color:var(--text);border:var(--bw) solid var(--line);border-radius:var(--rl);box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(0,0,0,.65)}
+dialog form{display:flex;flex-direction:column;gap:22px}
+dialog h2{font-size:22px}
+.field{display:flex;flex-direction:column;gap:8px}
+.field input,.field textarea{min-height:44px;padding:10px 14px;background:var(--deep);border:var(--bw) solid var(--line);border-radius:min(var(--r),12px);font-family:var(--mono)}
+.field textarea{font-family:var(--ui);resize:vertical}
+fieldset{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:6px}
+legend{padding:0 0 8px}
+.chk{display:flex;align-items:center;gap:14px;min-height:48px;padding:0 14px;background:var(--deep);border:var(--bw) solid var(--line);border-radius:min(var(--r),12px);cursor:pointer}
+.chk input{width:18px;height:18px;accent-color:var(--accent)}
+.chk span{flex:1;font-weight:600}
+.chk small{color:var(--muted);font-size:13px}
+
+/* ---------- per-theme flourishes ---------- */
+[data-theme="synthwave"] .logo span{background:linear-gradient(180deg,#FFE66D,#FF3EA5 70%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 10px rgba(255,62,165,.7))}
+[data-theme="synthwave"] .prev{background:linear-gradient(180deg,#12092B 0%,#3A1270 62%,#C22B8A 100%)}
+[data-theme="synthwave"] .prev::after{content:"";position:absolute;left:-60%;right:-60%;bottom:0;height:42%;background-image:linear-gradient(rgba(53,224,255,.75) 2px,transparent 2px),linear-gradient(90deg,rgba(53,224,255,.75) 2px,transparent 2px);background-size:48px 48px;transform:perspective(320px) rotateX(62deg);transform-origin:bottom}
+[data-theme="synthwave"] h2,[data-theme="synthwave"] .tab.on{text-shadow:0 0 14px rgba(255,62,165,.8)}
+[data-theme="synthwave"] .k{text-shadow:0 0 10px rgba(53,224,255,.6)}
+
+[data-theme="phosphor"] .app{text-shadow:0 0 6px rgba(57,255,20,.45)}
+[data-theme="phosphor"] body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 1px,transparent 1px 3px)}
+[data-theme="phosphor"] .logo{font-size:30px;font-weight:400;line-height:1}
+[data-theme="phosphor"] .logo span::after{content:"_";animation:blink 1s steps(1) infinite}
+[data-theme="phosphor"] .cap{font-size:17px;font-weight:400}
+[data-theme="phosphor"] h2{font-size:30px;font-weight:400}
+[data-theme="phosphor"] .item.on::before{content:"> "}
+[data-theme="phosphor"] .item.on{justify-content:flex-start}
+[data-theme="phosphor"] .item.on span:last-child{margin-left:auto}
+[data-theme="phosphor"] .prev{background:radial-gradient(ellipse at center,#0C1F0C 0%,#030603 75%)}
+@keyframes blink{50%{opacity:0}}
+
+[data-theme="atomic"] .top{border-bottom-width:3px}
+[data-theme="atomic"] .logo{font-size:18px}
+[data-theme="atomic"] .prev{background:radial-gradient(circle at 88% 12%,#FF5A1F 0 110px,transparent 111px),radial-gradient(circle at 6% 94%,#0A6A94 0 170px,transparent 171px),radial-gradient(circle at 80% 88%,#F2B705 0 60px,transparent 61px),#EBDDC0}
+[data-theme="atomic"] .paper{border:2px solid #1B1B1B;border-radius:6px}
+[data-theme="atomic"] .tab{border-radius:999px;border:0}
+[data-theme="atomic"] .tab.on{background:#1B1B1B;color:#FFF8E8}
+[data-theme="atomic"] .av{color:#fff}
+
+[data-theme="brutal"] .top{border-bottom-width:4px}
+[data-theme="brutal"] .logo{font-size:24px}
+[data-theme="brutal"] .btn:hover{transform:translate(2px,2px);box-shadow:2px 2px 0 #000;border-color:#000}
+[data-theme="brutal"] .paper{border:3px solid #000}
+[data-theme="brutal"] .item.on{border:3px solid #000;box-shadow:4px 4px 0 #000}
+[data-theme="brutal"] .card,[data-theme="brutal"] dialog{box-shadow:8px 8px 0 #000}
+[data-theme="brutal"] .ln.cur,[data-theme="brutal"] .sug{background:#FFF7A8}
+[data-theme="brutal"] .av{color:#fff}
+[data-theme="brutal"] .cap{color:#000}
+
+[data-theme="hud"] .btn{clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px)}
+[data-theme="hud"] .cap::before{content:"// ";color:var(--accent)}
+[data-theme="hud"] .logo{font-weight:700}
+[data-theme="hud"] .prev{background-color:#04070B;background-image:linear-gradient(rgba(0,229,255,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.09) 1px,transparent 1px);background-size:32px 32px}
+[data-theme="hud"] .stage::before,[data-theme="hud"] .stage::after{content:"";position:absolute;width:36px;height:36px;border:2px solid var(--accent)}
+[data-theme="hud"] .stage::before{top:12px;left:12px;border-right:0;border-bottom:0}
+[data-theme="hud"] .stage::after{bottom:12px;right:12px;border-left:0;border-top:0}
+[data-theme="hud"] .item.on{clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,0 100%)}
+[data-theme="hud"] .top{box-shadow:inset 0 -2px 0 var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="themebar" role="group" aria-label="Theme options">
+  <strong>Pick a theme:</strong>
+  <button class="tbtn" data-t="synthwave"><i><b style="background:#12092B"></b><b style="background:#FF3EA5"></b><b style="background:#35E0FF"></b></i>1 Synthwave <small>80s neon</small></button>
+  <button class="tbtn" data-t="phosphor"><i><b style="background:#030603"></b><b style="background:#39FF14"></b><b style="background:#FFB000"></b></i>2 Phosphor <small>CRT terminal</small></button>
+  <button class="tbtn" data-t="atomic"><i><b style="background:#F1E8D6"></b><b style="background:#FF5A1F"></b><b style="background:#0A6A94"></b></i>3 Atomic <small>60s space age</small></button>
+  <button class="tbtn" data-t="brutal"><i><b style="background:#FFE600"></b><b style="background:#000"></b><b style="background:#0038FF"></b></i>4 Brutal <small>loud and flat</small></button>
+  <button class="tbtn" data-t="hud"><i><b style="background:#04070B"></b><b style="background:#C6FF00"></b><b style="background:#00E5FF"></b></i>5 Cyberdeck <small>sci-fi HUD</small></button>
+</div>
+
+<div class="app">
+  <header class="top">
+    <div class="logo">
+      <svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26" fill="none" stroke-width="2" stroke-linejoin="round"><path d="M5 4h11l5 5v13H5z"/><path d="M16 4v5h5"/><path d="M9 14h8M9 18h5"/></svg>
+      <span>Quire</span>
+    </div>
+    <button class="btn">gaussian-integral ▾</button>
+    <div class="status">Compiled, no errors</div>
+    <div class="grow"></div>
+    <div class="row">
+      <button class="btn" data-view="review">Import bundle</button>
+      <button class="btn" id="openExport">Export bundle</button>
+      <button class="btn primary">▶ Compile</button>
+    </div>
+  </header>
+
+  <!-- ===== Editor ===== -->
+  <div class="work" id="view-editor">
+    <nav class="side" aria-label="Project">
+      <div>
+        <div class="cap">Files</div>
+        <button class="item on"><span>main.tex</span><span>1 suggestion</span></button>
+        <button class="item dir">sections/</button>
+        <button class="item in">intro.tex</button>
+        <button class="item in">proof.tex</button>
+        <button class="item dir">figures/</button>
+        <button class="item in">contour.pdf</button>
+        <button class="item">refs.bib</button>
+      </div>
+      <div>
+        <div class="cap">Outline</div>
+        <button class="item">Abstract</button>
+        <button class="item">1 &nbsp;The polar-coordinates trick</button>
+        <button class="item">References</button>
+      </div>
+      <div>
+        <div class="cap">Snapshots</div>
+        <div class="snap">Draft 3<small>Exported to Lina</small></div>
+        <div class="snap">Draft 2<small>Saved by you</small></div>
+      </div>
+    </nav>
+
+    <main class="edit">
+      <div class="bar">
+        <div><button class="tab on">main.tex</button><button class="tab">proof.tex</button></div>
+        <div class="seg"><button class="on">Source</button><button>Visual</button></div>
+      </div>
+      <div class="code">
+        <div class="ln"><span><span class="k">\documentclass</span>[11pt]{article}</span></div>
+        <div class="ln"><span><span class="k">\usepackage</span>{amsmath, amssymb}</span></div>
+        <div class="ln"><span><span class="k">\usepackage</span>{graphicx}</span></div>
+        <div class="ln"><span> </span></div>
+        <div class="ln"><span><span class="k">\title</span>{A Note on the Gaussian Integral}</span></div>
+        <div class="ln"><span><span class="k">\author</span>{[AUTHOR NAME]}</span></div>
+        <div class="ln"><span> </span></div>
+        <div class="ln"><span><span class="k">\begin</span>{document}</span></div>
+        <div class="ln"><span><span class="k">\maketitle</span></span></div>
+        <div class="ln"><span> </span></div>
+        <div class="ln"><span><span class="k">\begin</span>{abstract}</span></div>
+        <div class="ln"><span>We give the classical evaluation of the Gaussian integral by squaring it and passing to polar coordinates.</span></div>
+        <div class="ln"><span><span class="k">\end</span>{abstract}</span></div>
+        <div class="ln"><span> </span></div>
+        <div class="ln"><span><span class="k">\section</span>{The polar-coordinates trick}</span></div>
+        <div class="decide" id="sugLine">
+          <div class="ln cur"><span>Let <span class="m">$I = \int_{-\infty}^{\infty} e^{-x^2}\,dx$</span>. <del>Then</del> <ins>Since the integrand is positive,</ins> we may write</span></div>
+          <div class="sug acts">
+            <span class="av">L</span><span>Lina suggested a rewording</span>
+            <button class="btn primary sm" data-do="accepted">Accept</button>
+            <button class="btn ghost sm" data-do="rejected">Reject</button>
+          </div>
+        </div>
+        <div class="ln"><span><span class="k">\begin</span>{equation}</span></div>
+        <div class="ln"><span class="m">  I^2 = \int_{0}^{2\pi}\!\!\int_{0}^{\infty} e^{-r^2}\, r\,dr\,d\theta = \pi .</span></div>
+        <div class="ln"><span><span class="k">\end</span>{equation}</span></div>
+        <div class="ln"><span>Hence <span class="m">$I = \sqrt{\pi}$</span>.</span></div>
+        <div class="ln"><span> </span></div>
+        <div class="ln"><span><span class="k">\end</span>{document}</span></div>
+      </div>
+      <div class="foot"><span>Line 16, column 48</span><span>Tectonic engine</span><span>Works offline</span><span class="on">Track changes on</span></div>
+    </main>
+
+    <section class="prev" aria-label="PDF preview">
+      <div class="bar">
+        <span>Page 1 of 1</span>
+        <div class="row"><button class="btn sm" aria-label="Zoom out">−</button><span>100%</span><button class="btn sm" aria-label="Zoom in">+</button></div>
+        <button class="btn sm">Jump to source</button>
+      </div>
+      <div class="stage">
+        <article class="paper">
+          <h1>A Note on the Gaussian Integral</h1>
+          <div style="text-align:center;font-size:14px">[AUTHOR NAME]</div>
+          <div class="abs"><b>Abstract</b>We give the classical evaluation of the Gaussian integral by squaring it and passing to polar coordinates.</div>
+          <h2>1&emsp;The polar-coordinates trick</h2>
+          <p>Let <i>I</i> = <span style="font-size:17px">∫</span><sub>−∞</sub><sup>∞</sup> <i>e</i><sup>−<i>x</i>²</sup> d<i>x</i>. <mark>Since the integrand is positive,</mark> we may write</p>
+          <div class="eq"><div><i>I</i><sup>2</sup> = <span class="int">∫</span><sub>0</sub><sup>2<i>π</i></sup><span class="int">∫</span><sub>0</sub><sup>∞</sup> <i>e</i><sup>−<i>r</i>²</sup> <i>r</i> d<i>r</i> d<i>θ</i> = <i>π</i>.</div><span>(1)</span></div>
+          <p>Hence <i>I</i> = √<i>π</i>.</p>
+          <div style="margin-top:auto;text-align:center">1</div>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== Review ===== -->
+  <div id="view-review" hidden style="flex:1 1 auto;display:flex;flex-direction:column">
+    <div class="review">
+      <section class="card bundle">
+        <svg aria-hidden="true" width="44" height="44" viewBox="0 0 44 44" fill="none" stroke-width="2.5" stroke-linejoin="round"><path d="M9 6h18l8 8v24H9z"/><path d="M27 6v8h8"/><path d="M15 24h14M15 30h9"/></svg>
+        <div class="who">
+          <div class="name">gaussian-integral.quire</div>
+          <div>From Lina, based on your snapshot Draft 3</div>
+          <div>“Tightened the proof wording and added a reference.”</div>
+        </div>
+        <div class="row">
+          <div class="count"><b>3</b>merged automatically</div>
+          <div class="count warn"><b>2</b>need your decision</div>
+        </div>
+      </section>
+
+      <section class="stack">
+        <div><h2>Conflicts</h2><div class="sub">You and Lina both edited these lines since Draft 3. Choose what to keep.</div></div>
+        <article class="card conf">
+          <div class="hd"><span>main.tex, line 12</span><span class="st">Unresolved</span></div>
+          <div class="pair">
+            <div class="opt mine"><div class="who">Yours</div><div class="txt">We give the classical evaluation of the Gaussian integral by squaring it and passing to polar coordinates.</div><button class="btn" data-pick="mine">Keep mine</button></div>
+            <div class="opt theirs"><div class="who">Theirs</div><div class="txt">We recall the classical evaluation of the Gaussian integral, obtained by squaring it and changing to polar coordinates.</div><button class="btn" data-pick="theirs">Keep theirs</button></div>
+          </div>
+          <div><button class="btn ghost" data-pick="both">Keep both and edit by hand</button></div>
+        </article>
+        <article class="card conf">
+          <div class="hd"><span>main.tex, line 20</span><span class="st">Unresolved</span></div>
+          <div class="pair">
+            <div class="opt mine"><div class="who">Yours</div><div class="txt">Hence $I = \sqrt{\pi}$, as claimed.</div><button class="btn" data-pick="mine">Keep mine</button></div>
+            <div class="opt theirs"><div class="who">Theirs</div><div class="txt">Taking the positive root gives $I = \sqrt{\pi}$.</div><button class="btn" data-pick="theirs">Keep theirs</button></div>
+          </div>
+          <div><button class="btn ghost" data-pick="both">Keep both and edit by hand</button></div>
+        </article>
+      </section>
+
+      <section class="stack">
+        <div><h2>Merged automatically</h2><div class="sub">Only Lina touched these lines. They are applied as tracked changes you can still reject.</div></div>
+        <div class="card">
+          <div class="chg decide"><div class="body"><small>main.tex, line 16</small><del>Then</del> <ins>Since the integrand is positive,</ins> we may write</div><span class="res"></span><div class="row acts"><button class="btn primary" data-do="accepted">Accept</button><button class="btn ghost" data-do="rejected">Reject</button></div></div>
+          <div class="chg decide"><div class="body"><small>sections/proof.tex, line 4</small>\begin{equation}<ins>\label{eq:polar}</ins></div><span class="res"></span><div class="row acts"><button class="btn primary" data-do="accepted">Accept</button><button class="btn ghost" data-do="rejected">Reject</button></div></div>
+          <div class="chg decide"><div class="body"><small>refs.bib, end of file</small><ins>@book{[CITATION KEY], ...}</ins></div><span class="res"></span><div class="row acts"><button class="btn primary" data-do="accepted">Accept</button><button class="btn ghost" data-do="rejected">Reject</button></div></div>
+        </div>
+      </section>
+    </div>
+    <footer class="rfoot">
+      <div id="resolved">0 of 2 conflicts resolved</div>
+      <div class="row"><button class="btn ghost" data-view="editor">Cancel import</button><button class="btn primary" id="finish" data-view="editor" disabled>Finish merge</button></div>
+    </footer>
+  </div>
+</div>
+
+<!-- ===== Export ===== -->
+<dialog id="exportDlg" aria-labelledby="exportTitle">
+  <form method="dialog">
+    <div><h2 id="exportTitle">Export bundle</h2><div class="sub">One file. Opens in Quire on any computer, ready to continue.</div></div>
+    <div class="field"><label class="cap" for="bn">File name</label><input id="bn" type="text" value="gaussian-integral.quire"></div>
+    <fieldset>
+      <legend class="cap">Include</legend>
+      <label class="chk"><input type="checkbox" checked><span>Sources and figures</span><small>Always included</small></label>
+      <label class="chk"><input type="checkbox" checked><span>Tracked changes and snapshots</span><small>Needed to detect conflicts</small></label>
+      <label class="chk"><input type="checkbox" checked><span>Compiled PDF</span><small>Readable without Quire</small></label>
+      <label class="chk"><input type="checkbox"><span>LaTeX packages used</span><small>Compiles with no internet</small></label>
+    </fieldset>
+    <div class="field"><label class="cap" for="note">Note to the recipient</label><textarea id="note" rows="2" placeholder="What changed, and what you want them to look at"></textarea></div>
+    <div class="row" style="justify-content:space-between">
+      <span class="sub">Saved as snapshot Draft 4 on export</span>
+      <div class="row"><button class="btn ghost" value="cancel">Cancel</button><button class="btn primary" value="ok">Export bundle</button></div>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var tbtns = document.querySelectorAll('.tbtn');
+  function setTheme(t) {
+    root.dataset.theme = t;
+    tbtns.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.t === t)); });
+    try { localStorage.setItem('quire-theme', t); } catch (e) {}
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('quire-theme'); } catch (e) {}
+  setTheme(document.querySelector('.tbtn[data-t="' + saved + '"]') ? saved : 'synthwave');
+  tbtns.forEach(function (b) { b.addEventListener('click', function () { setTheme(b.dataset.t); }); });
+
+  var views = { editor: document.getElementById('view-editor'), review: document.getElementById('view-review') };
+  document.querySelectorAll('[data-view]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      for (var k in views) views[k].hidden = k !== b.dataset.view;
+      window.scrollTo(0, 0);
+    });
+  });
+
+  var dlg = document.getElementById('exportDlg');
+  document.getElementById('openExport').addEventListener('click', function () { dlg.showModal(); });
+
+  var labels = { mine: 'Keeping yours', theirs: 'Keeping theirs', both: 'Keeping both' };
+  var confs = document.querySelectorAll('.conf');
+  document.querySelectorAll('[data-pick]').forEach(function (b) {
+    if (b.tagName !== 'BUTTON') return;
+    b.addEventListener('click', function () {
+      var c = b.closest('.conf');
+      c.dataset.pick = b.dataset.pick;
+      c.querySelector('.st').textContent = labels[b.dataset.pick];
+      var n = document.querySelectorAll('.conf[data-pick]').length;
+      document.getElementById('resolved').textContent = n + ' of ' + confs.length + ' conflicts resolved';
+      document.getElementById('finish').disabled = n !== confs.length;
+    });
+  });
+
+  document.querySelectorAll('[data-do]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var d = b.closest('.decide');
+      d.dataset.state = b.dataset.do;
+      var res = d.querySelector('.res');
+      if (res) res.textContent = b.dataset.do === 'accepted' ? 'Accepted' : 'Rejected';
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quire design directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Hanken+Grotesk:wght@400;500;600;800&family=Manrope:wght@400;500;600;700&family=STIX+Two+Text:ital,wght@0,400;0,700;1,400&display=swap">
+<style>
+/* Three bespoke directions, one per <section class="dir">. Shared content (source, page, changes) is cloned from templates. */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:#0c0c0c;font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+[hidden]{display:none!important}
+:focus-visible{outline:3px solid Highlight;outline-offset:2px}
+
+.switch{position:sticky;top:0;z-index:50;height:44px;display:flex;align-items:center;gap:6px;padding:0 12px;background:#0c0c0c;color:#a8a8a2;border-bottom:1px solid #2a2a2a;font:500 12px/1 'DM Mono',ui-monospace,monospace;letter-spacing:.03em;overflow-x:auto;white-space:nowrap}
+.switch button{height:28px;padding:0 14px;border:1px solid #3a3a3a;border-radius:999px;color:#e6e4dc}
+.switch button[aria-pressed="true"]{background:#f3f1e9;color:#0c0c0c;border-color:#f3f1e9}
+.switch .hint{margin-left:auto;padding-left:16px}
+.dir{min-height:calc(100vh - 44px)}
+
+/* shared source + page mechanics */
+.code{counter-reset:ln}
+.ln{display:flex;counter-increment:ln}
+.ln::before{content:counter(ln,decimal-leading-zero);flex:none;width:46px;padding-right:14px;text-align:right}
+.ln>span{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}
+.decide[data-state="accepted"] del,.decide[data-state="rejected"] ins{display:none}
+.decide[data-state="accepted"] ins,.decide[data-state="rejected"] del{color:inherit;background:none;text-decoration:none;padding:0;opacity:1}
+.decide[data-state] .acts,.decide[data-state] .sug{display:none}
+.res{display:none}.decide[data-state] .res{display:block}
+.paper{width:100%;max-width:500px;aspect-ratio:1/1.38;padding:11% 10% 6%;background:#fff;color:#191919;font-family:'STIX Two Text','Times New Roman',serif;font-size:12.5px;line-height:1.5;display:flex;flex-direction:column;gap:12px}
+.paper h1{margin:0;font-size:1.65em;font-weight:400;text-align:center;line-height:1.25;text-wrap:balance}
+.paper h2{margin:6px 0 0;font-size:1.25em;font-weight:700}
+.paper p{margin:0;text-align:justify}
+.paper .au{text-align:center;font-size:1.08em}
+.paper .abs{padding:8px 7% 2px;font-size:.92em;text-align:justify}
+.paper .abs b{display:block;text-align:center;margin-bottom:3px}
+.paper .eq{display:flex;align-items:center}
+.paper .eq div{flex:1;text-align:center;font-size:1.15em}
+.paper .int{font-size:1.7em;vertical-align:middle}
+.paper .pg{margin-top:auto;text-align:center}
+.paper mark{color:inherit}
+.sw{position:relative;flex:none;width:36px;height:20px}
+.sw input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.sw i{position:absolute;inset:0;border-radius:10px;background:var(--sw-off,#2A2D31);pointer-events:none;transition:background .15s}
+.sw i::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+.sw input:checked+i{background:var(--sw-on,#2BD97C)}
+.sw input:checked+i::after{transform:translateX(16px)}
+.sw input:focus-visible+i{outline:3px solid Highlight;outline-offset:2px}
+
+/* ================= A · FIELDWORK — a desktop instrument ================= */
+#a{--ch:#D6D5CF;--face:#ECEBE6;--edge:#B7B6AF;--ink:#141414;--dim:#5C5B56;--screen:#121315;--s-line:#26282C;--s-text:#ECEAE3;--s-dim:#8E9096;--or:#FF4D00;--bl:#2450F0;--gr:#12A150;
+  background:radial-gradient(120% 70% at 50% 0%,#E2E1DB,#CDCCC6);color:var(--ink);font-family:'Hanken Grotesk',system-ui,sans-serif;padding:16px;display:grid;gap:12px;grid-template-rows:auto 1fr auto}
+#a .lab{font:500 10px/1 'DM Mono',ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+#a .mod{background:linear-gradient(180deg,#F0EFEA,#E9E8E3);border-radius:16px;box-shadow:inset 0 1px 0 #fff,0 0 0 1px #C6C5BF,0 2px 0 var(--edge),0 10px 24px rgba(60,58,50,.10)}
+#a .a-top{display:flex;flex-wrap:wrap;align-items:center;gap:14px 24px;padding:12px 20px}
+#a .a-brand b{display:block;font-size:30px;font-weight:800;letter-spacing:-.05em;line-height:.9}
+#a .a-brand .lab{margin-top:7px}
+#a .a-lcd{flex:1 1 560px;display:flex;flex-wrap:wrap;background:linear-gradient(180deg,#1C1E1B,#121411);border-radius:10px;box-shadow:inset 0 2px 8px #000,inset 0 0 0 1px #000,0 1px 0 #fff;padding:3px 6px}
+#a .a-lcd div{flex:1 1 auto;padding:10px 16px 11px;position:relative}
+#a .a-lcd div+div::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:1px;background:#2E312B}
+#a .a-lcd .wide{flex:2.2 1 auto}
+#a .a-lcd span{display:block;font:500 9px/1 'DM Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#868B7E;margin-bottom:7px}
+#a .a-lcd b{display:flex;align-items:center;gap:8px;font:500 15.5px/1 'Geist Mono','DM Mono',ui-monospace,monospace;letter-spacing:.01em;color:#F3F1E8;font-variant-numeric:tabular-nums}
+#a .a-lcd b i{font-style:normal;color:#868B7E}
+#a .a-lcd .ok b::before{content:"";width:8px;height:8px;border-radius:50%;background:#3EDC81;box-shadow:0 0 10px rgba(62,220,129,.8)}
+#a .a-leds{display:flex;gap:18px}
+#a .a-leds div{display:flex;flex-direction:column;align-items:center;gap:8px}
+#a .a-leds i{width:9px;height:9px;border-radius:50%;background:var(--gr);box-shadow:0 0 0 2px #C9C8C2,0 0 8px rgba(18,161,80,.7)}
+#a .a-leds .o i{background:var(--or);box-shadow:0 0 0 2px #C9C8C2,0 0 8px rgba(255,77,0,.7)}
+
+#a .a-body{display:grid;gap:12px;grid-template-columns:208px minmax(0,1.15fr) minmax(0,1fr) 312px;min-height:0}
+#a .a-rail{padding:18px 10px;display:flex;flex-direction:column;gap:24px}
+#a .a-rail .lab{padding:0 8px 10px}
+#a .a-file{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 8px;border-radius:8px;font:400 12.5px/1 'DM Mono',monospace}
+#a .a-file::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--ink)}
+#a .a-file.bib::before{background:var(--bl)} #a .a-file.fig::before{background:var(--gr)}
+#a .a-file.in{padding-left:22px}
+#a .a-file.on{background:var(--ink);color:var(--face);box-shadow:0 2px 0 #000} #a .a-file.on::before{background:var(--or)}
+#a .a-file em{margin-left:auto;font-style:normal;min-width:18px;height:18px;border-radius:9px;background:var(--or);color:#fff;display:grid;place-items:center;font-size:10px}
+#a .a-file:hover:not(.on){background:#DFDED8}
+#a .a-out{display:block;width:100%;padding:6px 8px;border-radius:8px;font-size:13px}
+#a .a-out:hover{background:#DFDED8}
+#a .a-out i{font:500 11px 'DM Mono',monospace;font-style:normal;color:var(--dim);margin-right:8px}
+#a .a-tape{list-style:none;margin:0;padding:0 8px;display:flex;flex-direction:column}
+#a .a-tape li{position:relative;padding:0 0 14px 22px;font-size:13px;font-weight:500}
+#a .a-tape li::before{content:"";position:absolute;left:0;top:4px;width:9px;height:9px;border-radius:50%;background:var(--ink)}
+#a .a-tape li::after{content:"";position:absolute;left:4px;top:15px;bottom:-3px;width:1px;background:var(--edge)}
+#a .a-tape li:last-child::after{display:none}
+#a .a-tape li.now::before{background:var(--face);box-shadow:inset 0 0 0 2px var(--or)}
+#a .a-tape small{display:block;font:400 10.5px 'DM Mono',monospace;color:var(--dim)}
+
+#a .a-screen{--theirs:#93ADFF;background:var(--screen);color:var(--s-text);border-radius:16px;box-shadow:inset 0 0 0 1px #000,inset 0 0 0 6px #202226,inset 0 0 0 7px #2D3035,0 0 0 1px #C6C5BF,0 2px 0 var(--edge),0 10px 24px rgba(60,58,50,.10);padding:7px;display:flex;flex-direction:column;min-width:0}
+#a .a-shead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;border-bottom:1px solid var(--s-line)}
+#a .a-tabs{display:flex;gap:20px}
+#a .a-tabs button{font:500 11px/1 'DM Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--s-dim);padding:8px 0;border-bottom:2px solid transparent}
+#a .a-tabs .on{color:var(--s-text);border-bottom-color:var(--or)}
+#a .a-seg{display:flex;padding:2px;border-radius:7px;background:#202226}
+#a .a-seg button{font:500 10px/1 'DM Mono',monospace;letter-spacing:.12em;padding:7px 10px;border-radius:5px;color:var(--s-dim)}
+#a .a-seg .on{background:var(--s-text);color:var(--screen)}
+#a .code{padding:16px 18px 18px 0;font:400 12.5px/24px 'Geist Mono','DM Mono',ui-monospace,monospace}
+#a .ln::before{color:#565960}
+#a .ln.cur{background:#1B1D21} #a .ln.cur::before{color:var(--or)}
+#a .k{color:#A9BCFF} #a .m{color:#EBC66E}
+#a del{color:var(--theirs);opacity:.6;text-decoration:line-through}
+#a ins{color:var(--theirs);text-decoration:underline;text-underline-offset:4px}
+#a .sug{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0 12px 46px;background:#1B1D21;font:500 12px/1 'Hanken Grotesk',sans-serif;color:#B5B7BC}
+#a .sug .av{width:20px;height:20px;border-radius:50%;background:var(--theirs);color:#0D1330;display:grid;place-items:center;font-size:11px;font-weight:800}
+#a .sug button{height:26px;padding:0 12px;border-radius:6px;font-weight:600}
+#a .sug .yes{background:var(--s-text);color:var(--screen);box-shadow:0 2px 0 #8E8C85;margin-left:4px}
+#a .sug .no{box-shadow:inset 0 0 0 1px #4A4D53;color:var(--s-text)}
+
+#a .a-platen{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+#a .a-phead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px 10px}
+#a .a-zoom{display:flex;align-items:center;gap:8px;font:500 11px 'Geist Mono','DM Mono',monospace}
+#a .a-zoom button{width:26px;height:26px;border-radius:6px;background:#F8F7F3;box-shadow:0 0 0 1px #BDBCB6,0 2px 0 #BDBCB6;display:grid;place-items:center;font-size:14px}
+#a .a-ruler{height:14px;margin:0 18px;border-bottom:1px solid #8F8E88;background:repeating-linear-gradient(90deg,#55544F 0 1px,transparent 1px 72px) bottom/100% 100% no-repeat,repeating-linear-gradient(90deg,#9A9993 0 1px,transparent 1px 12px) bottom/100% 5px no-repeat}
+#a .a-stage{flex:1;display:grid;place-items:start center;padding:22px 16px 26px}
+#a .crop{width:100%;max-width:528px;padding:14px;--c:#6F6E69;background:
+  linear-gradient(var(--c),var(--c)) left 14px top 0/1px 9px no-repeat,linear-gradient(var(--c),var(--c)) left 0 top 14px/9px 1px no-repeat,
+  linear-gradient(var(--c),var(--c)) right 14px top 0/1px 9px no-repeat,linear-gradient(var(--c),var(--c)) right 0 top 14px/9px 1px no-repeat,
+  linear-gradient(var(--c),var(--c)) left 14px bottom 0/1px 9px no-repeat,linear-gradient(var(--c),var(--c)) left 0 bottom 14px/9px 1px no-repeat,
+  linear-gradient(var(--c),var(--c)) right 14px bottom 0/1px 9px no-repeat,linear-gradient(var(--c),var(--c)) right 0 bottom 14px/9px 1px no-repeat}
+#a .paper{box-shadow:0 1px 2px rgba(0,0,0,.10),0 18px 36px rgba(40,38,30,.18)}
+#a .paper mark{background:#DCE4FF;box-shadow:0 0 0 2px #DCE4FF}
+
+#a .changes{--theirs:var(--bl);padding:16px 14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+#a .chg-head{background:linear-gradient(180deg,#1C1E1B,#121411);color:#F3F1E8;border-radius:10px;padding:13px 15px;box-shadow:inset 0 2px 8px #000}
+#a .chg-head .cap{font:500 9px/1 'DM Mono',monospace;letter-spacing:.16em;text-transform:uppercase;color:#868B7E}
+#a .chg-head .bname{font:500 13.5px/1.2 'Geist Mono','DM Mono',monospace;margin:9px 0 5px;overflow-wrap:anywhere}
+#a .chg-head .bmeta{font:400 11px 'DM Mono',monospace;color:#B9B7AD}
+#a .sec{display:flex;justify-content:space-between;margin-top:8px;font:500 10px/1 'DM Mono',monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+#a .sec .n{color:#C23A00}
+#a .conf{display:flex;flex-direction:column;gap:7px}
+#a .loc,#a .mrg small{font:400 10.5px 'DM Mono',monospace;color:var(--dim)}
+#a .opt{display:block;width:100%;padding:10px 12px;border-radius:10px;background:#F8F7F3;box-shadow:0 0 0 1px #C6C5BF,0 2px 0 #C6C5BF;transition:transform .06s}
+#a .opt .who{display:flex;align-items:center;gap:7px;font:500 9.5px/1 'DM Mono',monospace;letter-spacing:.14em;text-transform:uppercase;margin-bottom:7px}
+#a .opt .who::before{content:"";width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 2px currentColor}
+#a .opt.mine .who{color:#C23A00} #a .opt.theirs .who{color:var(--bl)}
+#a .opt .txt{display:block;font:400 12.5px/1.5 'Hanken Grotesk',sans-serif;color:var(--ink)}
+#a .opt .txt b{font-weight:600;border-radius:3px;padding:0 2px}
+#a .opt.mine .txt b{background:#FFE0D0} #a .opt.theirs .txt b{background:#DCE4FF}
+#a .opt[aria-pressed="true"]{transform:translateY(2px);box-shadow:0 0 0 2px currentColor}
+#a .opt.mine[aria-pressed="true"]{color:#C23A00} #a .opt.theirs[aria-pressed="true"]{color:var(--bl)}
+#a .opt[aria-pressed="true"] .who::before{background:currentColor}
+#a .mrg{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid #D2D1CB}
+#a .mrg .body{flex:1;min-width:0;font:400 11.5px/1.5 'Geist Mono','DM Mono',monospace;overflow-wrap:anywhere}
+#a .mrg small{display:block;margin-bottom:2px}
+#a .mrg .acts{display:flex;gap:6px}
+#a .mrg .acts button{width:28px;height:28px;border-radius:7px;background:#F8F7F3;box-shadow:0 0 0 1px #BDBCB6,0 2px 0 #BDBCB6;display:grid;place-items:center;font-size:12px}
+#a .mrg .res{font:500 10px 'DM Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+#a .finish{width:100%;height:44px;margin-top:6px;border-radius:10px;background:var(--ink);color:var(--face);text-align:center;font-weight:600;box-shadow:0 3px 0 #000}
+#a .finish:disabled{background:#C9C8C2;color:#5F5E59;box-shadow:none;cursor:not-allowed}
+
+#a .a-keys{display:flex;flex-wrap:wrap;gap:10px;padding:14px 18px 17px}
+#a .key{min-width:132px;height:52px;padding:0 14px;border-radius:10px;background:linear-gradient(180deg,#FBFAF7,#F3F2EE);box-shadow:0 0 0 1px #BDBCB6,0 4px 0 #ADACA6;display:flex;flex-direction:column;justify-content:center;gap:5px;transition:transform .06s,box-shadow .06s}
+#a .key:active{transform:translateY(3px);box-shadow:0 0 0 1px #BDBCB6,0 1px 0 #ADACA6}
+#a .key small{font:500 9.5px/1 'DM Mono',monospace;letter-spacing:.14em;color:var(--dim)}
+#a .key span{font-size:13.5px;font-weight:600;line-height:1}
+#a .key.go{background:linear-gradient(180deg,#FF5A14,#F74700);color:#fff;box-shadow:0 0 0 1px #C93B00,0 4px 0 #B03400} #a .key.go small{color:#FFE1D2}
+#a .key.dark{background:linear-gradient(180deg,#232323,#141414);color:var(--face);box-shadow:0 0 0 1px #000,0 4px 0 #000} #a .key.dark small{color:#A9A8A2}
+#a .a-keys .sp{flex:1}
+@media (max-width:1240px){#a .a-body{grid-template-columns:208px minmax(0,1fr) minmax(0,1fr)} #a .changes{grid-column:1/-1}}
+@media (max-width:860px){#a .a-body{grid-template-columns:minmax(0,1fr)}}
+
+/* ================= B · GLASS — frosted panels floating over a room ================= */
+#b{--tx:#F6F3EF;--mu:rgba(246,243,239,.68);--or:#F4623A;--gr:#5BE08F;--theirs:#A9CBFF;
+  color:var(--tx);font:500 13.5px/1.45 'Manrope',system-ui,sans-serif;padding:22px 28px 40px;display:flex;flex-direction:column;align-items:center;gap:18px;
+  background:
+   radial-gradient(38% 46% at 12% 22%,rgba(168,186,196,.85),transparent 70%),
+   radial-gradient(30% 34% at 3% 74%,rgba(196,160,52,.55),transparent 70%),
+   radial-gradient(46% 40% at 55% 104%,rgba(214,170,128,.8),transparent 70%),
+   radial-gradient(40% 50% at 92% 30%,rgba(28,24,22,.9),transparent 72%),
+   linear-gradient(115deg,transparent 0 37%,rgba(20,18,16,.55) 37% 39.5%,transparent 39.5% 71%,rgba(20,18,16,.5) 71% 72.5%,transparent 72.5%),
+   linear-gradient(160deg,#6A6661,#2C2927)}
+#b .g{background:rgba(92,88,84,.42);-webkit-backdrop-filter:blur(36px) saturate(1.3);backdrop-filter:blur(36px) saturate(1.3);border:1px solid rgba(255,255,255,.15);box-shadow:0 30px 80px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.14)}
+#b .card{background:rgba(255,255,255,.075);border:1px solid rgba(255,255,255,.10);border-radius:18px;min-width:0}
+#b .rb{width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.10);display:grid;place-items:center;font-size:18px;flex:none}
+#b .rb:hover{background:rgba(255,255,255,.2)}
+#b .pill{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:34px;padding:0 15px;border-radius:999px;border:1px solid rgba(255,255,255,.22);font-weight:600;font-size:12.5px;white-space:nowrap}
+#b .pill:hover{background:rgba(255,255,255,.12)}
+#b .pill.on{background:var(--or);border-color:var(--or);color:#fff;box-shadow:0 6px 18px rgba(244,98,58,.4)}
+#b .chipg{font-style:normal;vertical-align:4px;display:inline-flex;align-items:center;padding:2px 8px;border-radius:7px;background:rgba(91,224,143,.16);color:var(--gr);font-size:10.5px;font-weight:700}
+#b .chipg.w{background:rgba(244,98,58,.22);color:#FFB49C}
+
+#b .b-bar{display:flex;align-items:center;gap:10px;padding:8px;border-radius:999px;width:100%;max-width:820px}
+#b .b-addr{flex:1;min-width:0;height:42px;border-radius:999px;background:rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;gap:8px;padding:0 18px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#b .b-addr i{font-style:normal;color:var(--mu);font-weight:500}
+#b .b-win{width:100%;max-width:1520px;border-radius:30px;overflow:hidden}
+#b .b-nav{display:flex;flex-wrap:wrap;align-items:center;gap:12px 26px;padding:14px 26px;background:rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.09)}
+#b .b-nav .links{display:flex;gap:24px}
+#b .b-nav .links button{color:var(--mu)} #b .b-nav .links .on,#b .b-nav .links button:hover{color:var(--tx)}
+#b .b-find{flex:1 1 220px;max-width:430px;height:40px;border-radius:999px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px;padding:0 16px;color:var(--mu)}
+#b .b-me{margin-left:auto;display:flex;align-items:center;gap:10px}
+#b .b-me .av,#b .chg-head::before{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700}
+#b .b-me .av{background:var(--tx);color:#2C2927}
+#b .b-me small{display:block;color:var(--mu);font-size:11.5px}
+#b .b-main{display:grid;grid-template-columns:minmax(0,1fr) 348px;gap:20px;padding:22px 24px 26px}
+#b .b-left,#b .b-right{display:flex;flex-direction:column;gap:16px;min-width:0}
+#b .b-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+#b h1{margin:0;font-size:23px;font-weight:600;letter-spacing:-.01em}
+#b .b-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+#b .b-stat{padding:15px 18px 16px}
+#b .b-stat span{display:block;font-weight:600;font-size:12.5px;margin-bottom:8px}
+#b .b-stat b{font-size:25px;font-weight:700;letter-spacing:-.01em;margin-right:8px;font-variant-numeric:tabular-nums}
+#b .b-panes{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);gap:14px}
+#b .b-ph{display:flex;align-items:center;gap:18px;padding:14px 18px 6px;font-weight:600;font-size:12.5px}
+#b .b-ph button{color:var(--mu)} #b .b-ph .on{color:var(--tx)}
+#b .b-ph .r{margin-left:auto;color:var(--mu);letter-spacing:.1em}
+#b .b-edit{background:rgba(22,20,18,.5)}
+#b .code{padding:8px 18px 18px 0;font:400 12.5px/24px 'Geist Mono','DM Mono',ui-monospace,monospace}
+#b .ln::before{color:rgba(246,243,239,.38)}
+#b .ln.cur{background:rgba(255,255,255,.07)} #b .ln.cur::before{color:var(--or)}
+#b .k{color:#FFC896} #b .m{color:#A6E8BC}
+#b del{color:var(--theirs);opacity:.6;text-decoration:line-through}
+#b ins{color:var(--theirs);text-decoration:underline;text-underline-offset:4px}
+#b .sug{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0 12px 46px;background:rgba(255,255,255,.07);font:600 12px/1 'Manrope',sans-serif;color:var(--mu)}
+#b .sug .av{width:22px;height:22px;border-radius:50%;background:var(--theirs);color:#16233A;display:grid;place-items:center;font-size:11px;font-weight:700}
+#b .sug button{height:28px;padding:0 13px;border-radius:999px;font-weight:700;color:var(--tx)}
+#b .sug .yes{background:var(--or);color:#fff;margin-left:4px} #b .sug .no{border:1px solid rgba(255,255,255,.25)}
+#b .b-stage{display:grid;place-items:start center;padding:10px 20px 22px}
+#b .paper{border-radius:3px;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+#b .paper mark{background:#FFD9CC;box-shadow:0 0 0 2px #FFD9CC}
+
+#b .changes{padding:18px;display:flex;flex-direction:column;gap:10px}
+#b .chg-head{display:grid;grid-template-columns:36px minmax(0,1fr);column-gap:12px;align-items:center;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.10)}
+#b .chg-head::before{content:"L";grid-row:1/4;background:var(--theirs);color:#16233A}
+#b .chg-head .cap{font-size:11.5px;color:var(--mu)}
+#b .chg-head .bname{font-weight:700;overflow-wrap:anywhere}
+#b .chg-head .bmeta{font-size:11.5px;color:var(--mu)}
+#b .sec{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-weight:700;font-size:13.5px}
+#b .sec .n{font-size:10.5px;padding:2px 8px;border-radius:7px;background:rgba(244,98,58,.22);color:#FFB49C}
+#b .conf{display:flex;flex-direction:column;gap:7px}
+#b .loc,#b .mrg small{font-size:11px;color:var(--mu)}
+#b .opt{display:block;width:100%;padding:11px 13px;border-radius:14px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}
+#b .opt:hover{background:rgba(255,255,255,.11)}
+#b .opt .who{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700;margin-bottom:5px}
+#b .opt .who::before{content:"";width:9px;height:9px;border-radius:50%;box-shadow:inset 0 0 0 2px currentColor}
+#b .opt.mine .who{color:#FFA98C} #b .opt.theirs .who{color:var(--theirs)}
+#b .opt .txt{display:block;font-size:12.5px;line-height:1.5;font-weight:500}
+#b .opt .txt b{font-weight:700;border-radius:4px;padding:0 3px}
+#b .opt.mine .txt b{background:rgba(244,98,58,.3)} #b .opt.theirs .txt b{background:rgba(169,203,255,.24)}
+#b .opt.mine[aria-pressed="true"]{border-color:var(--or);background:rgba(244,98,58,.16);box-shadow:0 0 0 1px var(--or)}
+#b .opt.theirs[aria-pressed="true"]{border-color:var(--theirs);background:rgba(169,203,255,.14);box-shadow:0 0 0 1px var(--theirs)}
+#b .opt[aria-pressed="true"] .who::before{background:currentColor}
+#b .mrg{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid rgba(255,255,255,.10)}
+#b .mrg .body{flex:1;min-width:0;font:400 11.5px/1.55 'Geist Mono','DM Mono',monospace;overflow-wrap:anywhere}
+#b .mrg small{display:block;font-family:'Manrope',sans-serif;margin-bottom:2px}
+#b .mrg .acts{display:flex;gap:6px}
+#b .mrg .acts button{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.10);display:grid;place-items:center;font-size:12px}
+#b .mrg .acts button:first-child{background:rgba(91,224,143,.2);color:var(--gr)}
+#b .mrg .res{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:7px;background:rgba(255,255,255,.1)}
+#b .finish{width:100%;min-height:44px;margin-top:6px;border-radius:999px;background:var(--or);color:#fff;text-align:center;font-weight:700;box-shadow:0 8px 22px rgba(244,98,58,.4)}
+#b .finish:disabled{background:rgba(255,255,255,.10);color:var(--mu);box-shadow:none;cursor:not-allowed}
+@media (max-width:1180px){#b .b-main{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:820px){#b{padding-inline:16px} #b .b-panes{grid-template-columns:minmax(0,1fr)} #b .b-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ================= C · ONYX — near-black bento workspace ================= */
+#c{--bg:#070809;--c1:#101113;--c2:#17191C;--ln:#202327;--tx:#EDEEF0;--mu:#8D9299;--gr:#2BD97C;--pu:#A78BFA;--sw-on:#2BD97C;--sw-off:#2A2D31;
+  background:radial-gradient(70% 55% at 78% -8%,#1A1D22 0%,transparent 62%),radial-gradient(50% 40% at 0% 100%,#101613 0%,transparent 60%),var(--bg);
+  color:var(--tx);font:400 13px/1.45 'Geist',system-ui,sans-serif;display:grid;grid-template-columns:236px minmax(0,1fr)}
+#c .card{background:linear-gradient(180deg,#141619,#0E0F11);border:1px solid var(--ln);border-radius:14px;min-width:0}
+#c .mu{color:var(--mu)}
+#c .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 14px;border-radius:9px;background:var(--c2);border:1px solid var(--ln);font-weight:500;white-space:nowrap}
+#c .btn:hover{border-color:#3A3E44}
+#c .btn.go{background:var(--gr);border-color:var(--gr);color:#04140B;font-weight:600}
+#c .dot{display:inline-flex;align-items:center;gap:7px;color:var(--gr);font-size:12px;font-weight:500}
+#c .dot::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}
+#c .c-side{display:flex;flex-direction:column;gap:22px;padding:20px 14px;border-right:1px solid var(--ln);background:rgba(10,11,12,.6)}
+#c .c-logo{display:flex;align-items:center;gap:8px;padding:0 8px;font-size:17px;font-weight:700;letter-spacing:.1em}
+#c .c-logo small{font:500 9.5px/1 'Geist Mono',monospace;letter-spacing:.06em;padding:3px 6px;border-radius:5px;background:var(--c2);border:1px solid var(--ln);color:var(--mu)}
+#c .c-h{padding:0 10px 8px;font-size:11px;color:var(--mu)}
+#c .c-nav{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 10px;border-radius:9px;color:var(--mu);font-weight:500}
+#c .c-nav::before{content:"";width:6px;height:6px;border-radius:50%;background:#3A3E44}
+#c .c-nav:hover{color:var(--tx)}
+#c .c-nav.on{background:var(--c2);color:var(--tx);box-shadow:inset 0 0 0 1px var(--ln)} #c .c-nav.on::before{background:var(--gr);box-shadow:0 0 8px var(--gr)}
+#c .c-nav em,#c .c-file em{margin-left:auto;font-style:normal;font-size:11px;min-width:20px;text-align:center;padding:1px 6px;border-radius:6px;background:rgba(167,139,250,.16);color:var(--pu)}
+#c .c-file{display:flex;align-items:center;width:100%;height:30px;padding:0 10px;border-radius:8px;font:400 12px/1 'Geist Mono',monospace;color:var(--mu)}
+#c .c-file.in{padding-left:24px}
+#c .c-file.on,#c .c-file:hover{color:var(--tx)} #c .c-file.on{background:var(--c2)}
+#c .c-help{margin-top:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+#c .c-help b{font-weight:600}
+#c .c-main{padding:20px 24px 28px;display:flex;flex-direction:column;gap:14px;min-width:0}
+#c .c-top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
+#c h1{margin:2px 0 0;font-size:25px;font-weight:600;letter-spacing:-.02em}
+#c .c-acts{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+#c .c-focus{display:flex;align-items:center;gap:10px;padding:8px 12px}
+#c .c-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+#c .c-stat{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:14px 16px}
+#c .c-stat b{display:block;font-weight:600;font-size:13.5px}
+#c .c-stat small{display:block;color:var(--mu);font-size:11.5px;margin-bottom:10px}
+#c .c-stat .v{font-size:30px;font-weight:600;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+#c .c-row{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr) 322px;gap:14px}
+#c .c-ph{display:flex;align-items:center;gap:6px;padding:12px 14px;border-bottom:1px solid var(--ln)}
+#c .c-ph b{font-weight:600;margin-right:auto}
+#c .c-ph .tab{padding:5px 10px;border-radius:7px;color:var(--mu);font-size:12px;font-weight:500}
+#c .c-ph .tab.on{background:var(--c2);color:var(--tx);box-shadow:inset 0 0 0 1px var(--ln)}
+#c .code{padding:12px 16px 16px 0;font:400 12.5px/24px 'Geist Mono','DM Mono',ui-monospace,monospace;color:#C5C8CD}
+#c .ln::before{color:#4A4E55}
+#c .ln.cur{background:#17191C} #c .ln.cur::before{color:var(--gr)}
+#c .k{color:#fff;font-weight:500} #c .m{color:#86EBB4}
+#c del{color:var(--pu);opacity:.6;text-decoration:line-through}
+#c ins{color:var(--pu);text-decoration:underline;text-underline-offset:4px}
+#c .sug{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:4px 0 12px 46px;background:#17191C;font:500 12px/1 'Geist',sans-serif;color:var(--mu)}
+#c .sug .av{width:20px;height:20px;border-radius:6px;background:var(--pu);color:#170F33;display:grid;place-items:center;font-size:11px;font-weight:700}
+#c .sug button{height:26px;padding:0 12px;border-radius:7px;font-weight:600;color:var(--tx)}
+#c .sug .yes{background:var(--gr);color:#04140B;margin-left:4px} #c .sug .no{box-shadow:inset 0 0 0 1px #3A3E44}
+#c .c-stage{display:grid;place-items:start center;padding:20px 18px 22px;background:radial-gradient(#1E2125 1px,transparent 1.2px) 0 0/16px 16px}
+#c .paper{border-radius:2px;box-shadow:0 20px 50px rgba(0,0,0,.6)}
+#c .paper mark{background:#DDD3FF;box-shadow:0 0 0 2px #DDD3FF}
+#c .changes{padding:14px;display:flex;flex-direction:column;gap:9px}
+#c .chg-head{padding:12px 13px;border-radius:10px;background:var(--c2);border:1px solid var(--ln)}
+#c .chg-head .cap{font-size:11px;color:var(--mu)}
+#c .chg-head .bname{font:500 12.5px/1.3 'Geist Mono',monospace;margin:5px 0 3px;overflow-wrap:anywhere}
+#c .chg-head .bmeta{font-size:11.5px;color:var(--mu)}
+#c .sec{display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-weight:600}
+#c .sec .n{font-size:11px;font-weight:500;color:var(--mu)}
+#c .conf{display:flex;flex-direction:column;gap:6px}
+#c .loc,#c .mrg small{font:400 10.5px 'Geist Mono',monospace;color:var(--mu)}
+#c .opt{display:block;width:100%;padding:10px 12px;border-radius:10px;background:#0C0D0F;border:1px solid var(--ln)}
+#c .opt:hover{border-color:#3A3E44}
+#c .opt .who{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;margin-bottom:5px}
+#c .opt .who::before{content:"";width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 2px currentColor}
+#c .opt.mine .who{color:var(--gr)} #c .opt.theirs .who{color:var(--pu)}
+#c .opt .txt{display:block;font-size:12.5px;line-height:1.5;color:#C5C8CD}
+#c .opt .txt b{font-weight:600;color:var(--tx);border-radius:3px;padding:0 2px}
+#c .opt.mine .txt b{background:rgba(43,217,124,.18)} #c .opt.theirs .txt b{background:rgba(167,139,250,.22)}
+#c .opt.mine[aria-pressed="true"]{border-color:var(--gr);box-shadow:0 0 0 1px var(--gr),0 0 24px rgba(43,217,124,.12)}
+#c .opt.theirs[aria-pressed="true"]{border-color:var(--pu);box-shadow:0 0 0 1px var(--pu),0 0 24px rgba(167,139,250,.14)}
+#c .opt[aria-pressed="true"] .who::before{background:currentColor}
+#c .mrg{display:flex;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--ln)}
+#c .mrg .body{flex:1;min-width:0;font:400 11.5px/1.55 'Geist Mono',monospace;color:#C5C8CD;overflow-wrap:anywhere}
+#c .mrg small{display:block;margin-bottom:2px}
+#c .mrg .acts{display:flex;gap:6px}
+#c .mrg .acts button{width:28px;height:28px;border-radius:8px;background:var(--c2);border:1px solid var(--ln);display:grid;place-items:center;font-size:12px}
+#c .mrg .acts button:first-child{color:var(--gr)}
+#c .mrg .res{font-size:11px;color:var(--mu)}
+#c .finish{width:100%;min-height:40px;margin-top:6px;border-radius:9px;background:var(--gr);color:#04140B;text-align:center;font-weight:600}
+#c .finish:disabled{background:var(--c2);color:#6F747B;box-shadow:inset 0 0 0 1px var(--ln);cursor:not-allowed}
+#c .c-low{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+#c .c-box{padding:16px;display:flex;flex-direction:column;gap:10px}
+#c .c-box>b{font-weight:600;font-size:13.5px}
+#c .c-box>small{color:var(--mu);font-size:11.5px;margin-top:-8px}
+#c .c-snap{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--ln)}
+#c .c-snap::before{content:"";width:7px;height:7px;border-radius:50%;background:#3A3E44}
+#c .c-snap.now::before{background:var(--gr);box-shadow:0 0 8px var(--gr)}
+#c .c-snap span{margin-left:auto;color:var(--mu);font-size:11.5px}
+#c .c-set{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;cursor:pointer}
+#c .c-box .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto}
+@media (max-width:1320px){#c .c-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} #c .c-row>.card:last-child{grid-column:1/-1}}
+@media (max-width:900px){#c{grid-template-columns:minmax(0,1fr)} #c .c-side{border-right:0;border-bottom:1px solid var(--ln)} #c .c-row,#c .c-low{grid-template-columns:minmax(0,1fr)} #c .c-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ================= export dialog, dressed per direction ================= */
+dialog{width:calc(100% - 32px);max-width:540px;padding:26px;border:0}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+dialog form{display:flex;flex-direction:column;gap:18px}
+dialog h2{margin:0;font-size:22px;line-height:1.1}
+dialog p{margin:6px 0 0;opacity:.8}
+dialog .f{display:flex;flex-direction:column;gap:6px}
+dialog .f>label,dialog legend{font-size:11.5px;font-weight:600;padding:0;opacity:.8}
+dialog input[type=text],dialog textarea{font:inherit;color:inherit;background:var(--di);padding:10px 12px;border:1px solid var(--dl);border-radius:var(--dr);min-height:42px;resize:vertical}
+dialog fieldset{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:6px}
+dialog .ck{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 12px;background:var(--di);border:1px solid var(--dl);border-radius:var(--dr);cursor:pointer}
+dialog .ck input{width:17px;height:17px;accent-color:var(--da)}
+dialog .ck span{flex:1;font-weight:600}
+dialog .ck small{opacity:.75;font-size:.86em}
+dialog .end{display:flex;justify-content:flex-end;gap:10px}
+dialog .end button{min-height:44px;padding:0 18px;border-radius:var(--db);border:1px solid var(--dl);font-weight:600}
+dialog .end .go{background:var(--da);color:var(--dai);border-color:var(--da)}
+body[data-dir="a"] dialog{--dr:10px;--db:10px;--dl:#C6C5BF;--di:#F8F7F3;--da:#FF4D00;--dai:#fff;background:#ECEBE6;color:#141414;border-radius:18px;font-family:'Hanken Grotesk',sans-serif;box-shadow:0 0 0 1px #B7B6AF,0 30px 80px rgba(0,0,0,.45)}
+body[data-dir="a"] dialog h2{font-weight:800;letter-spacing:-.03em}
+body[data-dir="b"] dialog{--dr:14px;--db:999px;--dl:rgba(255,255,255,.16);--di:rgba(255,255,255,.07);--da:#F4623A;--dai:#fff;background:rgba(84,80,76,.6);-webkit-backdrop-filter:blur(40px) saturate(1.3);backdrop-filter:blur(40px) saturate(1.3);color:#F6F3EF;border:1px solid rgba(255,255,255,.16);border-radius:26px;font:500 13.5px/1.45 'Manrope',sans-serif;box-shadow:0 40px 100px rgba(0,0,0,.5)}
+body[data-dir="b"] dialog::backdrop{background:rgba(20,18,16,.45)}
+body[data-dir="c"] dialog{--dr:9px;--db:9px;--dl:#202327;--di:#0C0D0F;--da:#2BD97C;--dai:#04140B;background:#101113;color:#EDEEF0;border:1px solid #202327;border-radius:16px;font:400 13px/1.45 'Geist',sans-serif;box-shadow:0 40px 100px rgba(0,0,0,.7)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body data-dir="a">
+
+<nav class="switch" aria-label="Design directions">
+  <button data-dirbtn="a">A · Fieldwork</button>
+  <button data-dirbtn="b">B · Glass</button>
+  <button data-dirbtn="c">C · Onyx</button>
+  <span class="hint">← → to switch · the changes panel and Export work in each</span>
+</nav>
+
+<!-- ============ A ============ -->
+<section class="dir" id="a">
+  <header class="mod a-top">
+    <div class="a-brand"><b>quire</b><div class="lab">TX-1 · offline typesetter</div></div>
+    <div class="a-lcd" role="status">
+      <div class="wide"><span>File</span><b>main.tex</b></div>
+      <div><span>Line</span><b>16</b></div>
+      <div><span>Column</span><b>48</b></div>
+      <div><span>Page</span><b>1<i>/</i>1</b></div>
+      <div><span>Errors</span><b>0</b></div>
+      <div class="ok"><span>Status</span><b>Compiled</b></div>
+    </div>
+    <div class="a-leds" aria-hidden="true">
+      <div><i></i><span class="lab">Engine</span></div>
+      <div><i></i><span class="lab">Offline</span></div>
+      <div class="o"><i></i><span class="lab">Track</span></div>
+    </div>
+  </header>
+
+  <div class="a-body">
+    <nav class="mod a-rail" aria-label="Project">
+      <div>
+        <div class="lab">Files</div>
+        <button class="a-file on">main.tex<em>1</em></button>
+        <button class="a-file in">intro.tex</button>
+        <button class="a-file in">proof.tex</button>
+        <button class="a-file fig">contour.pdf</button>
+        <button class="a-file bib">refs.bib</button>
+      </div>
+      <div>
+        <div class="lab">Outline</div>
+        <button class="a-out"><i>§0</i>Abstract</button>
+        <button class="a-out"><i>§1</i>The polar-coordinates trick</button>
+        <button class="a-out"><i>§R</i>References</button>
+      </div>
+      <div>
+        <div class="lab">Snapshots</div>
+        <ol class="a-tape">
+          <li class="now">Working copy<small>unsaved changes</small></li>
+          <li>Draft 3<small>exported to Lina</small></li>
+          <li>Draft 2<small>saved by you</small></li>
+          <li>Draft 1<small>saved by you</small></li>
+        </ol>
+      </div>
+    </nav>
+
+    <main class="a-screen">
+      <div class="a-shead">
+        <div class="a-tabs"><button class="on">main.tex</button><button>proof.tex</button></div>
+        <div class="a-seg"><button class="on">SOURCE</button><button>VISUAL</button></div>
+      </div>
+      <div class="code" data-tpl="code"></div>
+    </main>
+
+    <section class="mod a-platen" aria-label="PDF preview">
+      <div class="a-phead"><span class="lab">Output · page 1 of 1</span><div class="a-zoom"><button aria-label="Zoom out">−</button>100%<button aria-label="Zoom in">+</button></div></div>
+      <div class="a-ruler" aria-hidden="true"></div>
+      <div class="a-stage"><div class="crop"><article class="paper" data-tpl="paper"></article></div></div>
+    </section>
+
+    <aside class="mod changes" data-tpl="changes" aria-label="Incoming changes"></aside>
+  </div>
+
+  <footer class="mod a-keys">
+    <button class="key go"><small>F1</small><span>Compile</span></button>
+    <button class="key"><small>F2</small><span>Jump to PDF</span></button>
+    <button class="key"><small>F3</small><span>Visual mode</span></button>
+    <button class="key"><small>F4</small><span>Save snapshot</span></button>
+    <span class="sp"></span>
+    <button class="key"><small>F7</small><span>Import bundle</span></button>
+    <button class="key dark" data-export><small>F8</small><span>Export bundle</span></button>
+  </footer>
+</section>
+
+<!-- ============ B ============ -->
+<section class="dir" id="b" hidden>
+  <div class="g b-bar">
+    <button class="rb" aria-label="Previous file">‹</button>
+    <button class="rb" aria-label="Next file">›</button>
+    <div class="b-addr">gaussian-integral <i>/</i> main.tex</div>
+    <button class="rb" aria-label="New file">+</button>
+    <button class="pill" data-export>Export bundle</button>
+    <button class="pill on">▶ Compile</button>
+  </div>
+
+  <div class="g b-win">
+    <div class="b-nav">
+      <svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26" fill="#F4623A"><path d="M5 3h11l5 5v15H5z"/><path d="M9 13h8v2H9zM9 17h5v2H9z" fill="#fff"/></svg>
+      <div class="links"><button class="on">Editor</button><button>Review</button><button>Snapshots</button><button>Templates</button></div>
+      <div class="b-find">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5" stroke-linecap="round"/></svg>
+        Find in project
+      </div>
+      <div class="b-me"><span class="av">Y</span><div>You<small>Working copy</small></div></div>
+    </div>
+
+    <div class="b-main">
+      <div class="b-left">
+        <div class="b-head">
+          <h1>main.tex</h1>
+          <div><button class="pill on">Source</button> <button class="pill">Visual</button> <button class="pill">Split</button></div>
+        </div>
+        <div class="b-stats">
+          <div class="card b-stat"><span>Pages</span><b>1</b><i class="chipg">compiled</i></div>
+          <div class="card b-stat"><span>Errors</span><b>0</b><i class="chipg">clean</i></div>
+          <div class="card b-stat"><span>Suggestions</span><b>1</b><i class="chipg">from Lina</i></div>
+          <div class="card b-stat"><span>Conflicts</span><b>2</b><i class="chipg w">need you</i></div>
+        </div>
+        <div class="b-panes">
+          <main class="card b-edit">
+            <div class="b-ph"><button class="on">main.tex</button><button>intro.tex</button><button>proof.tex</button><button>refs.bib</button><span class="r">···</span></div>
+            <div class="code" data-tpl="code"></div>
+          </main>
+          <section class="card" aria-label="PDF preview">
+            <div class="b-ph"><span>Preview</span><span class="r" style="letter-spacing:0">Page 1 of 1 · 100%</span></div>
+            <div class="b-stage"><article class="paper" data-tpl="paper"></article></div>
+          </section>
+        </div>
+      </div>
+      <div class="b-right">
+        <aside class="card changes" data-tpl="changes" aria-label="Incoming changes"></aside>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C ============ -->
+<section class="dir" id="c" hidden>
+  <nav class="c-side" aria-label="Project">
+    <div class="c-logo">QUIRE <small>offline</small></div>
+    <div>
+      <button class="c-nav on">Editor</button>
+      <button class="c-nav">Review<em>2</em></button>
+      <button class="c-nav">Snapshots</button>
+      <button class="c-nav">Templates</button>
+      <button class="c-nav">Settings</button>
+    </div>
+    <div>
+      <div class="c-h">Files</div>
+      <button class="c-file on">main.tex<em>1</em></button>
+      <button class="c-file in">intro.tex</button>
+      <button class="c-file in">proof.tex</button>
+      <button class="c-file">contour.pdf</button>
+      <button class="c-file">refs.bib</button>
+    </div>
+    <div class="card c-help">
+      <b>Hand off your work</b>
+      <span class="mu">Export one file. Anyone with Quire can open it and continue.</span>
+      <button class="btn go" data-export>Export bundle</button>
+    </div>
+  </nav>
+
+  <div class="c-main">
+    <div class="c-top">
+      <div><span class="mu">gaussian-integral</span><h1>main.tex</h1></div>
+      <div class="c-acts">
+        <label class="card c-focus" for="focus">Focus mode<span class="sw"><input id="focus" type="checkbox"><i></i></span></label>
+        <button class="btn">Import bundle</button>
+        <button class="btn go">▶ Compile</button>
+      </div>
+    </div>
+
+    <div class="c-stats">
+      <div class="card c-stat"><div><b>Engine</b><small>Tectonic, offline</small><span class="dot">Ready</span></div></div>
+      <div class="card c-stat"><div><b>Errors</b><small>Last compile</small><span class="dot">Clean</span></div><span class="v">0</span></div>
+      <div class="card c-stat"><div><b>Pages</b><small>A4, 11 pt</small><span class="dot">Up to date</span></div><span class="v">1</span></div>
+      <div class="card c-stat"><div><b>Incoming</b><small>From Lina</small><span class="dot" style="color:var(--pu)">Needs review</span></div><span class="v">5</span></div>
+    </div>
+
+    <div class="c-row">
+      <main class="card">
+        <div class="c-ph"><b>Source</b><button class="tab on">Source</button><button class="tab">Visual</button></div>
+        <div class="code" data-tpl="code"></div>
+      </main>
+      <section class="card" aria-label="PDF preview">
+        <div class="c-ph"><b>Preview</b><span class="mu">Page 1 of 1 · 100%</span></div>
+        <div class="c-stage"><article class="paper" data-tpl="paper"></article></div>
+      </section>
+      <div class="card">
+        <div class="c-ph"><b>Changes</b><span class="mu">Lina</span></div>
+        <aside class="changes" data-tpl="changes" aria-label="Incoming changes"></aside>
+      </div>
+    </div>
+
+    <div class="c-low">
+      <div class="card c-box">
+        <b>Snapshots</b><small>Every export saves one</small>
+        <div class="c-snap now">Working copy<span>unsaved</span></div>
+        <div class="c-snap">Draft 3<span>exported to Lina</span></div>
+        <div class="c-snap">Draft 2<span>saved by you</span></div>
+      </div>
+      <div class="card c-box">
+        <b>Editor settings</b><small>Applies to this project</small>
+        <label class="c-set" for="s1">Track changes<span class="sw"><input id="s1" type="checkbox" checked><i></i></span></label>
+        <label class="c-set" for="s2">Compile on save<span class="sw"><input id="s2" type="checkbox" checked><i></i></span></label>
+        <label class="c-set" for="s3">Scroll PDF with source<span class="sw"><input id="s3" type="checkbox" checked><i></i></span></label>
+        <label class="c-set" for="s4">Spell check<span class="sw"><input id="s4" type="checkbox"><i></i></span></label>
+      </div>
+      <div class="card c-box">
+        <b>Bundle</b><small>One file carries sources, history and the PDF</small>
+        <span class="mu">Last export: Draft 3, sent to Lina. Her reply is waiting in Changes.</span>
+        <div class="btns"><button class="btn go" data-export>Export bundle</button><button class="btn">Import bundle</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ shared content ============ -->
+<template id="tpl-code">
+<div class="ln"><span><span class="k">\documentclass</span>[11pt]{article}</span></div>
+<div class="ln"><span><span class="k">\usepackage</span>{amsmath, amssymb}</span></div>
+<div class="ln"><span><span class="k">\usepackage</span>{graphicx}</span></div>
+<div class="ln"><span> </span></div>
+<div class="ln"><span><span class="k">\title</span>{A Note on the Gaussian Integral}</span></div>
+<div class="ln"><span><span class="k">\author</span>{[AUTHOR NAME]}</span></div>
+<div class="ln"><span> </span></div>
+<div class="ln"><span><span class="k">\begin</span>{document}</span></div>
+<div class="ln"><span><span class="k">\maketitle</span></span></div>
+<div class="ln"><span> </span></div>
+<div class="ln"><span><span class="k">\begin</span>{abstract}</span></div>
+<div class="ln"><span>We give the classical evaluation of the Gaussian integral by squaring it and passing to polar coordinates.</span></div>
+<div class="ln"><span><span class="k">\end</span>{abstract}</span></div>
+<div class="ln"><span> </span></div>
+<div class="ln"><span><span class="k">\section</span>{The polar-coordinates trick}</span></div>
+<div class="decide">
+<div class="ln cur"><span>Let <span class="m">$I = \int_{-\infty}^{\infty} e^{-x^2}\,dx$</span>. <del>Then</del> <ins>Since the integrand is positive,</ins> we may write</span></div>
+<div class="sug"><span class="av">L</span><span>Lina suggests a rewording</span><button class="yes" data-do="accepted">Accept</button><button class="no" data-do="rejected">Reject</button></div>
+</div>
+<div class="ln"><span><span class="k">\begin</span>{equation}</span></div>
+<div class="ln"><span class="m">  I^2 = \int_{0}^{2\pi}\!\!\int_{0}^{\infty} e^{-r^2}\, r\,dr\,d\theta = \pi .</span></div>
+<div class="ln"><span><span class="k">\end</span>{equation}</span></div>
+<div class="ln"><span>Hence <span class="m">$I = \sqrt{\pi}$</span>.</span></div>
+<div class="ln"><span> </span></div>
+<div class="ln"><span><span class="k">\end</span>{document}</span></div>
+</template>
+
+<template id="tpl-paper">
+<h1>A Note on the Gaussian Integral</h1>
+<div class="au">[AUTHOR NAME]</div>
+<div class="abs"><b>Abstract</b>We give the classical evaluation of the Gaussian integral by squaring it and passing to polar coordinates.</div>
+<h2>1&emsp;The polar-coordinates trick</h2>
+<p>Let <i>I</i> = <span style="font-size:1.3em">∫</span><sub>−∞</sub><sup>∞</sup> <i>e</i><sup>−<i>x</i>²</sup> d<i>x</i>. <mark>Since the integrand is positive,</mark> we may write</p>
+<div class="eq"><div><i>I</i><sup>2</sup> = <span class="int">∫</span><sub>0</sub><sup>2<i>π</i></sup><span class="int">∫</span><sub>0</sub><sup>∞</sup> <i>e</i><sup>−<i>r</i>²</sup> <i>r</i> d<i>r</i> d<i>θ</i> = <i>π</i>.</div><span>(1)</span></div>
+<p>Hence <i>I</i> = √<i>π</i>.</p>
+<div class="pg">1</div>
+</template>
+
+<template id="tpl-changes">
+<div class="chg-head"><div class="cap">Incoming bundle from Lina</div><div class="bname">gaussian-integral.quire</div><div class="bmeta">Based on your Draft 3</div></div>
+<div class="sec"><span>Conflicts</span><span class="n" data-resolved>0 of 2 resolved</span></div>
+<div class="conf">
+  <div class="loc">main.tex, line 12</div>
+  <button class="opt mine" data-pick="mine" aria-pressed="false"><span class="who">Yours</span><span class="txt">We <b>give</b> the classical evaluation of the Gaussian integral <b>by</b> squaring it and <b>passing</b> to polar coordinates.</span></button>
+  <button class="opt theirs" data-pick="theirs" aria-pressed="false"><span class="who">Theirs</span><span class="txt">We <b>recall</b> the classical evaluation of the Gaussian integral, <b>obtained by</b> squaring it and <b>changing</b> to polar coordinates.</span></button>
+</div>
+<div class="conf">
+  <div class="loc">main.tex, line 20</div>
+  <button class="opt mine" data-pick="mine" aria-pressed="false"><span class="who">Yours</span><span class="txt"><b>Hence</b> $I = \sqrt{\pi}$<b>, as claimed</b>.</span></button>
+  <button class="opt theirs" data-pick="theirs" aria-pressed="false"><span class="who">Theirs</span><span class="txt"><b>Taking the positive root gives</b> $I = \sqrt{\pi}$.</span></button>
+</div>
+<div class="sec"><span>Merged automatically</span><span class="n" style="background:none;color:inherit;opacity:.7">3</span></div>
+<div class="mrg decide"><div class="body"><small>main.tex, line 16</small><del>Then</del> <ins>Since the integrand is positive,</ins></div><div class="acts"><button aria-label="Accept change" data-do="accepted">✓</button><button aria-label="Reject change" data-do="rejected">✕</button></div><span class="res"></span></div>
+<div class="mrg decide"><div class="body"><small>proof.tex, line 4</small>\begin{equation}<ins>\label{eq:polar}</ins></div><div class="acts"><button aria-label="Accept change" data-do="accepted">✓</button><button aria-label="Reject change" data-do="rejected">✕</button></div><span class="res"></span></div>
+<div class="mrg decide"><div class="body"><small>refs.bib, end of file</small><ins>@book{[CITATION KEY], …}</ins></div><div class="acts"><button aria-label="Accept change" data-do="accepted">✓</button><button aria-label="Reject change" data-do="rejected">✕</button></div><span class="res"></span></div>
+<button class="finish" disabled>Finish merge</button>
+</template>
+
+<dialog id="exportDlg" aria-labelledby="exportTitle">
+  <form method="dialog">
+    <div><h2 id="exportTitle">Export bundle</h2><p>One file. Opens in Quire on any computer, ready to continue.</p></div>
+    <div class="f"><label for="bn">File name</label><input id="bn" type="text" value="gaussian-integral.quire"></div>
+    <fieldset>
+      <legend>Include</legend>
+      <label class="ck"><input id="c1" type="checkbox" checked><span>Sources and figures</span><small>always</small></label>
+      <label class="ck"><input id="c2" type="checkbox" checked><span>Changes and snapshots</span><small>needed to detect conflicts</small></label>
+      <label class="ck"><input id="c3" type="checkbox" checked><span>Compiled PDF</span><small>readable without Quire</small></label>
+      <label class="ck"><input id="c4" type="checkbox"><span>LaTeX packages used</span><small>compiles with no internet</small></label>
+    </fieldset>
+    <div class="f"><label for="note">Note to the recipient</label><textarea id="note" rows="2" placeholder="What changed, and what to look at"></textarea></div>
+    <div class="end"><button value="cancel">Cancel</button><button class="go" value="ok">Export</button></div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  document.querySelectorAll('[data-tpl]').forEach(function (el) {
+    el.appendChild(document.getElementById('tpl-' + el.dataset.tpl).content.cloneNode(true));
+  });
+
+  var order = ['a', 'b', 'c'];
+  function setDir(d) {
+    if (order.indexOf(d) < 0) d = 'a';
+    document.body.dataset.dir = d;
+    order.forEach(function (k) { document.getElementById(k).hidden = k !== d; });
+    document.querySelectorAll('[data-dirbtn]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.dirbtn === d)); });
+    try { localStorage.setItem('quire-dir', d); } catch (e) {}
+    window.scrollTo(0, 0);
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('quire-dir'); } catch (e) {}
+  setDir(saved || 'a');
+
+  var dlg = document.getElementById('exportDlg');
+  document.addEventListener('keydown', function (e) {
+    if (dlg.open || /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    var i = order.indexOf(document.body.dataset.dir);
+    if (e.key === 'ArrowRight') setDir(order[(i + 1) % 3]);
+    if (e.key === 'ArrowLeft') setDir(order[(i + 2) % 3]);
+  });
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-dirbtn],[data-pick],[data-do],[data-export],.finish');
+    if (!t) return;
+    if (t.dataset.dirbtn) return setDir(t.dataset.dirbtn);
+    if (t.hasAttribute('data-export')) return dlg.showModal();
+    if (t.dataset.do) {
+      var d = t.closest('.decide');
+      d.dataset.state = t.dataset.do;
+      var res = d.querySelector('.res');
+      if (res) res.textContent = t.dataset.do === 'accepted' ? 'Kept' : 'Undone';
+      return;
+    }
+    var root = t.closest('.changes');
+    if (t.dataset.pick) {
+      var c = t.closest('.conf');
+      c.dataset.pick = t.dataset.pick;
+      c.querySelectorAll('.opt').forEach(function (o) { o.setAttribute('aria-pressed', String(o === t)); });
+      var n = root.querySelectorAll('.conf[data-pick]').length;
+      root.querySelector('[data-resolved]').textContent = n + ' of 2 resolved';
+      root.querySelector('.finish').disabled = n < 2;
+      return;
+    }
+    if (t.classList.contains('finish')) { t.textContent = 'Merged'; t.disabled = true; }
+  });
+})();
+</script>
+</body>
+</html>
