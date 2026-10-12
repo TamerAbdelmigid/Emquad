@@ -12,6 +12,10 @@ path: string, authorId: string, authorName: string, createdAt: string, text: str
  */
 deleted: boolean, 
 /**
- * When the comment itself, its place or its state last changed.
+ * When what the comment says, or whether it is resolved or deleted, last changed.
  */
-updatedAt: string, replies: Array<Reply>, quote: string, before: string, after: string, line: number, };
+updatedAt: string, 
+/**
+ * When its place, the file and passage it is on, last changed.
+ */
+placedAt: string, replies: Array<Reply>, quote: string, before: string, after: string, line: number, };

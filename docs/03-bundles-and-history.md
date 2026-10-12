@@ -135,12 +135,12 @@ Tectonic keeps every package file, class and font it has fetched in a store on d
 
 **What is carried.** Everything in the store the project compiles from: the source records, their indexes and the data files. This is every package file this computer has fetched for that source, which is at least what the project needs and usually somewhat more; Tectonic does not record which files one compile used. The export dialog shows the size. A file whose name fails the file-name rule is left out. The compiled *format* Tectonic keeps beside the store is never carried: it is a memory image the engine loads, and it is rebuilt from the package files in a second or two.
 
-**The promise is checked.** Before a bundle with packages is written, the project is compiled in a scratch folder from exactly the files about to be carried, with fetching switched off. If that fails, the export is refused with an explanation. A bundle never claims to compile offline unless it has just been shown to.
+**The promise is checked.** Before a bundle with packages is written, the package files are copied to a scratch folder and the project is compiled from that copy, with fetching switched off. If that fails, the export is refused with an explanation. The bundle is then written from the same copy, so what it carries is byte for byte what was checked; the export code accepts package files in no other way. No other compile runs between the check and the writing. A bundle never claims to compile offline unless it has just been shown to.
 
 **Where they go.** Package files from a bundle are untrusted. They are installed into the project's own store, `.emquad/packages/`, and from then on that project compiles from it instead of from the shared store. They never reach the shared store, so a bundle cannot change what any other project compiles with. Installing:
 
 1. Check the whole `packages/` folder first. Only the three kinds of entry in the layout above are allowed; a digest must be 64 lower-case hexadecimal digits; every source must point at a digest whose index is present; every data folder must belong to a source; no folders inside a data folder. Anything else makes the bundle invalid, and nothing is installed.
-2. Add the files. A package file the project's store already has is never replaced. The source records are replaced, so the project compiles with the packages that came with the work being opened.
+2. Add the files, each copied under a temporary name and renamed into place. A package file the project's store already has is never replaced. The source records are written last and do replace what is there, so the project compiles with the packages that came with the work being opened, and a store never points at files that did not arrive. If the project had no store of its own and installing fails, the half-made store is removed and the project goes on compiling from the shared one.
 3. Fill the project's store with what the shared store holds for the same source, so that moving the project onto its own store never takes away a package it could use before.
 
 A project with its own store exports from it. If the recipient later needs a package the store lacks, Tectonic fetches it into the project's store when there is a connection.
@@ -158,11 +158,14 @@ A comment is a remark on a passage of one file, with replies. Comments are kept 
 **Merging.** Comments travel in a bundle as `comments.json` and are combined with the recipient's when the bundle is imported, for every comment by its identifier:
 
 - A comment only one side has is kept.
-- For a comment both have, the copy changed most recently decides its text, place and state. Replies from both are kept.
+- For a comment both have, three things are decided separately:
+  - *What it says and its state.* A deletion wins outright. Otherwise the copy whose text or state changed most recently decides.
+  - *Where it sits* (file and passage). The copy placed most recently decides. Editing around a comment, or renaming its file, changes only its place, so it can never override someone else's resolve or delete. A passage that merely moved to another line is not a new place.
+  - *Replies.* Every reply either copy has is kept. A comment holds at most 500 replies; the limit is applied when replying, never by cutting a thread while merging.
 
 The result is the same whatever the order bundles arrive in, and importing one twice changes nothing. This is a merge of app data, separate from the review: it never asks a question and cannot conflict, and cancelling the review does not undo it.
 
-**From a bundle they are untrusted.** A comment is dropped if its identifier is not plain, its path is not a safe path inside the project, or any of its text is over length. The file is ignored if it is larger than 4 MB. Comment text is only ever shown as plain text.
+**From a bundle they are untrusted.** A comment is dropped if its identifier is not plain, its path is not a safe path inside the project, any of its text is over length, or one of its times cannot be read. Times are rewritten to one form (UTC, to the millisecond) before they are compared, and a time in the future is brought back to now, so a bundle cannot make its copy win for ever. The file is ignored if it is larger than 4 MB. Comment text is only ever shown as plain text.
 
 ## Review and merge
 
@@ -228,7 +231,7 @@ These must hold after every operation and are the basis of the test suite for th
 7. **Line endings and encoding are preserved.** Files are treated as bytes for storage. Disable git's automatic line-ending conversion for `history.git`. Diffing treats text as UTF-8 and falls back to whole-file comparison if decoding fails.
 8. **Extras stay out of the project and out of other projects.** Installing a bundle's packages and comments changes nothing outside `.emquad/` of the project being imported into. In particular it changes no source file, and no other project's packages.
 9. **A bundle that says it carries packages compiles offline.** `includes.packages` is true only if the project was compiled, with fetching off, from exactly the package files in the bundle.
-10. **Comments are never lost by merging.** After combining two sets of comments, every comment and every reply either side had is present, and the result does not depend on the order.
+10. **Comments are never lost by merging.** After combining two sets of comments, every comment and every reply either side had is present, a deleted comment stays deleted, and the result does not depend on the order.
 
 ## Test plan for this area
 
@@ -237,5 +240,5 @@ These must hold after every operation and are the basis of the test suite for th
 - **Round trip:** invariant 5 on projects with nested folders, binary files, CRLF and LF files, non-ASCII file names and an empty file.
 - **Hostile input:** bundles with path traversal entries, names that alias another file on Windows (in the archive and in an older version of the history), a main file outside the project, a `head` not present in history, a `tree/` that disagrees with `head`, a future `formatVersion`, and a truncated zip. Each must be rejected with a specific error and leave the project untouched.
 - **Failure part-way:** a merge and a restore that cannot write one of their files must leave every file as it was.
-- **Packages:** a round trip carries the store and installs it in the project's own store without replacing a file already there; `packages/` laid out in any other way (a format image, a path that climbs out, a Windows device name, a nested folder, a source that names no digest, a data folder no source points at, a stray file) is rejected and installs nothing, for both kinds of import. Against the real Tectonic, with the network blocked: a bundle with packages compiles in a new project from that project's own store, and a document needing a package nobody has is refused at export.
-- **Comments:** kept outside the project's files; follow a renamed file or folder; malformed or oversized comments from a bundle are dropped while the work still arrives; property-based, that merging is the same in any order, any number of times, and loses nothing (invariant 10).
+- **Packages:** a round trip carries the store and installs it in the project's own store without replacing a file already there, and leaves the shared store and every other project byte for byte as they were (invariant 8); an install that fails part-way leaves no store behind; `packages/` laid out in any other way (a format image, a path that climbs out, a Windows device name, a nested folder, a source that names no digest, a data folder no source points at, a stray file) is rejected and installs nothing, for both kinds of import. Against the real Tectonic, with the network blocked: a bundle with packages compiles in a new project from that project's own store, and a document needing a package nobody has is refused at export.
+- **Comments:** kept outside the project's files; follow a renamed file or folder, however the new path was typed; editing around a comment does not undo another person's resolve or delete; malformed, oversized or wrongly timed comments from a bundle are dropped or corrected while the work still arrives; property-based, that merging is the same in any order, any number of times, loses no comment and no reply, and never undoes a deletion (invariant 10).

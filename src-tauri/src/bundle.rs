@@ -73,8 +73,9 @@ pub struct Includes {
 #[derive(Default)]
 pub struct Extras<'a> {
     pub pdf: bool,
-    /// The LaTeX package files to carry, so the recipient can compile with no internet.
-    pub packages: &'a [crate::packages::Entry],
+    /// The LaTeX package files to carry, so the recipient can compile with no internet. They
+    /// can only be ones the project has just been shown to compile from.
+    pub packages: Option<&'a crate::packages::Verified>,
     /// The project's comments, as stored.
     pub comments: Option<Vec<u8>>,
 }
@@ -133,7 +134,7 @@ pub fn export(
         includes: Includes {
             history: true,
             pdf: has_pdf,
-            packages: !extras.packages.is_empty(),
+            packages: extras.packages.is_some(),
             comments: extras.comments.is_some(),
         },
     };
@@ -142,6 +143,7 @@ pub fn export(
         .parent()
         .ok_or_else(|| Error::app("bad_path", "Destination has no parent folder"))?;
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    let mut written = 0u64;
     {
         let mut zip = zip::ZipWriter::new(tmp.as_file_mut());
         let options = SimpleFileOptions::default();
@@ -166,9 +168,16 @@ pub fn export(
             zip.start_file(COMMENTS_ENTRY, options)?;
             zip.write_all(comments)?;
         }
-        for entry in extras.packages {
+        for entry in extras.packages.map_or(&[][..], |p| p.entries()) {
             zip.start_file(format!("{PACKAGES_DIR}/{}", entry.name), options)?;
-            std::io::copy(&mut fs::File::open(&entry.path)?, &mut zip)?;
+            written += std::io::copy(&mut fs::File::open(&entry.path)?, &mut zip)?;
+        }
+        // A bundle its recipient would refuse as too large is not worth writing.
+        if written > MAX_BYTES / 2 {
+            return Err(Error::app(
+                "bundle_too_large",
+                "The LaTeX packages on this computer are too large to put in a bundle. Export without them.",
+            ));
         }
         zip.finish()?;
     }
@@ -561,10 +570,10 @@ mod tests {
         comments::add(&a, &me, "main.tex", quote("documentclass"), "Which class?").unwrap();
 
         let file = tmp.path().join("paper.emquad");
-        let carried = packages::list(&store).unwrap();
+        let carried = packages::Verified::unchecked(packages::list(&store).unwrap());
         let extras = Extras {
             pdf: false,
-            packages: &carried,
+            packages: Some(&carried),
             comments: comments::for_bundle(&a).unwrap(),
         };
         let manifest = export(&a, &ha, &me, &file, "", &extras).unwrap();
@@ -597,10 +606,12 @@ mod tests {
         b.write_file("main.tex", "changed\n").unwrap();
         fs::write(data.join("extra.sty"), "one more").unwrap();
         let reply = tmp.path().join("reply.emquad");
-        let carried = packages::list(&packages::project_cache(&b).join("bundles")).unwrap();
+        let carried = packages::Verified::unchecked(
+            packages::list(&packages::project_cache(&b).join("bundles")).unwrap(),
+        );
         let extras = Extras {
             pdf: false,
-            packages: &carried,
+            packages: Some(&carried),
             comments: comments::for_bundle(&b).unwrap(),
         };
         export(&b, &hb, &lina, &reply, "", &extras).unwrap();

@@ -513,7 +513,9 @@ pub fn bundle_export(
     include_comments: bool,
 ) -> Result<Manifest> {
     let p = current(&state)?;
-    let mut carried = Vec::new();
+    // Held from the offline check until the bundle is written, so no compile runs between.
+    let _one_at_a_time = state.compile_lock.lock().unwrap();
+    let mut carried = None;
     if include_packages {
         let (tectonic, store) = package_source(&state, &p).ok_or_else(|| {
             Error::app(
@@ -521,14 +523,11 @@ pub fn bundle_export(
                 "LaTeX packages can be included only for a project that compiles with the built-in Tectonic and has been compiled once",
             )
         })?;
-        carried = packages::list(&store)?;
-        // The check is a compile of its own, so it waits for one in flight.
-        let _one_at_a_time = state.compile_lock.lock().unwrap();
-        packages::verify(&tectonic, &p, &carried)?;
+        carried = Some(packages::verify(&tectonic, &p, &packages::list(&store)?)?);
     }
     let extras = bundle::Extras {
         pdf: include_pdf,
-        packages: &carried,
+        packages: carried.as_ref(),
         comments: if include_comments {
             comments::for_bundle(&p)?
         } else {
@@ -580,9 +579,10 @@ pub fn bundle_inspect(state: State<AppState>, path: String) -> Result<BundleInfo
 #[tauri::command(async)]
 pub fn bundle_import(state: State<AppState>, path: String) -> Result<String> {
     let p = current(&state)?;
-    let manifest = bundle::import_into(&p, &History::open(&p)?, Path::new(&path))?;
+    let imported = bundle::import_into(&p, &History::open(&p)?, Path::new(&path));
+    // Also when the import was refused: an earlier bundle may have given the project a store.
     top_up_packages(&state, &p);
-    Ok(manifest.bundle_id)
+    Ok(imported?.bundle_id)
 }
 
 #[tauri::command(async)]

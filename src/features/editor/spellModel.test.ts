@@ -49,6 +49,24 @@ describe("spellWords", () => {
   });
 });
 
+describe("spellWords on awkward input", () => {
+  it("treats a dollar sign that is not closed on its line as text", () => {
+    expect(words("costs $5 today\nand $x$ tomorrow")).toEqual(["costs", "today", "and", "tomorrow"]);
+    expect(words("an escaped \\$ sign and $a$ math")).toEqual(["an", "escaped", "sign", "and", "math"]);
+    expect(words("empty $$ $$ display then \\(y\\) inline")).toEqual(["empty", "display", "then", "inline"]);
+  });
+
+  it("stays quick on long runs with nothing to find", () => {
+    const started = Date.now();
+    spellWords("x".repeat(200_000));
+    spellWords("\\(".repeat(100_000));
+    spellWords("$ ".repeat(100_000));
+    spellWords("\\'e".repeat(60_000));
+    spellWords(`${"a".repeat(100_000)}\\'e`);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+});
+
 describe("skipWord", () => {
   it("skips abbreviations and mixed-case names", () => {
     expect(skipWord("NASA")).toBe(true);

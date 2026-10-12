@@ -42,7 +42,16 @@ fn a_bundle_with_its_packages_compiles_offline_from_the_projects_own_store() {
         unsafe { std::env::set_var(name, "http://127.0.0.1:9") };
     }
 
-    packages::verify(&exe, &a, &carried).expect("the carried packages are enough to compile");
+    let checked =
+        packages::verify(&exe, &a, &carried).expect("the carried packages are enough to compile");
+    assert_eq!(checked.entries().len(), carried.len());
+    // What will be carried is the checked copy, not the live store, which may change.
+    assert!(
+        checked
+            .entries()
+            .iter()
+            .all(|e| !e.path.starts_with(&store))
+    );
     let me = Author {
         id: "a".into(),
         name: "Tamer".into(),
@@ -50,7 +59,7 @@ fn a_bundle_with_its_packages_compiles_offline_from_the_projects_own_store() {
     let file = tmp.path().join("paper.emquad");
     let extras = Extras {
         pdf: false,
-        packages: &carried,
+        packages: Some(&checked),
         comments: None,
     };
     let manifest =
@@ -78,8 +87,8 @@ fn a_bundle_with_its_packages_compiles_offline_from_the_projects_own_store() {
         "\\documentclass{article}\n\\usepackage{nosuchpackage-emquad}\n\\begin{document}x\\end{document}\n",
     )
     .unwrap();
-    assert_eq!(
-        packages::verify(&exe, &a, &carried).unwrap_err().code(),
-        "packages_incomplete"
-    );
+    let refused = packages::verify(&exe, &a, &carried).err().map(|e| e.code());
+    assert_eq!(refused, Some("packages_incomplete"));
+    // Nothing to carry is not something to promise either.
+    assert!(packages::verify(&exe, &b, &[]).is_err());
 }

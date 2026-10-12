@@ -14,6 +14,7 @@ const comment = (id: string, path: string, line: number, resolved = false): Comm
   authorName: "A",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
+  placedAt: "2026-01-01T00:00:00.000Z",
   text: "t",
   deleted: false,
   replies: [],

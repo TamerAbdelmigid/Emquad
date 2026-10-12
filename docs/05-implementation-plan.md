@@ -20,6 +20,8 @@ Known limitations, none of which lose data:
 
 - A bundle's LaTeX packages are every package file the sender's computer holds for the compiler's source, not only the ones the document uses, so the bundle can be larger than strictly needed. The export dialog shows the size.
 - Spelling is English only (US or UK), and one language applies to every project.
+- Exporting with LaTeX packages checks them against the files as saved at that moment. A file saved by another program during the few seconds between the check and the writing of the bundle is not re-checked.
+- When a bundle is opened into an existing empty folder and its packages or comments cannot be installed, the files already written there are left for the user to remove.
 - A comment whose words were all deleted or rewritten outside the app is listed without a place in the text.
 - Visual mode draws `tabular`, `tabularx`, `tabular*` and `longtable` as plain grids: column alignment, vertical rules and merged rows are not shown. Figures are PNG, JPEG, GIF, WebP and PDF; `\graphicspath` is not followed. Citation names come from `.bib` files in the project.
 

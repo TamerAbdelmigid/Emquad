@@ -57,8 +57,37 @@ export function spellWords(text: string): Word[] {
 
   for (const m of current().matchAll(VERBATIM)) blank(m.index, m.index + m[0].length);
   for (const m of current().matchAll(/\\(?:verb|lstinline)\*?([^a-zA-Z\s])[^\n]*?\1/g)) blank(m.index, m.index + m[0].length);
-  for (const pattern of [MATH_ENV, /\\\[[\s\S]*?(?:\\\]|$)/g, /\$\$[\s\S]*?(?:\$\$|$)/g, /\\\([^\n]*?\\\)/g, /(?<![\\$])\$(?!\$)(?:\\.|[^$\\\n])+?\$/g]) {
+  for (const pattern of [MATH_ENV, /\\\[[\s\S]*?(?:\\\]|$)/g, /\$\$[\s\S]*?(?:\$\$|$)/g]) {
     for (const m of current().matchAll(pattern)) blank(m.index, m.index + m[0].length);
+  }
+  // Inline mathematics, \( \) and $ $ on one line. These are walked by hand, each character
+  // looked at once, so that a line of unclosed openers cannot make the scan crawl.
+  {
+    const text = current();
+    for (const [open, close] of [["\\(", "\\)"], ["$", "$"]]) {
+      let nextClose = -1;
+      let lineEnd = -1;
+      for (let at = text.indexOf(open); at >= 0; ) {
+        if (open === "$" && text[at - 1] === "\\") {
+          at = text.indexOf(open, at + 1);
+          continue;
+        }
+        const from = at + open.length;
+        if (lineEnd < from) lineEnd = text.indexOf("\n", from) < 0 ? text.length : text.indexOf("\n", from);
+        if (nextClose < from) {
+          nextClose = text.indexOf(close, from);
+          while (close === "$" && nextClose > 0 && text[nextClose - 1] === "\\") nextClose = text.indexOf(close, nextClose + 1);
+          if (nextClose < 0) break;
+        }
+        if (nextClose > lineEnd || nextClose === from) {
+          // Not closed on this line: nothing to leave out here. Carry on after the line.
+          at = text.indexOf(open, Math.max(from, nextClose === from ? from + close.length : lineEnd));
+          continue;
+        }
+        blank(at, nextClose + close.length);
+        at = text.indexOf(open, nextClose + close.length);
+      }
+    }
   }
 
   // Commands: the name always goes, and so do the arguments of the technical ones.
@@ -97,8 +126,17 @@ export function spellWords(text: string): Word[] {
     for (const [from, to] of groups) blank(from, to);
   }
   // An accent written as a command breaks its word in two, so the whole word is left alone.
-  for (const m of now.matchAll(/[\p{L}]*(?:\\[`'^"~=.]\{?\\?[a-zA-Z]\}?|\\[cHkuv]\{[a-zA-Z]\})[\p{L}\\`'^"~=.{}]*/gu)) {
-    blank(m.index, m.index + m[0].length);
+  // Found from the backslash and then widened by hand, never past the previous one, so the
+  // work stays in step with the length of the text.
+  let done = 0;
+  for (const m of now.matchAll(/\\[`'^"~=.]\{?\\?[a-zA-Z]\}?|\\[cHkuv]\{[a-zA-Z]\}/g)) {
+    if (m.index < done) continue;
+    let from = m.index;
+    while (from > done && /\p{L}/u.test(now[from - 1])) from--;
+    let to = m.index + m[0].length;
+    while (to < now.length && /[\p{L}\\`'^"~=.{}]/u.test(now[to])) to++;
+    blank(from, to);
+    done = to;
   }
   // What is left of other commands: a backslash and one character, such as \& or \%.
   for (const m of now.matchAll(/\\[^a-zA-Z\s]/g)) blank(m.index, m.index + 2);

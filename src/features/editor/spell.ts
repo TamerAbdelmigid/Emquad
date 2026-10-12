@@ -73,6 +73,9 @@ export function suggestions(word: string): string[] {
 export const recheckSpelling = StateEffect.define<null>();
 const mark = Decoration.mark({ class: "cm-misspelled" });
 
+/** The prose words of the document last scanned, so scrolling does not scan it again. */
+let scanned: { doc: unknown; words: Word[] } | null = null;
+
 const underlines = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
@@ -87,10 +90,11 @@ const underlines = ViewPlugin.fromClass(
     }
     find(view: EditorView): DecorationSet {
       this.words = [];
-      const text = view.state.doc.toString();
-      if (!checker || text.length > 400_000) return Decoration.none;
+      const doc = view.state.doc;
+      if (!checker || doc.length > 400_000) return Decoration.none;
+      if (scanned?.doc !== doc) scanned = { doc, words: spellWords(doc.toString()) };
       const { from, to } = view.viewport;
-      for (const word of spellWords(text)) {
+      for (const word of scanned.words) {
         if (word.to < from) continue;
         if (word.from > to) break;
         if (misspelled(word.word)) this.words.push(word);

@@ -57,7 +57,16 @@ class BulletWidget extends WidgetType {
   }
 }
 
-const INLINE_TAGS: Record<string, string> = { textbf: "b", textit: "i", emph: "i", texttt: "code", underline: "u", textsc: "span", textrm: "span", mbox: "span" };
+const INLINE_TAGS = new Map([
+  ["textbf", "b"],
+  ["textit", "i"],
+  ["emph", "i"],
+  ["texttt", "code"],
+  ["underline", "u"],
+  ["textsc", "span"],
+  ["textrm", "span"],
+  ["mbox", "span"],
+]);
 
 /**
  * Draw the text of a table cell: mathematics, bold and italic are shown as such, and the rest
@@ -85,12 +94,13 @@ export function renderInline(el: HTMLElement, tex: string) {
     }
     if (c === "\\") {
       const name = /^[a-zA-Z]+/.exec(tex.slice(i + 1))?.[0];
-      if (name && name in INLINE_TAGS && tex[i + 1 + name.length] === "{") {
+      const tag = name ? INLINE_TAGS.get(name) : undefined;
+      if (name && tag && tex[i + 1 + name.length] === "{") {
         const open = i + 1 + name.length;
         const end = closingBrace(tex, open);
         if (end > 0) {
           flush();
-          const child = document.createElement(INLINE_TAGS[name]);
+          const child = document.createElement(tag);
           renderInline(child, tex.slice(open + 1, end - 1));
           el.append(child);
           i = end;
