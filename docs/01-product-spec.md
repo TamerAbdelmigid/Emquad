@@ -15,7 +15,7 @@ The first target platform is Windows 11. macOS and Linux should not be blocked b
 
 1. **Offline first.** Every feature works with no internet, except the first-time download of LaTeX packages that a document needs.
 2. **No setup.** The user does not install TeX Live or MiKTeX. The app ships its own compiler.
-3. **Plain files.** A project is an ordinary folder of `.tex`, `.bib` and image files. The app never writes markup, markers or metadata into the user's source files. Everything the app adds lives in a hidden `.quire/` subfolder.
+3. **Plain files.** A project is an ordinary folder of `.tex`, `.bib` and image files. The app never writes markup, markers or metadata into the user's source files. Everything the app adds lives in a hidden `.emquad/` subfolder.
 4. **Reuse over invention.** Editing, compiling, PDF rendering, language intelligence, history storage and merging all come from existing, maintained components (see `02-architecture.md`).
 5. **Never lose work.** Any operation that overwrites source files (import, merge, restore) first records a snapshot that can be restored.
 
@@ -43,8 +43,8 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 
 ### Bundles
 
-- **Export.** Writes one `.quire` file containing the sources, the history, optionally the compiled PDF, and a note to the recipient. Exporting records a snapshot.
-- **Import.** Opening a `.quire` file either creates a new project from it (if the user has no project with that identity) or brings it into the matching existing project for review.
+- **Export.** Writes one `.emquad` file containing the sources, the history, optionally the compiled PDF, and a note to the recipient. Exporting records a snapshot.
+- **Import.** Opening a `.emquad` file either creates a new project from it (if the user has no project with that identity) or brings it into the matching existing project for review.
 - **Identity.** On first run the app asks for a display name. It is attached to snapshots and bundles so that changes can be attributed.
 
 ### Project lifecycle
@@ -55,10 +55,10 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 
 ## Planned after version 1
 
-These are designed for but not required for the first release. `05-implementation-plan.md` places them in the last milestone.
+These are designed for but not reemquadd for the first release. `05-implementation-plan.md` places them in the last milestone.
 
 - **Visual mode.** The Code / Visual switch in the editor. Renders headings, emphasis, math and figures inline while the underlying text stays plain LaTeX.
-- **Fully offline bundles.** Including the LaTeX packages a document used inside the `.quire` file, so the recipient can compile with no internet at all.
+- **Fully offline bundles.** Including the LaTeX packages a document used inside the `.emquad` file, so the recipient can compile with no internet at all.
 - **Alternative engine.** Use a system `latexmk` when one is installed, for documents that need pdfTeX-only features or `--shell-escape`.
 - **Spell check, comments, search across the project.**
 - **Other themes.** The mockup exploration produced two alternates (Glass, Onyx); the token structure in `04-design-system.md` allows them later.
@@ -82,17 +82,17 @@ These are designed for but not required for the first release. `05-implementatio
 ### Hand off
 
 1. Press Export bundle. Confirm the file name, what to include, and an optional note.
-2. The app records a snapshot and writes `name.quire`.
+2. The app records a snapshot and writes `name.emquad`.
 3. Send the file by any means.
 
 ### Continue someone else's work
 
-1. Open the received `.quire` file. With no matching project on this machine, the app creates one from it and opens the editor.
+1. Open the received `.emquad` file. With no matching project on this machine, the app creates one from it and opens the editor.
 2. Work normally. Export a bundle to send it back.
 
 ### Review what came back
 
-1. Import the returned `.quire` file while the matching project is open (or let the app find the project by its identity).
+1. Import the returned `.emquad` file while the matching project is open (or let the app find the project by its identity).
 2. The app opens History with the bundle selected and the review panel showing.
 3. Resolve each conflict. Optionally reject individual automatic merges.
 4. Press Finish merge. The working copy now contains the merged result, and History shows a new merged version with both sides as its parents.

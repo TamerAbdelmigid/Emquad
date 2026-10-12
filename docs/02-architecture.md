@@ -13,8 +13,8 @@
 | PDF rendering | **PDF.js** (`pdfjs-dist`) | Standard, renders to canvas with a text layer, lets us handle clicks for source lookup |
 | Source ↔ PDF lookup | **SyncTeX** data produced by the compiler | The standard mechanism; see "SyncTeX" below |
 | Language intelligence | **texlab**, shipped as a sidecar, spoken to over the Language Server Protocol | Completion, diagnostics, references, document symbols |
-| History and merge | **libgit2** through the Rust `git2` crate | Snapshots, ancestry and three-way merge already solved; no system git required |
-| Archive format | zip, through the Rust `zip` crate | A `.quire` file is a zip; recipients can also open it with any unzip tool |
+| History and merge | **libgit2** through the Rust `git2` crate | Snapshots, ancestry and three-way merge already solved; no system git reemquadd |
+| Archive format | zip, through the Rust `zip` crate | A `.emquad` file is a zip; recipients can also open it with any unzip tool |
 | File watching | Rust `notify` crate | Detect external edits to project files |
 | UI state | **Zustand** | Small, no boilerplate, works well with CodeMirror's own state |
 | Styling | Plain CSS with custom properties, CSS Modules per component | The mockup's tokens port directly; no runtime styling library |
@@ -35,7 +35,7 @@ Decide the app's own license before the first public release.
 ## Process model
 
 ```
-┌──────────────────────────── Quire (one desktop process) ────────────────────────────┐
+┌──────────────────────────── Emquad (one desktop process) ────────────────────────────┐
 │                                                                                     │
 │   Webview (React)                              Rust core                            │
 │   ───────────────                              ─────────                            │
@@ -60,12 +60,12 @@ Decide the app's own license before the first public release.
 ## On-disk layout of a project
 
 ```
-my-paper/                    ← the user's folder; everything outside .quire/ is theirs
+my-paper/                    ← the user's folder; everything outside .emquad/ is theirs
 ├── main.tex
 ├── sections/…
 ├── figures/…
 ├── refs.bib
-└── .quire/
+└── .emquad/
     ├── project.json         ← project id, main file, engine, format version
     ├── history.git/         ← a git directory whose work tree is the project folder
     ├── build/               ← compiler output: PDF, log, SyncTeX data, intermediates
@@ -75,7 +75,7 @@ my-paper/                    ← the user's folder; everything outside .quire/ i
 
 Rules:
 
-- `history.git` is a git directory kept apart from the work tree (`--git-dir` / `--work-tree` style), so a user who keeps the project in their own git repository is unaffected. `.quire/` is always excluded from the history itself.
+- `history.git` is a git directory kept apart from the work tree (`--git-dir` / `--work-tree` style), so a user who keeps the project in their own git repository is unaffected. `.emquad/` is always excluded from the history itself.
 - `build/`, `incoming/` and `state.json` are disposable. Deleting them loses nothing.
 - `project.json` holds: `formatVersion`, `projectId` (a UUID created once, carried in every bundle), `name`, `mainFile`, `engine`.
 
@@ -89,7 +89,7 @@ App-wide settings (display name, author id, recent projects, preferences) live i
 | `compile` | The `Engine` trait and its implementations; run a compile, capture output, parse diagnostics |
 | `synctex` | Load the SyncTeX file for the last build; forward and inverse lookup |
 | `history` | Snapshots, version list, diffs between versions, restore |
-| `bundle` | Write and read `.quire` files; validate manifests |
+| `bundle` | Write and read `.emquad` files; validate manifests |
 | `review` | Build a review session from an imported bundle, apply decisions, finish or cancel a merge |
 | `lsp` | Start texlab, forward JSON-RPC messages both ways |
 | `settings` | App-wide and per-project settings |
@@ -169,7 +169,7 @@ trait Engine {
 }
 ```
 
-- **`TectonicEngine`** (default) runs the sidecar against the main file with output directed to `.quire/build/`, SyncTeX enabled, and logs kept.
+- **`TectonicEngine`** (default) runs the sidecar against the main file with output directed to `.emquad/build/`, SyncTeX enabled, and logs kept.
 - **`LatexmkEngine`** (later) is offered only when `latexmk` is found on the system, and runs it with SyncTeX, non-stop interaction and file-line-error output.
 
 Behaviour:

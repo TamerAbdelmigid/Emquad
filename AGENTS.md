@@ -11,7 +11,7 @@ These are the sources of truth. Code that contradicts them is wrong unless the d
 | What the app does and does not do | `docs/01-product-spec.md` |
 | Stack, module boundaries, command surface | `docs/02-architecture.md` |
 | History, bundle format, merge rules and invariants | `docs/03-bundles-and-history.md` |
-| How it looks | `mockup/quire-fieldwork.html`, explained by `docs/04-design-system.md` |
+| How it looks | `mockup/emquad-fieldwork.html`, explained by `docs/04-design-system.md` |
 | What to build next and when it is done | `docs/05-implementation-plan.md` |
 
 Other files in `mockup/` are superseded explorations. Do not build from them.
@@ -44,7 +44,7 @@ Default to the lite tier. Use the full tier when a change touches any of these, 
 
 - The `history`, `bundle` or `review` Rust modules.
 - Any code path that writes, renames or deletes files in a user's project.
-- The `.quire` manifest or archive layout, or `formatVersion`.
+- The `.emquad` manifest or archive layout, or `formatVersion`.
 - Path validation or bundle extraction.
 - The Tauri capability configuration.
 
@@ -57,7 +57,7 @@ For those areas, the invariants in `docs/03-bundles-and-history.md` must each be
 - **Types across the boundary** are generated from Rust, not hand-written twice.
 - **Styling:** only the custom properties in `src/design/tokens.css`. No literal colours in components. No runtime styling library.
 - **Frontend features** do not import one another's internals.
-- **User files are sacred:** never write markers or metadata into a project's source files. App data goes in `.quire/`.
+- **User files are sacred:** never write markers or metadata into a project's source files. App data goes in `.emquad/`.
 - **No network at runtime** except what the compiler does to fetch LaTeX packages. Fonts and assets are bundled.
 - **Dependencies:** pin exact versions. Check licences against the notes in `docs/02-architecture.md`; texlab must stay a separate process.
 - **Copy:** name things the way a user would ("snapshot", "bundle", "version"), never by their git implementation.

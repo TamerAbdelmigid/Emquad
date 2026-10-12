@@ -1,6 +1,6 @@
 # Design system: Fieldwork
 
-The approved design is [mockup/quire-fieldwork.html](../mockup/quire-fieldwork.html). It is a single static HTML file with inline CSS and a little script; open it in a browser. When this document and the mockup disagree about how something looks, the mockup wins. When they disagree about behaviour, `01-product-spec.md` wins, because the mockup only fakes behaviour.
+The approved design is [mockup/emquad-fieldwork.html](../mockup/emquad-fieldwork.html). It is a single static HTML file with inline CSS and a little script; open it in a browser. When this document and the mockup disagree about how something looks, the mockup wins. When they disagree about behaviour, `01-product-spec.md` wins, because the mockup only fakes behaviour.
 
 ## The idea
 
@@ -123,7 +123,7 @@ Build these once in `src/design/` and use them everywhere.
 | `ChoiceCard` | mine, theirs; unselected, selected | A real button with pressed state; selected gets a 2px ring in the author's colour |
 | `Dialog` | — | Native `<dialog>` semantics, focus trapped, Escape cancels |
 
-## Interaction and accessibility requirements
+## Interaction and accessibility reemquadments
 
 - Every control is a real `button`, `input`, or link, reachable by keyboard, with a visible focus ring (the mockup uses a 3px blue outline).
 - Icon-only controls have accessible names. Decorative icons are hidden from assistive technology.

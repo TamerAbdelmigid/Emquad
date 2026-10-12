@@ -1,27 +1,27 @@
 # Bundles and history
 
-This document defines how versions are stored, what a `.quire` file contains, and how an incoming bundle is compared, reviewed and merged. This is the part of the app where a mistake loses someone's writing, so the rules here are requirements, not suggestions.
+This document defines how versions are stored, what a `.emquad` file contains, and how an incoming bundle is compared, reviewed and merged. This is the part of the app where a mistake loses someone's writing, so the rules here are reemquadments, not suggestions.
 
 ## Model
 
 - A **version** is a complete state of the project's files at a moment, with an author, a time and a description. Versions form a graph: each has one parent (an ordinary snapshot), two parents (a merge), or none (the first).
 - The **working copy** is the files on disk right now. It is shown at the top of the History list but is not a stored version until snapshotted.
 - A **snapshot** is a version the user (or the app, automatically) recorded.
-- A **bundle** is a `.quire` file: the versions needed to reconstruct one head version, plus that head's files in readable form.
+- A **bundle** is a `.emquad` file: the versions needed to reconstruct one head version, plus that head's files in readable form.
 
-Versions are git commits in `.quire/history.git`. The user never sees git terminology.
+Versions are git commits in `.emquad/history.git`. The user never sees git terminology.
 
 | App concept | Stored as |
 |---|---|
 | Version | Commit |
 | Version id | Commit hash |
 | Description | Commit message subject |
-| Author | Commit author name; email field holds `<authorId>@quire.invalid` |
+| Author | Commit author name; email field holds `<authorId>@emquad.invalid` |
 | Kind (snapshot, export, import, merge, automatic) and label | Trailer lines in the commit message |
 | Current line of work | Branch `main` |
 | An imported bundle awaiting or after review | Ref `refs/bundles/<bundleId>` |
 
-Excluded from every version: `.quire/` itself, and nothing else. The app does not apply the user's `.gitignore`; a project is small and everything in it is the document.
+Excluded from every version: `.emquad/` itself, and nothing else. The app does not apply the user's `.gitignore`; a project is small and everything in it is the document.
 
 ## When snapshots are taken
 
@@ -56,7 +56,7 @@ Word-level detail is presentation only. Decisions (accept, reject, keep mine, ke
 
 Binary files (images, PDFs) are compared by content hash only: changed or not.
 
-## The `.quire` file
+## The `.emquad` file
 
 A zip archive with this layout:
 
@@ -75,7 +75,7 @@ packages/                optional, later: LaTeX package cache for offline compil
 ```json
 {
   "formatVersion": 1,
-  "app": { "name": "Quire", "version": "<app version>" },
+  "app": { "name": "Emquad", "version": "<app version>" },
   "bundleId": "<uuid>",
   "createdAt": "<RFC 3339 timestamp>",
   "project": { "id": "<uuid>", "name": "gaussian-integral", "mainFile": "main.tex", "engine": "tectonic" },
@@ -104,7 +104,7 @@ The option to exclude history exists in the dialog but defaults to on and warns 
 
 ### Import
 
-1. Read and validate the manifest. Extract to `.quire/incoming/<bundleId>/` under the safety rules in `02-architecture.md` (no absolute paths, no `..`, no links, size ceiling).
+1. Read and validate the manifest. Extract to `.emquad/incoming/<bundleId>/` under the safety rules in `02-architecture.md` (no absolute paths, no `..`, no links, size ceiling).
 2. **No project with this `project.id` is known:** offer to create a new project from the bundle. Its `history.git` is initialised from the bundle's history and its files from `tree/`. Done.
 3. **A matching project exists:** fetch the bundle's history into that project's `history.git` under `refs/bundles/<bundleId>`. Then start a review (next section).
 4. **A matching project exists but the bundle has no history, or shares no common ancestor:** do not attempt a merge. Offer to open it as a separate new project instead, and explain why.
@@ -137,11 +137,11 @@ If B equals O (we made no changes since the hand-off), there are no conflicts an
 
 - Use libgit2's merge machinery (`git2`) to obtain B and to perform the per-file three-way merge with diff3-style output, so each conflict carries base, ours and theirs text. Derive the hunk list from that result.
 - If conflict markers are used as an intermediate representation, configure a long marker length and treat any input file that already contains that marker sequence as a whole-file conflict rather than parsing it.
-- A review session is held in memory and persisted under `.quire/incoming/<bundleId>/review.json` so that closing the app mid-review loses no decisions.
+- A review session is held in memory and persisted under `.emquad/incoming/<bundleId>/review.json` so that closing the app mid-review loses no decisions.
 
 ### Decisions
 
-- Each conflict accepts `mine` or `theirs`. (A third option, edit by hand, can be added later; it would open the passage in the editor with both versions and is not required for version 1.)
+- Each conflict accepts `mine` or `theirs`. (A third option, edit by hand, can be added later; it would open the passage in the editor with both versions and is not reemquadd for version 1.)
 - Each automatic merge accepts `accept` (default) or `reject`. Reject restores B's text for that hunk.
 - Finish merge is enabled only when every conflict has a decision.
 

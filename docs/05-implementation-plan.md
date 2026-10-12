@@ -34,7 +34,7 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 **Goal:** open a folder, edit LaTeX files, save them.
 
 - Rust `project` module: create from a blank template, open a folder, file tree, read, write, create, rename, move, delete, add from disk, watch for external changes. Path validation.
-- `.quire/project.json` and `.quire/state.json`.
+- `.emquad/project.json` and `.emquad/state.json`.
 - File tree wired to real data, with context actions.
 - CodeMirror 6 with the LaTeX grammar, the Fieldwork editor theme, line numbers, search, bracket matching, tabs with per-file undo history.
 - Toolbar actions that insert LaTeX at the cursor.
@@ -53,7 +53,7 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 **Goal:** press Recompile, see the PDF.
 
 - Ship the Tectonic sidecar; `Engine` trait and `TectonicEngine`.
-- `compile_run` with cancellation, streamed log events, and output in `.quire/build/`.
+- `compile_run` with cancellation, streamed log events, and output in `.emquad/build/`.
 - Diagnostic parser with fixture logs.
 - PDF.js viewer: lazy page rendering, zoom, fit modes, page navigation, scroll position kept across recompiles.
 - Compile state in the top-bar readout; error markers in the editor gutter; a logs panel.
@@ -97,7 +97,7 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 - Restoring an older snapshot makes the working copy byte-identical to it, including removing files it did not contain, and a snapshot of the pre-restore state exists.
 - Diffs are correct for added, deleted, renamed and binary files, and for files with CRLF line endings.
 - A one-word edit inside a long single-line paragraph highlights only that word.
-- A project that is also the user's own git repository is unaffected: their `.git` is untouched and `.quire/` does not appear in the app's history.
+- A project that is also the user's own git repository is unaffected: their `.git` is untouched and `.emquad/` does not appear in the app's history.
 
 ## M5 — Bundles, review and merge
 
@@ -105,7 +105,7 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 
 - Rust `bundle` module: export and import with manifest validation and safe extraction.
 - Export dialog wired up; atomic write.
-- Import: new-project path and existing-project path; `.quire` file association so double-clicking a bundle opens the app.
+- Import: new-project path and existing-project path; `.emquad` file association so double-clicking a bundle opens the app.
 - Rust `review` module: classification, decisions, persisted session, finish, cancel.
 - Review panel in History wired to real data; the conflict badge on the History buttons.
 - Bundles and merges appear in the version list.
@@ -126,7 +126,7 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 - Project templates (article, report, exam, letter at minimum).
 - Settings screen: display name, compile-on-save, editor font size, default zoom.
 - Resizable and collapsible panels; layout remembered per project.
-- Windows installer through Tauri's bundler, with the `.quire` file association and both sidecars included.
+- Windows installer through Tauri's bundler, with the `.emquad` file association and both sidecars included.
 - A short user guide.
 
 **Accepted when**
