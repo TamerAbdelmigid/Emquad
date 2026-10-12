@@ -625,10 +625,12 @@ const CAPTION = /\\caption\*?[ \t\r\n]*(?:\[[^\]]*\])?[ \t\r\n]*\{/g;
 
 /**
  * The text with everything that only looks like LaTeX blanked out, each character still where
- * it was: comments and verbatim text, taken in the order they come.
+ * it was: comments and verbatim text, taken in the order they come. `sure` is false when some
+ * verbatim text could not be followed to its end, so that what comes after it may be misread.
  */
-function uncommented(text: string): string {
+function uncommented(text: string): { clean: string; sure: boolean } {
   const out = text.split("");
+  let sure = true;
   const blank = (from: number, to: number) => {
     for (let i = from; i < to; i++) if (out[i] !== "\n") out[i] = " ";
   };
@@ -642,24 +644,31 @@ function uncommented(text: string): string {
     else {
       const rest = text.slice(i, i + 40);
       const env = /^\\begin\{(verbatim\*?|Verbatim|lstlisting|minted|comment|filecontents\*?)\}/.exec(rest);
-      const inline = /^\\(?:verb|lstinline)\*?/.exec(rest);
-      const mark = inline ? text[i + inline[0].length] : undefined;
+      const inline = /^\\(?:verb|lstinline|mintinline|Verb|path|nolinkurl)\*?(?![a-zA-Z@])/.exec(rest);
       if (env) {
         const close = `\\end{${env[1]}}`;
-        const stop = text.indexOf(close, i) < 0 ? text.length : text.indexOf(close, i) + close.length;
+        const found = text.indexOf(close, i);
+        if (found < 0) sure = false;
+        const stop = found < 0 ? text.length : found + close.length;
         blank(i, stop);
         i = stop;
-      } else if (inline && mark !== undefined && !/[a-zA-Z\s]/.test(mark)) {
-        // Verbatim in a line: up to the same mark again, or for braces to the matching one.
+      } else if (inline) {
+        // Verbatim in a line: after any options, up to the same mark again, or for braces to
+        // the matching one. \mintinline names its language in braces first.
         const lineEnd = text.indexOf("\n", i) < 0 ? text.length : text.indexOf("\n", i);
-        const stop = mark === "{" ? closing(text, i + inline[0].length) : text.indexOf(mark, i + inline[0].length + 1) + 1;
+        let at = i + inline[0].length;
+        if (text[at] === "[") at = text.indexOf("]", at) + 1 || lineEnd + 1;
+        if (inline[0].startsWith("\\mintinline") && text[at] === "{") at = closing(text, at);
+        const mark = at > 0 && at < lineEnd ? text[at] : undefined;
+        const stop = mark === undefined || /[a-zA-Z\s]/.test(mark) ? -1 : mark === "{" ? closing(text, at) : text.indexOf(mark, at + 1) + 1;
+        if (stop <= 0 || stop > lineEnd) sure = false;
         const end = stop <= 0 || stop > lineEnd ? lineEnd : stop;
         blank(i, end);
         i = end;
       } else i += 2;
     }
   }
-  return out.join("");
+  return { clean: out.join(""), sure };
 }
 
 export type CaptionPlace =
@@ -692,16 +701,23 @@ function braceDepth(clean: string, from: number, to: number): number {
  * - a table directly in a float, alone there, with at most one caption of the float's own.
  */
 export function captionPlace(text: string, from: number, to: number): CaptionPlace {
-  const clean = uncommented(text);
+  const { clean, sure } = uncommented(text);
   const refuse = (why: string): CaptionPlace => ({ kind: "no", reason: `${why} ${SOURCE}` });
+  if (!sure) return refuse("This document has verbatim text that cannot be followed to its end.");
   const body = clean.indexOf("\\begin{document}");
   if (body < 0 || body > from) return refuse("This file is included by another, so the table's surroundings cannot be seen from here.");
+  // 3. A preamble that itself begins or ends anything, by whatever command, may have the
+  // document start or end inside it.
+  const HIDDEN = /\\(?:begin|end)[ \t]*\{|\\(?:bgroup|egroup|begingroup|endgroup|table|endtable|figure|endfigure|minipage|endminipage|AtBeginDocument|AtEndDocument|everypar|catcode)(?![a-zA-Z@])/;
+  if (HIDDEN.test(clean.slice(0, body))) return refuse("This document's preamble makes commands or hooks that begin or end environments.");
   // Anything that can open or close an environment or a group out of sight makes the
   // surroundings unknowable: home-made commands that do, and the plain TeX forms.
-  for (const m of clean.matchAll(/\\(?:def|gdef|edef|xdef|let|newcommand|renewcommand|providecommand|DeclareRobustCommand|newenvironment|renewenvironment|NewDocumentCommand|NewDocumentEnvironment)\b/g)) {
-    const stop = clean.indexOf("\n\n", m.index);
-    const defined = clean.slice(m.index, stop < 0 ? Math.min(clean.length, m.index + 2000) : stop);
-    if (/\\(?:begin|end)[ \t]*\{|\\(?:bgroup|egroup|begingroup|endgroup|table|endtable|figure|endfigure|minipage|endminipage)\b/.test(defined)) {
+  // The same for anything defined in the body, by any of the commands that define.
+  for (const m of clean.slice(body).matchAll(/\\(?:[gex]?def|let|(?:re)?newcommand|providecommand|(?:New|Renew|Provide|Declare)(?:Expandable)?Document(?:Command|Environment)|DeclareRobustCommand|(?:re)?newenvironment|(?:re)?newrobustcmd|providerobustcmd|catcode|AtEndDocument)(?![a-zA-Z@])/g)) {
+    const at = body + m.index;
+    const stop = clean.indexOf("\n\n", at);
+    const defined = clean.slice(at, stop < 0 ? Math.min(clean.length, at + 2000) : stop);
+    if (m[0] === "\\catcode" || m[0] === "\\AtEndDocument" || HIDDEN.test(defined.slice(m[0].length))) {
       return refuse("This document makes its own commands that begin or end environments.");
     }
   }
@@ -782,6 +798,11 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   if (found.length === 0) {
     // The new caption goes straight after the table, which must be the float's own level.
     if (braceDepth(clean, to, end) !== 0) return refuse("This table is inside the braces of another command, where a caption cannot go.");
+    // A line break, a note or anything else written straight after the table would be cut
+    // off from it by a caption put in between.
+    if (!/^[ \t]*(?:\r?\n[ \t]*)*(?:\\end\{|\\label(?![a-zA-Z@])|\\par(?![a-zA-Z@])|$)/.test(clean.slice(to, end)) && !/^[ \t]*\r?\n[ \t]*\r?\n/.test(clean.slice(to, end))) {
+      return refuse("Something is written straight after this table in its float.");
+    }
     return { kind: "float", from: float.at, to: end, labelled };
   }
   const start = float.at + found[0].index;
@@ -886,32 +907,52 @@ export function escapeTyped(value: string): string {
 }
 
 /**
- * The same, for a box that already held text: only the part that was just put in is looked
- * at. What was there before is the user's own LaTeX and is left exactly as it was.
+ * The same, for a box that already held text: only the characters that were put in are looked
+ * at, wherever in the text they went. What was there before is the user's own LaTeX and is
+ * left exactly as it was.
  */
 export function escapeInserted(before: string, after: string): string {
-  let start = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) start++;
-  let end = 0;
-  while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
-  const [head, typed, tail] = [after.slice(0, start), after.slice(start, after.length - end), after.slice(after.length - end)];
-  if (!typed) return after;
-  // Whether the new text lands in mathematics, or straight after a backslash, depends on
-  // what stands before it.
-  let math = false;
-  let escaped = false;
-  for (let i = 0; i < head.length; i++) {
-    escaped = false;
-    if (head[i] === "\\") {
-      const next = head[i + 1];
-      if (next === undefined) escaped = true;
-      if (next === "(" || next === "[") math = true;
-      if (next === ")" || next === "]") math = false;
-      i++;
-    } else if (head[i] === "$") math = !math;
+  const [n, m] = [before.length, after.length];
+  // Which characters of `after` were already in `before`: the longest run of them in order.
+  const kept = new Uint8Array(m);
+  if (n * m <= 4_000_000) {
+    const width = m + 1;
+    const table = new Uint16Array((n + 1) * width);
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        table[i * width + j] = before[i] === after[j] ? table[(i + 1) * width + j + 1] + 1 : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+      }
+    }
+    for (let i = 0, j = 0; i < n && j < m; ) {
+      if (before[i] === after[j]) {
+        kept[j] = 1;
+        i++;
+        j++;
+      } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) i++;
+      else j++;
+    }
+  } else {
+    // Too long to compare in full: take what the two have in common at each end.
+    let start = 0;
+    while (start < n && start < m && before[start] === after[start]) start++;
+    let end = 0;
+    while (end < n - start && end < m - start && before[n - 1 - end] === after[m - 1 - end]) end++;
+    kept.fill(1, 0, start);
+    kept.fill(1, m - end);
   }
-  const fixed = escapeTyped((math ? "$" : "") + (escaped ? "\\" : "") + typed).slice((math ? 1 : 0) + (escaped ? 1 : 0));
-  return head + fixed + tail;
+  let out = "";
+  let math = false;
+  for (let j = 0; j < m; j++) {
+    const ch = after[j];
+    const slashes = /\\*$/.exec(out)![0].length;
+    const escaped = slashes % 2 === 1;
+    if (escaped && (ch === "(" || ch === "[")) math = true;
+    if (escaped && (ch === ")" || ch === "]")) math = false;
+    if (ch === "$" && !escaped) math = !math;
+    const bare = !kept[j] && !escaped && (ch === "%" || (ch === "&" && !math));
+    out += bare ? `\\${ch}` : ch;
+  }
+  return out;
 }
 
 // ---------- tables from the clipboard ----------

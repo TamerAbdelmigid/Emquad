@@ -55,7 +55,7 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 - a table that is a paragraph of its own (a blank line before and after) in the body of an ordinary document such as an `article`, `report` or `book`: it is put in a `table` environment with the caption under it;
 - a table directly inside a `table`, `table*`, `figure` or `subtable` environment, alone there: the caption is added after it, or the float's own caption is changed.
 
-It leaves the caption to you, in the source, for a table inside anything else (a `minipage`, `\resizebox{…}`, mathematics, a list), in a file that another file includes, in a document that defines its own commands for opening environments, or where the float has a `\label` and you ask to remove the caption.
+It leaves the caption to you, in the source, for a table inside anything else (a `minipage`, `\resizebox{…}`, mathematics, a list), in a file that another file includes, in a document whose preamble defines commands, environments or hooks that themselves begin or end an environment, where something (a note, a line break) is written straight after the table in its float, or where the float has a `\label` and you ask to remove the caption.
 
 Every action changes your `.tex` file at once, and **Code** shows exactly what was written. Each action is one step for Undo (Ctrl+Z).
 

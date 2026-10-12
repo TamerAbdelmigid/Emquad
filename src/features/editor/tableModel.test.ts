@@ -432,6 +432,12 @@ describe("the text around a table", () => {
       `Some words ${tabular} in a sentence.`,
       `Text straight above\n${tabular}`,
       `\\begin{center}\n${tabular}\n\\end{center}`,
+      `\\begin{table}\n\\centering\n${tabular}\\\\[1ex]\n\\footnotesize Source: X.\n\\end{table}`,
+      `\\begin{table}\n${tabular}\n\\\\ Source: X.\n\\end{table}`,
+      `\\begin{table}\n${tabular}\n\\footnotesize Source: X.\n\\end{table}`,
+      `We call \\lstinline[language=C]!printf! here. \\fbox{\\parbox{6cm}{Results:\n\n${tabular}\n\n}}`,
+      `We call \\lstinline[language=C]{x} here. \\fbox{\\parbox{6cm}{Results:\n\n${tabular}\n\n}}`,
+      `An unclosed \\verb|oops\n\n${tabular}\n\n`,
     ]) {
       const text = `${DOC0}${body}`;
       const result = where(text);
@@ -450,12 +456,22 @@ describe("the text around a table", () => {
       "\\newcommand{\\bmp}[1]{\\begin{minipage}{#1}}\n\\newcommand{\\emp}{\\end{minipage}}",
       "\\newcommand{\\bt}{%\n  \\begin{table}[h]\\centering}",
       "\\def\\bt{\\bgroup}",
+      "\\DeclareDocumentCommand{\\bmp}{}{\\begin{minipage}{5cm}}",
+      "\\newrobustcmd{\\bmp}{\\begin{minipage}{5cm}}",
+      "\\AtBeginDocument{\\begin{minipage}{5cm}}\\AtEndDocument{\\end{minipage}}",
+      "\\newenvironment{note}{\\begin{quote}}{\\end{quote}}",
     ]) {
       expect(where(`\\documentclass{article}\n${preamble}\n\\begin{document}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("no");
     }
     // A class without ordinary floats.
     expect(where(`\\documentclass{standalone}\n\\begin{document}\n${tabular}\n\\end{document}`).place.kind).toBe("no");
     expect(where(`\\documentclass[12pt]{article}\n\\begin{document}\n${tabular}\n\\end{document}`).place.kind).toBe("bare");
+    // A float whose table is followed by nothing but its end, a label or a blank line is fine.
+    for (const rest of ["\n", "\n\\label{t}\n", "\n\n\\footnotesize Source: X.\n"]) {
+      expect(where(`${DOC0}\\begin{table}\n\\centering\n${tabular}${rest}\\end{table}`).place.kind).toBe("float");
+    }
+    // Ordinary definitions, in the preamble or the body, do not stand in the way.
+    expect(where(`\\documentclass{article}\n\\newcommand{\\R}{\\mathbb{R}}\n\\begin{document}\n\\def\\x{y}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("bare");
     // A comment or verbatim text that mentions verbatim must not hide what follows it.
     const hidden = `${DOC0}% Code goes in \\begin{verbatim} blocks.\n\\begin{minipage}{5cm}\n${tabular}\n\\end{minipage}\n\\begin{verbatim}\nx\n\\end{verbatim}`;
     expect(where(hidden).place.kind).toBe("no");
@@ -700,6 +716,13 @@ describe("text typed into a box that already held text", () => {
     expect(escapeInserted("a  b", "a & b")).toBe("a \\& b");
     expect(escapeInserted(had, had)).toBe(had);
     expect(escapeInserted(had, had.slice(0, -1))).toBe(had.slice(0, -1));
+  });
+
+  it("treats changes in two places as two changes, leaving what lies between alone", () => {
+    const had = "Sizes of \\ensuremath{\\begin{array}{cc}a & b\\end{array}} and \\url{x?a=1&b=2%20} in 2020";
+    const now = `New ${had.replace("2020", "2021")}`;
+    expect(escapeInserted(had, now)).toBe(now);
+    expect(escapeInserted(had, `R&D: ${had.replace("2020", "50%")}`)).toBe(`R\\&D: ${had.replace("2020", "50\\%")}`);
   });
 
   it("knows mathematics and a waiting backslash from what stands before", () => {
