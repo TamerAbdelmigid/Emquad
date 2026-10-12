@@ -478,6 +478,16 @@ describe("the text around a table", () => {
     ]) {
       expect(where(`\\documentclass{article}\n${preamble}\n\\begin{document}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("no");
     }
+    // The same commands made in the body, starred or with parameters marked off their own way.
+    for (const made of [
+      "\\newcommand*{\\bt}{\\begin{table}[h]\\centering}",
+      "\\newcommand*\\bt{\\begin{table}[h]}",
+      "\\def\\bt(#1){\\begin{table}[#1]}",
+      "\\def\\bt#1%\n{\\begin{table}[#1]}",
+      "\\newcommand{\\bt}[1][h]{\\begin{table}[#1]}",
+    ]) {
+      expect(where(`\\documentclass{article}\n\\begin{document}\n${made}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("no");
+    }
     // A class without ordinary floats.
     expect(where(`\\documentclass{standalone}\n\\begin{document}\n${tabular}\n\\end{document}`).place.kind).toBe("no");
     expect(where(`\\documentclass[12pt]{article}\n\\begin{document}\n${tabular}\n\\end{document}`).place.kind).toBe("bare");
@@ -500,6 +510,7 @@ describe("the text around a table", () => {
       `A holds $a \\iff b$.\n\n${tabular}\n\nEnd.`,
       `\\begin{table}\n\\renewcommand{\\arraystretch}{1.3}\n${tabular}\n\\end{table}`,
       `\\tikz \\path (0,0) -- (1,1);\n\n${tabular}\n\nEnd.`,
+      `\\tikz \\path[draw] (0,0) -- (1,1);\n\n${tabular}\n\nEnd.`,
     ]) {
       expect(where(`${DOC0}${body}`).place.kind).not.toBe("no");
     }
@@ -532,6 +543,12 @@ describe("the text around a table", () => {
     expect(soundCaption("Cost in \\$ per unit, $x$")).toBe(true);
     expect(soundCaption("Item #3")).toBe(false);
     expect(soundCaption("Item \\#3")).toBe(true);
+    // A caret or an underscore on its own in prose would stop the document compiling.
+    expect(soundCaption("50^2 metres")).toBe(false);
+    expect(soundCaption("Sales_2024")).toBe(false);
+    expect(soundCaption("$50^2$ metres, $x_i$, $$a_b$$, \\(c^d\\)")).toBe(true);
+    expect(soundCaption("\\si{m^2}, \\ref{tab:a_b}, \\url{http://x.org/a_b#frag}")).toBe(true);
+    expect(soundCaption("open \\( never closed")).toBe(false);
   });
 
   it("finds the smallest change between two versions of a table", () => {
@@ -769,17 +786,60 @@ describe("text typed into a box that already held text", () => {
     expect(escapeInserted("Sales \\& marketing, 2023", "Sales & marketing, 2024")).toBe("Sales \\& marketing, 2024");
   });
 
-  it("writes the other characters LaTeX acts on so that they print", () => {
-    expect(escapeInserted("", "Sales_2024")).toBe("Sales\\_2024");
-    expect(escapeInserted("", "Item #3")).toBe("Item \\#3");
-    expect(escapeInserted("", "50^2 metres")).toBe("50\\^{}2 metres");
-    // ... but not in mathematics, nor in the name of a label, a reference or a file.
-    expect(escapeInserted("", "$x_i^2$ and $R^2$")).toBe("$x_i^2$ and $R^2$");
-    expect(escapeInserted("", "see \\ref{tab:my_table} and \\cite[p.~3]{knuth_84}")).toBe("see \\ref{tab:my_table} and \\cite[p.~3]{knuth_84}");
-    expect(escapeInserted("", "\\includegraphics[width=1cm]{fig_1}")).toBe("\\includegraphics[width=1cm]{fig_1}");
-    expect(escapeInserted("", "a\\_b and \\#1")).toBe("a\\_b and \\#1");
+  /** Type text one key at a time, as the cell box does. */
+  const typeOut = (keys: string, start = "") => {
+    let value = start;
+    for (const key of keys) value = key === "\b" ? escapeInserted(value, value.slice(0, -1)) : escapeInserted(value, value + key);
+    return value;
+  };
+
+  it("writes an underscore or a hash typed in prose so that it prints", () => {
+    expect(typeOut("Sales_2024")).toBe("Sales\\_2024");
+    expect(typeOut("Item #3")).toBe("Item \\#3");
+    expect(typeOut("\\textbf{a_b} and \\href{http://x.org/a_b}{my_text}")).toBe("\\textbf{a\\_b} and \\href{http://x.org/a_b}{my\\_text}");
+    expect(typeOut("a\\_b and \\#1")).toBe("a\\_b and \\#1");
     // What was already there is left exactly as written.
     expect(escapeInserted("run_2 #x", "Old run_2 #x")).toBe("Old run_2 #x");
+  });
+
+  it("leaves them alone in mathematics and in any argument that is a name, a unit or a formula", () => {
+    for (const typed of [
+      "$x_i^2$ and $R^2$",
+      "$$a_b$$",
+      "\\(x_1\\) and \\ensuremath{x_1}",
+      "see \\ref{tab:my_table} and \\cite[p.~3]{knuth_84}",
+      "\\autocite{knuth_84} \\textcite{lamport_94} \\vref{sec:a_b} \\crefrange{sec:a_b}{sec:c_d}",
+      "\\includegraphics[width=1cm]{fig_1}",
+      "\\si{m^2} \\qty{3}{m^2} \\num{10^3} \\ce{SO4^2-}",
+      "\\gls{my_term} \\textcolor{my_red}{x}",
+      "\\hyperref[sec:a_b]{text}",
+      "H$_2$O",
+    ]) {
+      expect(typeOut(typed)).toBe(typed);
+    }
+    expect(typeOut("\\hyperref[sec:a_b]{my_text}")).toBe("\\hyperref[sec:a_b]{my_text}");
+    expect(typeOut("see [note_1]")).toBe("see [note\\_1]");
+  });
+
+  it("takes the backslash away with a character it was put there for", () => {
+    expect(typeOut("Sales_\b2024")).toBe("Sales2024");
+    expect(typeOut("file_\bx")).toBe("filex");
+    expect(typeOut("x#\by")).toBe("xy");
+    expect(typeOut("R&\bD")).toBe("RD");
+    expect(typeOut("50%\b")).toBe("50");
+    // Deleting the underscore out of the middle does the same.
+    expect(escapeInserted("Sales\\_2024", "Sales\\2024")).toBe("Sales2024");
+    // A backslash that begins a command is nobody's leftover.
+    expect(escapeInserted("\\alpha_1", "\\alpha1")).toBe("\\alpha1");
+    expect(escapeInserted("a\\\\_b", "a\\\\b")).toBe("a\\\\b");
+  });
+
+  it("does not escape twice, however the keys come", () => {
+    expect(typeOut("\\_")).toBe("\\_");
+    expect(typeOut("a_", "")).toBe("a\\_");
+    expect(typeOut("_", "a\\_")).toBe("a\\_\\_");
+    expect(typeOut("a_b & c% #d")).toBe("a\\_b \\& c\\% \\#d");
+    expect(escapeInserted("", "a_b & c% #d")).toBe("a\\_b \\& c\\% \\#d");
   });
 
   it("knows mathematics and a waiting backslash from what stands before", () => {

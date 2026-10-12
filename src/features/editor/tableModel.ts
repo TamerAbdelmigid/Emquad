@@ -690,7 +690,7 @@ function uncommented(text: string): { clean: string; sure: boolean } {
         const lineEnd = text.indexOf("\n", i) < 0 ? text.length : text.indexOf("\n", i);
         let at = i + inline[0].length;
         // TikZ has a \path of its own, followed by a space and never by a mark.
-        if (inline[0] === "\\path" && /[ \t\r\n(]/.test(text[at] ?? " ")) {
+        if (inline[0] === "\\path" && /[ \t\r\n([]/.test(text[at] ?? " ")) {
           i += inline[0].length;
           continue;
         }
@@ -754,13 +754,15 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
     const at = body + m.index;
     // The definition runs to the end of the last of the arguments that follow the command.
     let stop = at + m[0].length;
+    if (clean[stop] === "*") stop++;
     for (let groups = 0, i = stop; groups < 8 && i < clean.length; ) {
       while (/[ \t\r\n]/.test(clean[i] ?? "") && !/^\r?\n[ \t]*\r?\n/.test(clean.slice(i))) i++;
-      // The parameters of a \def stand between its name and its body: step over them.
-      if (clean[i] === "#") {
-        const lineEnd = clean.indexOf("\n", i) < 0 ? clean.length : clean.indexOf("\n", i);
+      // The parameters of a \def, whatever marks them off, stand between its name and its
+      // body: step over them to the brace that opens the body, on this line or the next.
+      if (groups === 1 && /def$/.test(m[0]) && clean[i] !== "{") {
         const brace = clean.indexOf("{", i);
-        i = brace < 0 || brace > lineEnd ? lineEnd : brace;
+        const far = clean.indexOf("\n", clean.indexOf("\n", i) + 1);
+        if (brace >= 0 && (far < 0 || brace < far)) i = brace;
       }
       const next = clean[i];
       // Only the first thing after the command can be the bare name of what is defined.
@@ -903,22 +905,24 @@ export function captionOf(text: string, from: number, to: number): string | null
 
 /**
  * Whether text can be a caption, or a cell, as it stands: its braces match, it ends no group
- * early, its mathematics is closed, and it has no bare % or #.
+ * early, its mathematics is closed, and it has no character on its own that LaTeX would act
+ * on: a bare % anywhere, or a #, _ or ^ written in prose outside mathematics.
  */
 export function soundCaption(caption: string): boolean {
   let depth = 0;
-  let dollars = 0;
+  const math = mathAt(caption);
   for (let i = 0; i < caption.length; i++) {
-    if (caption[i] === "\\") {
+    const ch = caption[i];
+    if (ch === "\\") {
       // A backslash with nothing after it would take the closing brace for itself.
       if (++i >= caption.length) return false;
-    } else if (caption[i] === "{") depth++;
-    else if (caption[i] === "}" && --depth < 0) return false;
-    else if (caption[i] === "%" || caption[i] === "#") return false;
-    else if (caption[i] === "$") dollars++;
+    } else if (ch === "{") depth++;
+    else if (ch === "}" && --depth < 0) return false;
+    else if (ch === "%") return false;
+    else if ((ch === "#" || ch === "_" || ch === "^") && !math[i] && inProse(caption.slice(0, i))) return false;
   }
-  // A dollar sign on its own would open mathematics that never closes.
-  return depth === 0 && dollars % 2 === 0;
+  // Mathematics left open would swallow whatever comes after.
+  return depth === 0 && math[caption.length] === 0;
 }
 
 /**
@@ -985,21 +989,84 @@ export function escapeTyped(value: string): string {
   return out;
 }
 
-/** Whether text ends inside the braces of a command whose argument is a name, not prose. */
-const NAMING = /\\(?:ref|eqref|pageref|autoref|nameref|[cC]ref|cite[a-zA-Z]*|label|url|href|nolinkurl|hyperref|includegraphics|input|include)\*?(?:\[[^\]]*\])*\{[^{}]*$/;
+/**
+ * Commands with an argument that is text to be read, not a name, a number or a formula, and
+ * which of their braced arguments that is.
+ */
+const PROSE = new Map<string, number>([
+  ...["textbf", "textit", "emph", "texttt", "textsc", "textrm", "textsf", "textmd", "textup", "textsl", "textnormal", "underline", "mbox", "footnote", "caption", "makecell"].map((name): [string, number] => [name, 1]),
+  ["href", 2],
+  ["textcolor", 2],
+  ["colorbox", 2],
+  ["parbox", 2],
+  ["multicolumn", 3],
+  ["multirow", 3],
+]);
+
+/**
+ * Whether the end of `text` is a place where prose is written: the top level, a plain group,
+ * or the text argument of a command known to take prose. Inside the argument or the options of
+ * any other command it is not, because there an underscore is part of a name, a unit or a
+ * formula and must be left as it is typed.
+ */
+function inProse(text: string): boolean {
+  const open: { ch: string; at: number }[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\\") i++;
+    else if (ch === "{") open.push({ ch, at: i });
+    else if (ch === "[" && /\\[a-zA-Z@]+\*?(?:\{[^{}]*\}|\[[^\]]*\])*$/.test(text.slice(0, i))) open.push({ ch, at: i });
+    else if ((ch === "}" || ch === "]") && open.length && open[open.length - 1].ch === (ch === "}" ? "{" : "[")) open.pop();
+  }
+  // Every group the text is inside must be one that holds prose.
+  return open.every((group) => {
+    if (group.ch === "[") return false;
+    const owner = /\\([a-zA-Z@]+)\*?((?:\[[^\]]*\]|\{[^{}]*\})*)$/.exec(text.slice(0, group.at));
+    if (!owner) return true;
+    // Which braced argument of the command this group is.
+    const nth = (owner[2].match(/\{[^{}]*\}/g) ?? []).length + 1;
+    return PROSE.get(owner[1]) === nth;
+  });
+}
+
+/** For each character of `text`, whether it stands in mathematics opened with $, $$, \( or \[. */
+function mathAt(text: string): Uint8Array {
+  const out = new Uint8Array(text.length + 1);
+  let math = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\\") {
+      const next = text[i + 1];
+      if (next === "(" || next === "[") math = true;
+      if (next === ")" || next === "]") math = false;
+      out[i] = out[i + 1] = math ? 1 : 0;
+      i++;
+    } else if (ch === "$") {
+      // Two together open or close a display, just as one does a formula in the line.
+      if (text[i + 1] === "$") out[i++] = 1;
+      out[i] = 1;
+      math = !math;
+    } else out[i] = math ? 1 : 0;
+  }
+  out[text.length] = math ? 1 : 0;
+  return out;
+}
 
 /**
  * The same, for a box that already held text: only the characters that were put in are looked
  * at, wherever in the text they went. What was there before is the user's own LaTeX and is
  * left exactly as it was.
+ *
+ * Typed in prose, a `%`, `#` or `&` is written with a backslash, and so is an `_`. In
+ * mathematics, and in the argument of a command that takes a name, a number or a formula,
+ * they are left as typed. When a character that carries such a backslash is deleted, the
+ * backslash goes with it.
  */
 export function escapeInserted(before: string, after: string): string {
   const [n, m] = [before.length, after.length];
-  // Which characters of `after` were already in `before`: the longest run of them in order.
-  const kept = new Uint8Array(m);
-  /** For a kept character, whether it stood after a backslash in `before`. */
-  const wasEscaped = new Uint8Array(m);
-  const escapedAt = (i: number) => /\\*$/.exec(before.slice(0, i))![0].length % 2 === 1;
+  // Which character of `before` each character of `after` is, or -1 for one that was put in:
+  // the longest run of shared characters, in order.
+  const from = new Int32Array(m).fill(-1);
   if (n * m <= 4_000_000) {
     const width = m + 1;
     const table = new Uint16Array((n + 1) * width);
@@ -1009,12 +1076,8 @@ export function escapeInserted(before: string, after: string): string {
       }
     }
     for (let i = 0, j = 0; i < n && j < m; ) {
-      if (before[i] === after[j]) {
-        kept[j] = 1;
-        if ((after[j] === "&" || after[j] === "%") && escapedAt(i)) wasEscaped[j] = 1;
-        i++;
-        j++;
-      } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) i++;
+      if (before[i] === after[j]) from[j++] = i++;
+      else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) i++;
       else j++;
     }
   } else {
@@ -1023,25 +1086,28 @@ export function escapeInserted(before: string, after: string): string {
     while (start < n && start < m && before[start] === after[start]) start++;
     let end = 0;
     while (end < n - start && end < m - start && before[n - 1 - end] === after[m - 1 - end]) end++;
-    kept.fill(1, 0, start);
-    kept.fill(1, m - end);
+    for (let j = 0; j < start; j++) from[j] = j;
+    for (let k = 1; k <= end; k++) from[m - k] = n - k;
   }
+  const escapedIn = (text: string, i: number) => /\\*$/.exec(text.slice(0, i))![0].length % 2 === 1;
+  const SPECIAL = "&%#_";
   let out = "";
-  let math = false;
   for (let j = 0; j < m; j++) {
     const ch = after[j];
-    const slashes = /\\*$/.exec(out)![0].length;
-    const escaped = slashes % 2 === 1;
-    if (escaped && (ch === "(" || ch === "[")) math = true;
-    if (escaped && (ch === ")" || ch === "]")) math = false;
-    if (ch === "$" && !escaped) math = !math;
-    // A character that was there before is left alone, unless it was escaped and the
-    // backslash before it has since been deleted: it must not become a bare one.
-    const bare = !escaped && (kept[j] ? wasEscaped[j] === 1 : ch === "%" || ch === "#" || (ch === "&" && !math));
-    // An underscore or a caret typed outside mathematics is meant as the character, except
-    // in the name of a label, a reference or a file, where it is part of the name.
-    const mark = !kept[j] && !escaped && !math && (ch === "_" || ch === "^") && !NAMING.test(out);
-    out += bare ? `\\${ch}` : mark ? (ch === "_" ? "\\_" : "\\^{}") : ch;
+    const i = from[j];
+    const escaped = /\\*$/.exec(out)![0].length % 2 === 1;
+    if (i >= 0) {
+      // There before. A backslash whose character has been deleted goes with it ...
+      const orphan = ch === "\\" && !escapedIn(before, i) && SPECIAL.includes(before[i + 1] ?? " ") && from[j + 1] !== i + 1;
+      if (orphan) continue;
+      // ... and a character whose backslash has been deleted gets it back.
+      out += SPECIAL.includes(ch) && escapedIn(before, i) && !escaped ? `\\${ch}` : ch;
+      continue;
+    }
+    const math = mathAt(out)[out.length] === 1;
+    const prose = !math && inProse(out);
+    const bare = !escaped && (ch === "%" || ch === "#" || (ch === "&" && !math) || (ch === "_" && prose));
+    out += bare ? `\\${ch}` : ch;
   }
   return out;
 }

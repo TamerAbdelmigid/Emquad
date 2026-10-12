@@ -302,7 +302,7 @@ class Controller {
     const td = input.closest("td");
     const kept = this.table.rows[this.head.r]?.[this.head.c]?.tex ?? "";
     if (input.classList.contains("bad")) {
-      store().notify(`“${input.value}” could not be put in the table as written, so the cell was left as it was. Check that its braces match.`, true);
+      store().notify(`“${input.value}” could not be put in the table as written, so the cell was left as it was. Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.`, true);
     }
     if (td) {
       td.classList.remove("editing");
@@ -330,7 +330,7 @@ class Controller {
     const back = parseTable(writeTable(next));
     const sound = back.ok && same(back.table, next) && soundCaption(next.rows[at.r][at.c].tex);
     input.classList.toggle("bad", !sound);
-    input.title = sound ? "" : "This cannot go into the table yet. Check that its braces match, that mathematics opened with $ is closed, and that it has no line break (\\\\) in it.";
+    input.title = sound ? "" : "This cannot go into the table yet. Check that its braces match and that $ signs come in pairs (write a dollar sign as \\$, and a ^ inside $…$), and that it has no line break (\\\\) in it.";
     if (sound) this.commit(next, false);
   }
 
@@ -408,7 +408,7 @@ class Controller {
         return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
       }
       if (!soundCaption(wanted)) {
-        return store().notify("That caption cannot be written as LaTeX as it stands, so it was not changed. Check that its braces match and that mathematics opened with $ is closed.", true);
+        return store().notify("That caption cannot be written as LaTeX as it stands, so it was not changed. Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.", true);
       }
       const changes = setCaption(at.text, at.from, to, wanted);
       if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });
