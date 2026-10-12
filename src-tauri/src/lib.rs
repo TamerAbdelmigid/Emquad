@@ -1,0 +1,95 @@
+pub mod bundle;
+pub mod commands;
+pub mod compile;
+pub mod diff;
+pub mod error;
+pub mod history;
+pub mod index;
+pub mod project;
+pub mod review;
+pub mod settings;
+pub mod synctex;
+pub mod templates;
+
+use commands::AppState;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use tauri::Manager;
+
+/// Folders where a bundled helper program may live, most specific first.
+fn sidecar_dirs(app: &tauri::App) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Ok(resources) = app.path().resource_dir() {
+        dirs.push(resources.join("sidecars"));
+    }
+    if let Some(exe_dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+        dirs.push(exe_dir.join("sidecars"));
+        dirs.push(exe_dir);
+    }
+    if cfg!(debug_assertions) {
+        dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sidecars"));
+    }
+    dirs
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            let config_dir = app.path().app_config_dir()?;
+            std::fs::create_dir_all(&config_dir)?;
+            // Double-clicking a bundle starts the app with its path as the first argument.
+            let startup_file = std::env::args()
+                .nth(1)
+                .filter(|a| a.to_lowercase().ends_with(".emquad"));
+            app.manage(AppState {
+                config_dir,
+                sidecar_dirs: sidecar_dirs(app),
+                project: Mutex::new(None),
+                compile_pid: Arc::new(Mutex::new(None)),
+                compile_lock: Mutex::new(()),
+                watcher: Mutex::new(None),
+                startup_file: Mutex::new(startup_file),
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::settings_get,
+            commands::settings_update,
+            commands::startup_file,
+            commands::project_create,
+            commands::project_open,
+            commands::project_close,
+            commands::project_tree,
+            commands::project_index,
+            commands::project_set_main,
+            commands::ui_state_save,
+            commands::file_read,
+            commands::file_write,
+            commands::file_create,
+            commands::file_rename,
+            commands::file_delete,
+            commands::file_import,
+            commands::compile_run,
+            commands::compile_cancel,
+            commands::pdf_read,
+            commands::synctex_forward,
+            commands::synctex_inverse,
+            commands::history_list,
+            commands::history_snapshot,
+            commands::history_changed_files,
+            commands::history_file_diff,
+            commands::history_restore,
+            commands::bundle_export,
+            commands::bundle_inspect,
+            commands::bundle_import,
+            commands::bundle_import_new,
+            commands::review_get,
+            commands::review_decide,
+            commands::review_finish,
+            commands::review_cancel,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
