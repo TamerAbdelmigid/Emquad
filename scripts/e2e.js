@@ -382,8 +382,8 @@
     // --- visual mode draws tables, figures and citations in place
     buffers.goToLine(1);
     await click("Visual");
-    await until("the table", () => $$(".cm-v-table td").length === 4);
-    await ok($$(".cm-v-table tr.rule-above").length === 1 && $(".cm-v-table .katex") && $(".cm-v-table b")?.textContent === "two", "a table is drawn as a table, with its rules, mathematics and bold text");
+    await until("the table", () => $$(".cm-v-tedit td").length === 4);
+    await ok($$(".cm-v-tedit td.rule-top").length === 2 && $(".cm-v-tedit .katex") && $(".cm-v-tedit b")?.textContent === "two", "a table is drawn as a table, with its rules, mathematics and bold text");
     await until("the figure", () => $(".cm-v-figure img")?.naturalWidth > 0, 30000);
     await ok(true, "a figure is drawn as its picture, here the first page of a PDF");
     const cites = () => $$(".cm-v-cite").map((c) => c.textContent);
@@ -391,9 +391,172 @@
     await ok(cites()[1] === "[nobody?]" && $$(".cm-v-cite")[1].classList.contains("cm-v-cite-unknown"), "citations are named by author and year, and one nobody defines is marked");
     await shot("08-visual");
     buffers.goToLine(7);
-    await until("the table's source", () => $$(".cm-v-table").length === 0);
+    await until("the table's source", () => $$(".cm-v-tedit").length === 0);
     await ok(true, "putting the cursor in the table shows its source again");
     buffers.goToLine(1);
+
+    // --- the table editor: every action rewrites the LaTeX at once
+    {
+      const before = buffers.text("main.tex");
+      const src = () => buffers.text("main.tex");
+      const tabular = () => /\\begin\{tabular\}[\s\S]*?\\end\{tabular\}/.exec(src())[0];
+      const td = (r, c) => $(`.cm-v-tedit td[data-r="${r}"][data-c="${c}"]`);
+      const press = (el, key, more = {}) => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...more }));
+      const drag = (from, to) => {
+        from.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+        if (to !== from) to.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      };
+      const tool = (id) => $(`.cm-v-tbar button[data-action="${id}"]`);
+      const box = () => $(".cm-v-tedit input.cm-v-tcell");
+      await until("the drawn table", () => td(0, 1));
+
+      drag(td(0, 1), td(0, 1));
+      await until("a cell to type in", () => box() && document.activeElement === box());
+      await ok(box().value === "Value", "clicking a cell opens it for typing, showing its LaTeX");
+      type(box(), "Total");
+      await ok(tabular().includes("Name & Total \\\\"), "typing in a cell rewrites the source as each letter lands");
+      type(box(), "R&D 5%");
+      await ok(box().value === "R\\&D 5\\%" && tabular().includes("Name & R\\&D 5\\% \\\\"), "an ampersand or percent sign typed in a cell is written the way LaTeX prints it");
+      type(box(), "\\textbf{open");
+      await ok(box().classList.contains("bad") && tabular().includes("R\\&D 5\\%"), "text that would break the table is held back and marked until it is whole");
+      type(box(), "\\textbf{Total}");
+      await ok(!box().classList.contains("bad") && tabular().includes("\\textbf{Total}"), "and goes in once its braces match");
+
+      press(box(), "Tab");
+      await ok(box()?.value === "$x$" && box().closest("td") === td(1, 0), "Tab moves to the next cell");
+      press(box(), "Tab", { shiftKey: true });
+      await ok(box().closest("td") === td(0, 1), "Shift+Tab moves back");
+      box().setSelectionRange(0, 0);
+      press(box(), "ArrowLeft");
+      await ok(box().closest("td") === td(0, 0), "an arrow key at the edge of the text moves to the neighbouring cell");
+      press(box(), "ArrowDown");
+      await ok(box().closest("td") === td(1, 0), "and the down arrow to the cell below");
+      drag(td(1, 1), td(1, 1));
+      press(box(), "Tab");
+      await until("a new row", () => td(2, 0) && box()?.closest("td") === td(2, 0));
+      await ok((tabular().match(/\\\\/g) ?? []).length === 3, "Tab in the last cell adds a row and moves into it");
+      type(box(), "y");
+      press(box(), "Tab");
+      type(box(), "three");
+
+      // Merge across a row.
+      drag(td(0, 0), td(0, 1));
+      await ok($$(".cm-v-tedit td.sel").length === 2 && !tool("merge").disabled, "dragging across cells selects them and enables Merge");
+      tool("merge").click();
+      await ok(tabular().includes("\\multicolumn{2}{l}{Name \\textbf{Total}} \\\\") && !src().includes("multirow"), "merging across a row writes \\multicolumn and keeps the text of both cells");
+      press($(".cm-v-tedit"), "z", { ctrlKey: true });
+      await ok(tabular().includes("Name & \\textbf{Total} \\\\") && !tabular().includes("multicolumn"), "Ctrl+Z takes back the whole merge in one step");
+      press($(".cm-v-tedit"), "y", { ctrlKey: true });
+      await ok(tabular().includes("\\multicolumn{2}{l}{Name \\textbf{Total}}"), "and Ctrl+Y puts it back");
+
+      // Merge down a column, with the keyboard.
+      drag(td(1, 0), td(1, 0));
+      press(box(), "ArrowDown", { shiftKey: true });
+      await ok($$(".cm-v-tedit td.sel").length === 2, "Shift and an arrow key extends the selection by a cell");
+      tool("merge").click();
+      await until("the package line", () => src().includes("\\usepackage{multirow}"));
+      await ok(tabular().includes("\\multirow{2}{*}{$x$ y} & \\textbf{two} \\\\\n& three \\\\"), "merging down a column writes \\multirow, with an empty cell under it");
+      await ok(/multirow/.test(text(".toast")) && src().indexOf("\\usepackage{multirow}") < src().indexOf("\\begin{document}"), "the multirow package is added to the preamble, and the app says so");
+
+      tool("borders").click();
+      await ok(!/hline|cline/.test(tabular()) && tabular().startsWith("\\begin{tabular}{ll}"), "Borders removes every rule when there are some");
+      tool("borders").click();
+      await ok(tabular().startsWith("\\begin{tabular}{|l|l|}") && tabular().includes("\\cline{2-2}\n") && !/\\\\\n\\hline\n& three/.test(tabular()), "and draws them all when there are none, with \\cline so no rule cuts the merged cell");
+      await shot("10-table");
+
+      await act.compile();
+      await ok(store().build?.ok, "the document compiles with the merged cells as written");
+
+      // Split.
+      drag(td(1, 0), td(1, 0));
+      press(box(), "Escape");
+      await ok(!tool("split").disabled && tool("splitRows").disabled, "a merged cell offers Split, an ordinary one the two divisions");
+      tool("split").click();
+      await ok(!tabular().includes("multirow") && tabular().includes("$x$ y & \\textbf{two} \\\\\n\\hline\n& three \\\\"), "splitting a merged cell gives back its cells, the text staying in the first, and the rule returns");
+      drag(td(2, 1), td(2, 1));
+      press(box(), "Escape");
+      tool("splitColumns").click();
+      await ok(tabular().startsWith("\\begin{tabular}{|l|l|l|}") && tabular().includes("\\multicolumn{2}{l|}{\\textbf{two}}") && tabular().includes("& three & \\\\"), "splitting an ordinary cell adds a column and widens the cells above it");
+      press($(".cm-v-tedit"), "z", { ctrlKey: true });
+
+      // Rows, columns, alignment.
+      drag(td(2, 1), td(2, 1));
+      press(box(), "Escape");
+      tool("rowBelow").click();
+      tool("columnRight").click();
+      await ok((tabular().match(/\\\\/g) ?? []).length === 4 && tabular().startsWith("\\begin{tabular}{|l|l|l|}"), "a row and a column can be added");
+      tool("deleteColumn").click();
+      tool("deleteRow").click();
+      tool("alignCentre").click();
+      await ok((tabular().match(/\\\\/g) ?? []).length === 3 && tabular().startsWith("\\begin{tabular}{|l|c|}"), "and deleted, and a column centred");
+
+      // The menu, from the keyboard.
+      press($(".cm-v-tedit"), "F10", { shiftKey: true });
+      const items = await until("the table menu", () => ($(".cm-v-tmenu") ? $$(".cm-v-tmenu button") : null));
+      await ok(document.activeElement === items[0] && items.length > 6, "Shift+F10 opens the table's menu with the keyboard on its first item");
+      misses = audit();
+      await ok(misses.length === 0, `every control of the table editor is focusable and named${misses.length ? `: ${misses.join("; ")}` : ""}`);
+      press(items[0], "Escape");
+      await ok(!$(".cm-v-tmenu") && document.activeElement === $(".cm-v-tedit"), "Escape closes it and returns to the table");
+
+      // Caption.
+      tool("caption").click();
+      type(await until("the caption prompt", () => $("#ask-value")), "Results by year");
+      await click("Save");
+      await until("the caption", () => src().includes("\\caption{Results by year}"));
+      await ok(/\\begin\{table\}\[h\]\n\\centering\n\\begin\{tabular\}/.test(src()) && src().includes("\\end{tabular}\n\\caption{Results by year}\n\\end{table}"), "a caption puts the table in a float that carries it");
+      await ok($(".cm-v-tedit td"), "and the table is still drawn and editable");
+
+      // A table that cannot be written back exactly is shown, not edited.
+      buffers.goToLine(5);
+      buffers.insert("\\begin{tabular}{lp{3cm}}\n a & b \\\\\n\\end{tabular}\n\n");
+      buffers.goToLine(1);
+      const note = await until("the read-only table", () => $(".cm-v-table .cm-v-tnote"));
+      await ok(/column type/.test(note.textContent) && $$(".cm-v-tedit").length === 1, "a table with a column type the editor does not know is drawn read-only, with the reason");
+      const handWritten = src();
+      note.querySelector("button").click();
+      await until("its source", () => !$(".cm-v-table"));
+      await ok(src() === handWritten, "Edit source shows its LaTeX, untouched");
+      buffers.goToLine(1);
+
+      // Paste from Word or Excel.
+      const copied = new DataTransfer();
+      copied.setData("text/html", "<table><tr><th colspan=2>R&amp;D costs</th></tr><tr><td>2025</td><td>50%</td></tr></table>");
+      copied.setData("text/plain", "R&D costs\t\n2025\t50%");
+      buffers.goToLine(5);
+      $(".cm-content").dispatchEvent(new ClipboardEvent("paste", { clipboardData: copied, bubbles: true, cancelable: true }));
+      await until("the paste question", () => text("dialog[open]").includes("2 rows and 2 columns"));
+      await click("Paste as table");
+      await until("the pasted table", () => src().includes("\\multicolumn{2}{|l|}{R\\&D costs} \\\\"));
+      await ok(src().includes("2025 & 50\\% \\\\"), "a table copied from Word or Excel is offered as a table, merged cells and special characters included");
+      $(".cm-content").dispatchEvent(new ClipboardEvent("paste", { clipboardData: copied, bubbles: true, cancelable: true }));
+      await until("the paste question again", () => text("dialog[open]").includes("2 rows and 2 columns"));
+      await click("Cancel");
+      await until("the plain text", () => src().includes("2025\t50%"));
+      await ok(true, "declining pastes the plain text instead");
+
+      // The size picker.
+      buffers.goToLine(5);
+      await click("Insert table");
+      const picker = await until("the size picker", () => $(".tpick-grid"));
+      await ok(document.activeElement === picker, "the table button opens a size picker that takes the keyboard");
+      press(picker, "ArrowRight");
+      press(picker, "ArrowDown");
+      await until("the chosen size", () => text(".tpick-size").includes("3 × 3"));
+      press(picker, "Enter");
+      await until("the new table", () => src().includes("\\begin{tabular}{|l|l|l|}\n\\hline\n&  & \\\\"));
+      await ok(!$(".tpick-pop"), "choosing a size writes an empty table of that size");
+
+      // Leave the document as the checks after this one expect it.
+      await click("Code");
+      await until("plain source", () => !$(".cm-visual"));
+      buffers.replace("main.tex", before);
+      await invoke("file_write", { path: "main.tex", text: before });
+      await act.save();
+      await click("Visual");
+      await until("visual mode again", () => $(".cm-visual"));
+    }
     await click("Code");
     await until("plain source", () => !$(".cm-visual"));
 

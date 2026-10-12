@@ -143,6 +143,9 @@ Initial set; make them discoverable in menus and tooltips.
 | Jump to PDF / jump to source | Ctrl+Alt+J / double-click in the PDF |
 | Find / replace | Ctrl+F / Ctrl+H |
 | Comment on the selection | Ctrl+Alt+M |
+| In a table: next / previous cell | Tab / Shift+Tab |
+| In a table: select cells | Shift+arrow keys |
+| In a table: the table's menu | Shift+F10 |
 | Correct the word at the cursor | Ctrl+. |
 | Toggle file panel | Ctrl+B |
 | Save snapshot | Ctrl+Shift+S |
@@ -157,7 +160,9 @@ Deliberate differences, so nobody "fixes" them back:
 - **The side panel** also holds project search and comments, each opened from the rail. A comment is a card: the quoted passage on an accent rule, then the remark and its replies, then Reply, Resolve and delete.
 - **In the source**, a commented passage is tinted with the accent and underlined; the picked one is tinted more strongly. A misspelled word has a wavy accent underline, and its corrections open as a small menu under the word.
 - **The source toolbar** has a speech-bubble button for commenting on the selection.
-- **Visual mode** draws tables as plain ruled grids, figures as the picture on a quiet card, and citations as a quiet chip reading author and year.
+- **The table button** in the source toolbar opens a small grid; moving over it, or the arrow keys, chooses rows by columns, and a click or Enter inserts the table.
+- **An editable table** in visual mode has a one-line tool bar above it, shown while the pointer or the keyboard is in the table: Merge, Split, the two divisions, rows, columns, alignment, Borders, Caption, Edit source. The same actions are on its right-click menu (Shift+F10 from the keyboard). Cells with no rule between them are separated by a faint dashed line that is not in the PDF; real rules are solid. The cell being typed in shows its LaTeX in the source typeface; selected cells are tinted with the accent.
+- **Visual mode** draws read-only tables as plain ruled grids, figures as the picture on a quiet card, and citations as a quiet chip reading author and year.
 - **Review** offers "Edit by hand" under each text conflict.
 
 - **The mark.** The top bar and start screen show the Emquad mark beside the wordmark; the mockup predates the logo.

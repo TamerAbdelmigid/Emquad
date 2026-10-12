@@ -27,6 +27,37 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 **Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets, tables as tables, `\includegraphics` as the picture itself, and citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark). Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile.
 
+### Tables
+
+**Insert.** The table button in the toolbar opens a small grid. Move over it (or use the arrow keys) to choose rows and columns, then click (or press Enter). Emquad writes the matching `tabular`.
+
+**Edit.** In **Visual** mode, click a cell and type. What you type is LaTeX, so `$x^2$` and `\textbf{…}` work; a plain `&` or `%` is written as `\&` or `\%` for you. Tab and Shift+Tab move between cells, and Tab in the last cell adds a row. The arrow keys move to the next cell when the cursor is at the edge of the text. Esc stops typing and leaves the cell selected.
+
+**Select cells** by dragging across them, or with Shift and the arrow keys.
+
+**The tools** are in the bar above the table and on its right-click menu (Shift+F10 from the keyboard; Esc then Tab reaches the bar):
+
+| Tool | What it does |
+|---|---|
+| Merge | Makes one cell of the selected cells. Across a row this is `\multicolumn`, down a column `\multirow`, a block both. Text in the cells is joined, never dropped |
+| Split | Gives a merged cell its separate cells back. The text stays in the first |
+| Split ↔, Split ↕ | Divides an ordinary cell in two, side by side or one above the other. The other cells in its column or row are widened so that only this cell looks divided |
+| Row ↑ ↓ ✕, Col ← → ✕ | Insert or delete rows and columns |
+| Left, Centre, Right | Align the selected columns |
+| Borders | Draws every border, or removes them all |
+| Caption | Adds, changes or (left empty) removes the caption. A table without one is put in a `table` environment to carry it |
+| Edit source | Shows the table's LaTeX so you can change it directly. Move the cursor out of it to see the table again |
+
+Every action changes your `.tex` file at once, and **Code** shows exactly what was written. Each action is one step for Undo (Ctrl+Z).
+
+**Merging down a column needs the `multirow` package.** The first time you do it, Emquad adds `\usepackage{multirow}` to the preamble and tells you. If the file you are in has no preamble, because it is included from another file, add that line to your main file yourself; Emquad reminds you.
+
+**Paste from Word or Excel.** Copy a table there and paste it into the editor. Emquad asks whether to paste it as a table; merged cells are kept and characters LaTeX treats specially are escaped. Cancel pastes the plain text.
+
+**Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly, such as a `p{3cm}` column, a table inside a table, a comment, or `tabularx`, is drawn with a note saying why and an **Edit source** link. Emquad never rewrites such a table.
+
+When you edit a table you wrote by hand, Emquad lays its source out its own way, one row to a line. The cells, merges and rules are kept as they were.
+
 ### Spelling
 
 Words Emquad does not know are underlined with a wavy line. Only prose is checked: commands, labels, file names, mathematics, comments and the preamble are left alone. Right-click an underlined word, or put the cursor in it and press Ctrl+., to choose a correction or to add the word to your own dictionary. Choose English (US), English (UK) or Off in Settings. The dictionaries are part of the app; nothing you type leaves your computer.
@@ -116,6 +147,10 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Find and replace | Ctrl+F |
 | Search the project | Ctrl+Shift+F |
 | Comment on the selected text | Ctrl+Alt+M |
+| In a table: next or previous cell | Tab, Shift+Tab |
+| In a table: select cells | Shift+arrow keys |
+| In a table: stop typing; then reach the tools | Esc; then Tab |
+| In a table: open its menu | Shift+F10 |
 | Correct the misspelled word at the cursor | Ctrl+. |
 | Suggest completions | Ctrl+Space |
 | Go to definition, find references, rename | F12, Shift+F12, F2 |

@@ -31,6 +31,7 @@ import { commenting, focusComment, placeComments, placedComments } from "./comme
 import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
 import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
+import { tablePaste } from "./tableEditor";
 import { forgetPictures, redrawVisual, visualMode } from "./visual";
 
 const states = new Map<string, EditorState>();
@@ -176,6 +177,7 @@ function extensions(path: string): Extension[] {
     visual.of(visualOn ? visualMode : []),
     spell.of(spellOn ? spelling : []),
     commenting,
+    tablePaste,
     EditorView.lineWrapping,
     theme,
     keymap.of([

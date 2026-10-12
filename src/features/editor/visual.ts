@@ -3,26 +3,16 @@
 // turns that into decorations.
 import { type EditorState, type Extension, type Range as CmRange, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
-import katex from "katex";
-import "katex/dist/katex.min.css";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { api } from "../../ipc/api";
 import { store } from "../../state/store";
-import { type Row, closingBrace, describeCitation, visualPieces } from "./visualModel";
+import { renderInline, typeset } from "./inlineTex";
+import { EditableTable } from "./tableEditor";
+import { parseTable } from "./tableModel";
+import { type Row, describeCitation, visualPieces } from "./visualModel";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-
-function typeset(el: HTMLElement, tex: string, display: boolean) {
-  // A formula that cannot be typeset is shown as its source, marked, never as an error box.
-  try {
-    katex.render(tex, el, { displayMode: display, throwOnError: true, output: "html" });
-  } catch {
-    el.textContent = tex;
-    el.classList.add("cm-v-math-bad");
-    el.title = "This formula could not be previewed here. It may still compile.";
-  }
-}
 
 class MathWidget extends WidgetType {
   constructor(
@@ -57,80 +47,30 @@ class BulletWidget extends WidgetType {
   }
 }
 
-const INLINE_TAGS = new Map([
-  ["textbf", "b"],
-  ["textit", "i"],
-  ["emph", "i"],
-  ["texttt", "code"],
-  ["underline", "u"],
-  ["textsc", "span"],
-  ["textrm", "span"],
-  ["mbox", "span"],
-]);
-
-/**
- * Draw the text of a table cell: mathematics, bold and italic are shown as such, and the rest
- * as it is written. Everything is added as text or as elements made here, never as markup.
- */
-export function renderInline(el: HTMLElement, tex: string) {
-  let plain = "";
-  const flush = () => {
-    if (plain) el.append(plain.replace(/~/g, " ").replace(/\s+/g, " "));
-    plain = "";
-  };
-  for (let i = 0; i < tex.length; ) {
-    const c = tex[i];
-    if (c === "$") {
-      const end = tex.indexOf("$", i + 1);
-      if (end > i) {
-        flush();
-        const span = document.createElement("span");
-        span.className = "cm-v-math";
-        typeset(span, tex.slice(i + 1, end), false);
-        el.append(span);
-        i = end + 1;
-        continue;
-      }
-    }
-    if (c === "\\") {
-      const name = /^[a-zA-Z]+/.exec(tex.slice(i + 1))?.[0];
-      const tag = name ? INLINE_TAGS.get(name) : undefined;
-      if (name && tag && tex[i + 1 + name.length] === "{") {
-        const open = i + 1 + name.length;
-        const end = closingBrace(tex, open);
-        if (end > 0) {
-          flush();
-          const child = document.createElement(tag);
-          renderInline(child, tex.slice(open + 1, end - 1));
-          el.append(child);
-          i = end;
-          continue;
-        }
-      }
-      if (!name && i + 1 < tex.length) {
-        // An escaped character such as \& or \% stands for itself.
-        plain += tex[i + 1] === "\\" ? " " : tex[i + 1];
-        i += 2;
-        continue;
-      }
-    }
-    if (c !== "{" && c !== "}") plain += c;
-    i++;
-  }
-  flush();
-}
-
+/** A table that is drawn but not edited in place, because it could not be written back exactly. */
 class TableWidget extends WidgetType {
-  constructor(readonly rows: Row[]) {
+  constructor(
+    readonly rows: Row[],
+    readonly reason: string,
+  ) {
     super();
   }
   eq(other: TableWidget) {
-    return JSON.stringify(other.rows) === JSON.stringify(this.rows);
+    return other.reason === this.reason && JSON.stringify(other.rows) === JSON.stringify(this.rows);
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const wrap = document.createElement("div");
     wrap.className = "cm-v-table";
-    wrap.title = "Click to edit the table's source";
+    const note = wrap.appendChild(document.createElement("div"));
+    note.className = "cm-v-tnote";
+    note.append(`${this.reason}, so this table is shown as it will look but is changed in its source. `);
+    const link = note.appendChild(document.createElement("button"));
+    link.type = "button";
+    link.textContent = "Edit source";
+    link.onclick = () => {
+      view.dispatch({ selection: { anchor: view.posAtDOM(wrap) + 1 } });
+      view.focus();
+    };
     const table = wrap.appendChild(document.createElement("table"));
     for (const row of this.rows) {
       const tr = table.appendChild(document.createElement("tr"));
@@ -144,8 +84,8 @@ class TableWidget extends WidgetType {
     }
     return wrap;
   }
-  ignoreEvent() {
-    return false;
+  ignoreEvent(event: Event) {
+    return Boolean((event.target as HTMLElement | null)?.closest?.("button"));
   }
 }
 
@@ -265,7 +205,11 @@ function build(state: EditorState): DecorationSet {
     else if (p.kind === "hide") out.push(hidden.range(p.from, p.to));
     else if (p.kind === "bullet") out.push(bullet.range(p.from, p.to));
     else if (p.kind === "style") out.push(Decoration.mark({ class: `cm-v-${p.style}` }).range(p.from, p.to));
-    else if (p.kind === "table") out.push(Decoration.replace({ widget: new TableWidget(p.rows) }).range(p.from, p.to));
+    else if (p.kind === "table") {
+      const parsed = parseTable(p.source);
+      const widget = parsed.ok ? new EditableTable(p.source) : new TableWidget(p.rows, parsed.reason);
+      out.push(Decoration.replace({ widget }).range(p.from, p.to));
+    }
     else if (p.kind === "image") out.push(Decoration.replace({ widget: new ImageWidget(p.path, picturesVersion) }).range(p.from, p.to));
     else if (p.kind === "cite") {
       const { label, detail, unknown } = describeCitation(p.keys, index);

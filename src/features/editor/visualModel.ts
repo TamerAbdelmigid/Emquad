@@ -9,7 +9,7 @@ export type Piece =
   /** Draw this range as typeset mathematics. */
   | { kind: "math"; from: number; to: number; tex: string; display: boolean }
   /** Draw this range, a whole tabular environment, as a table. */
-  | { kind: "table"; from: number; to: number; rows: Row[] }
+  | { kind: "table"; from: number; to: number; rows: Row[]; source: string }
   /** Draw this range, an \includegraphics command, as the picture it names. */
   | { kind: "image"; from: number; to: number; path: string }
   /** Draw this range, a citation command, as the references it names. */
@@ -144,9 +144,12 @@ export function visualPieces(text: string, selection: Range[]): Piece[] {
     if (end < 0 || !free(from, from + 1)) continue;
     const to = end + close.length;
     const rows = tableRows(text.slice(at, end));
-    if (touched(from, to) || rows.length === 0 || to - from > 20_000) continue;
+    // A table gives way to its source only when the cursor is put inside it: it is edited
+    // where it is drawn, so merely passing it with the cursor must not take it away.
+    const inside = selection.some((r) => r.from < to && r.to > from);
+    if (inside || rows.length === 0 || to - from > 20_000) continue;
     taken.push({ from, to });
-    pieces.push({ kind: "table", from, to, rows });
+    pieces.push({ kind: "table", from, to, rows, source: text.slice(from, to) });
   }
 
   const math = (from: number, to: number, tex: string, display: boolean) => {

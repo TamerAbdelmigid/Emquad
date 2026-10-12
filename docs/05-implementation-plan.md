@@ -18,6 +18,12 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 
 Known limitations, none of which lose data:
 
+- The table editor edits plain `tabular` tables whose columns are `l`, `c` and `r`. A table with any other column type, a nested environment, a comment, `booktabs`' `\cmidrule`, row colours, a row gap set by hand, or `\multirow` with a width is drawn read-only and changed in its source. `tabularx`, `tabular*` and `longtable` are always read-only.
+- Editing a hand-written table rewrites it in the editor's own layout: one row to a line, cells separated by ` & `. Its cells, merges, rules and column descriptions are kept; its spacing is not.
+- Borders are all or nothing from the tool bar. A table that came with some rules keeps them until Borders is pressed.
+- Splitting an ordinary cell into rows, and merging down a column, need the `multirow` package. The app adds it to the preamble of the file being edited; when that file has no preamble (it is included by another), it says so and the user adds it to the main file.
+- A cell holds one line of LaTeX. A line break inside a cell has to be written as LaTeX allows inside `l`, `c` and `r` columns, which is to say not at all without another package.
+
 - A bundle's LaTeX packages are every package file the sender's computer holds for the compiler's source, not only the ones the document uses, so the bundle can be larger than strictly needed. The export dialog shows the size.
 - Spelling is English only (US or UK), and one language applies to every project.
 - Exporting with LaTeX packages checks them against the files as saved at that moment. A file saved by another program during the few seconds between the check and the writing of the bundle is not re-checked.
@@ -166,13 +172,13 @@ Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js
 
 ## After version 1
 
-Done since the first release: visual mode (with tables, figures and citations), the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab, LaTeX packages inside bundles, spell check, comments.
+Done since the first release: the table editor, visual mode (with tables, figures and citations), the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab, LaTeX packages inside bundles, spell check, comments.
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.
 
 1. **Signing the installer** (see `docs/releasing.md`).
 2. **macOS and Linux builds.**
-3. **Visual mode, further**: toolbar actions that act on the drawn document; editing a table cell in place.
+3. **Visual mode, further**: toolbar actions that act on the drawn document; table columns with a width (`p{…}`) and `booktabs` rules in the table editor; borders one edge at a time.
 4. **Smaller offline bundles**: carry only the package files the document used. This needs the compiler to report them.
 5. **More spelling languages**, and a language per project.
 
