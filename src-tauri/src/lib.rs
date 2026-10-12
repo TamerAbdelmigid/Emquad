@@ -15,7 +15,7 @@ pub mod templates;
 use commands::AppState;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// The command list, with room for the development-only commands of the end-to-end harness.
 macro_rules! handlers {
@@ -30,6 +30,8 @@ macro_rules! handlers {
             commands::project_tree,
             commands::project_index,
             commands::project_set_main,
+            commands::project_set_engine,
+            commands::engines_available,
             commands::ui_state_save,
             commands::file_read,
             commands::file_write,
@@ -82,7 +84,28 @@ fn sidecar_dirs(app: &tauri::App) -> Vec<PathBuf> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // One window per user: starting Emquad again, for example by double-clicking a bundle,
+    // hands the file to the window that is already open. Development and test runs are left
+    // out so they never attach to an installed copy that happens to be running.
+    let builder = if cfg!(debug_assertions) || std::env::var_os("EMQUAD_E2E").is_some() {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            if let Some(path) = argv
+                .iter()
+                .skip(1)
+                .find(|a| a.to_lowercase().ends_with(".emquad"))
+            {
+                let _ = app.emit("app://open-bundle", path);
+            }
+        }))
+    };
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config_dir = e2e::config_dir().unwrap_or(app.path().app_config_dir()?);

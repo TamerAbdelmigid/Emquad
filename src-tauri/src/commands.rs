@@ -185,6 +185,32 @@ pub fn project_set_main(state: State<AppState>, path: String) -> Result<ProjectI
 }
 
 #[tauri::command(async)]
+pub fn project_set_engine(state: State<AppState>, engine: String) -> Result<ProjectInfo> {
+    let mut guard = state.project.lock().unwrap();
+    let project = guard
+        .as_mut()
+        .ok_or_else(|| Error::app("no_project", "No project is open"))?;
+    project.set_engine(&engine)?;
+    Ok(project.info.clone())
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Engines {
+    /// Emquad's bundled compiler is present.
+    pub tectonic: bool,
+    /// A latexmk from a TeX distribution is on this computer.
+    pub latexmk: bool,
+}
+
+#[tauri::command(async)]
+pub fn engines_available(state: State<AppState>) -> Engines {
+    let (tectonic, latexmk) = compile::available(&state.sidecar_dirs);
+    Engines { tectonic, latexmk }
+}
+
+#[tauri::command(async)]
 pub fn ui_state_save(state: State<AppState>, json: String) -> Result<()> {
     atomic_write(
         &current(&state)?.data_dir().join("state.json"),

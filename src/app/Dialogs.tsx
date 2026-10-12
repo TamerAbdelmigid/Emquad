@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Dialog } from "../design/ui";
-import { api } from "../ipc/api";
+import { type Engines, api } from "../ipc/api";
 import { useStore } from "../state/store";
 import { createProject, exportBundle, guard } from "./actions";
 
@@ -9,6 +9,12 @@ const TEMPLATES = [
   { id: "report", label: "Report", note: "Chapters and a table of contents" },
   { id: "exam", label: "Exam", note: "Header, name line and numbered questions" },
   { id: "letter", label: "Letter", note: "A formal letter" },
+];
+
+const COMPILERS: { id: string; label: string; note: string; needs: "tectonic" | "latexmk" | null }[] = [
+  { id: "auto", label: "Automatic", note: "Tectonic, or latexmk if it is missing", needs: null },
+  { id: "tectonic", label: "Tectonic", note: "built in; fetches packages as needed", needs: "tectonic" },
+  { id: "latexmk", label: "latexmk", note: "your own TeX installation; for pdfTeX-only documents", needs: "latexmk" },
 ];
 
 const SHORTCUTS: [string, string][] = [
@@ -224,6 +230,12 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   const [name, setName] = useState(settings?.displayName ?? "");
   const [compileOnSave, setCompileOnSave] = useState(settings?.compileOnSave ?? true);
   const [fontSize, setFontSize] = useState(settings?.editorFontSize ?? 13);
+  const info = useStore((s) => s.info);
+  const [engine, setEngine] = useState(info?.engine ?? "auto");
+  const [engines, setEngines] = useState<Engines | null>(null);
+  useEffect(() => {
+    void guard(async () => setEngines(await api.enginesAvailable()));
+  }, []);
   useEffect(() => {
     if (settings && !name) setName(settings.displayName);
     // Only to pick up settings that arrive after the dialog opens.
@@ -232,6 +244,7 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   const submit = () =>
     guard(async () => {
       set({ settings: await api.settingsUpdate({ displayName: name, compileOnSave, editorFontSize: fontSize }) });
+      if (info && engine !== info.engine) set({ info: await api.projectSetEngine(engine) });
       onClose();
     });
   return (
@@ -262,6 +275,21 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
               <label htmlFor="set-font">Editor text size</label>
               <input id="set-font" type="number" min={9} max={28} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} />
             </div>
+            {info && (
+              <fieldset>
+                <legend>Compiler for this project</legend>
+                {COMPILERS.map((c) => {
+                  const missing = engines !== null && c.needs !== null && !engines[c.needs];
+                  return (
+                    <label className="ck" key={c.id}>
+                      <input id={`eng-${c.id}`} type="radio" name="engine" checked={engine === c.id} disabled={missing && engine !== c.id} onChange={() => setEngine(c.id)} />
+                      <span>{c.label}</span>
+                      <small>{missing ? "not found on this computer" : c.note}</small>
+                    </label>
+                  );
+                })}
+              </fieldset>
+            )}
           </>
         )}
         <div className="end">

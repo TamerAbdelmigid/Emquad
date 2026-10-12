@@ -83,7 +83,9 @@ The state of your project from just before the import is always kept as a versio
 
 ## Settings
 
-The gear at the bottom of the left rail: your name, whether saving also compiles, and the editor's text size.
+The gear at the bottom of the left rail: your name, whether saving also compiles, the editor's text size, and the compiler for the open project.
+
+The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, or `latexmk` if Tectonic is missing. Choose **latexmk** for a document that needs your own TeX installation, for example one that relies on pdfTeX-only features. The choice is saved with the project and travels in its bundles; a compiler that is not on the computer is shown as not found, and compiling with it is refused with a message rather than silently using the other one.
 
 ## Keyboard shortcuts
 
@@ -103,6 +105,6 @@ The gear at the bottom of the left rail: your name, whether saving also compiles
 ## Good to know
 
 - **Your files stay plain.** Emquad never writes anything into your `.tex` files except what you type. Its own data is in a hidden `.emquad` folder inside the project; deleting that folder removes the project's history but not your documents.
-- **The compiler.** Emquad uses its bundled compiler, Tectonic. It handles most documents, but ones that depend on pdfTeX-only features or on running external programs (for example the `minted` package) may not compile. If `latexmk` is installed on your computer, Emquad falls back to it when Tectonic is not available.
+- **The compiler.** Emquad uses its bundled compiler, Tectonic. It handles most documents, but ones that depend on pdfTeX-only features or on running external programs (for example the `minted` package) may not compile. If you have a TeX installation, switch such a project to `latexmk` in Settings.
 - **File names.** Files whose names contain `~` followed by a digit (such as `notes~1.tex`), and folders named `.git` inside the project, are left alone by Emquad: they are not listed and not saved in versions.
-- **One project at a time.** Opening another project closes the current one.
+- **One project and one window at a time.** Opening another project closes the current one. Starting Emquad again, or double-clicking a bundle, uses the window that is already open.

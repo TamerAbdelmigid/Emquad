@@ -4,6 +4,7 @@ import type { BuildOutput } from "./bindings/BuildOutput";
 import type { BundleInfo } from "./bindings/BundleInfo";
 import type { ChangedFile } from "./bindings/ChangedFile";
 import type { Decision } from "./bindings/Decision";
+import type { Engines } from "./bindings/Engines";
 import type { FileContent } from "./bindings/FileContent";
 import type { FileDiff } from "./bindings/FileDiff";
 import type { HistoryList } from "./bindings/HistoryList";
@@ -22,6 +23,7 @@ export type {
   BundleInfo,
   ChangedFile,
   Decision,
+  Engines,
   FileDiff,
   HistoryList,
   Manifest,
@@ -69,6 +71,8 @@ export const api = {
   projectTree: () => invoke<TreeNode[]>("project_tree"),
   projectIndex: () => invoke<ProjectIndex>("project_index"),
   projectSetMain: (path: string) => invoke<ProjectInfo>("project_set_main", { path }),
+  projectSetEngine: (engine: string) => invoke<ProjectInfo>("project_set_engine", { engine }),
+  enginesAvailable: () => invoke<Engines>("engines_available"),
   uiStateSave: (json: string) => invoke<void>("ui_state_save", { json }),
 
   fileRead: (path: string) => invoke<FileContent>("file_read", { path }),

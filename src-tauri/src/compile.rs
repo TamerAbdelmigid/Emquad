@@ -96,23 +96,33 @@ pub fn find_exe(name: &str, extra_dirs: &[PathBuf]) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// Which compilers can be used on this computer.
+pub fn available(sidecar_dirs: &[PathBuf]) -> (bool, bool) {
+    (
+        find_exe("tectonic", sidecar_dirs).is_some(),
+        find_exe("latexmk", &[]).is_some(),
+    )
+}
+
 /// Choose the engine for a project. "auto" prefers the bundled Tectonic and falls back to a
-/// system latexmk; an explicit choice falls back the same way rather than failing outright.
+/// system latexmk. An explicit choice is honoured: if that compiler is missing the compile is
+/// refused with a message that says so, rather than quietly using the other one.
 pub fn pick_engine(preference: &str, sidecar_dirs: &[PathBuf]) -> Result<Box<dyn Engine>> {
     let tectonic =
         || find_exe("tectonic", sidecar_dirs).map(|p| Box::new(Tectonic(p)) as Box<dyn Engine>);
     let latexmk = || find_exe("latexmk", &[]).map(|p| Box::new(Latexmk(p)) as Box<dyn Engine>);
-    let found = if preference == "latexmk" {
-        latexmk().or_else(tectonic)
-    } else {
-        tectonic().or_else(latexmk)
-    };
-    found.ok_or_else(|| {
-        Error::app(
-            "no_engine",
-            "No LaTeX compiler was found. Emquad's bundled compiler is missing and there is no latexmk on this computer.",
-        )
-    })
+    let missing = |message: &str| Error::app("no_engine", message);
+    match preference {
+        "tectonic" => tectonic().ok_or_else(|| {
+            missing("This project is set to use Tectonic, but Emquad's bundled compiler is missing. Reinstall Emquad or choose another compiler in Settings.")
+        }),
+        "latexmk" => latexmk().ok_or_else(|| {
+            missing("This project is set to use latexmk, but none was found on this computer. Install a TeX distribution or choose another compiler in Settings.")
+        }),
+        _ => tectonic().or_else(latexmk).ok_or_else(|| {
+            missing("No LaTeX compiler was found. Emquad's bundled compiler is missing and there is no latexmk on this computer.")
+        }),
+    }
 }
 
 /// Stop a running compile, including the programs it started.

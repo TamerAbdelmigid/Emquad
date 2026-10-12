@@ -9,6 +9,7 @@ use ts_rs::TS;
 
 pub const DATA_DIR: &str = ".emquad";
 pub const FORMAT_VERSION: u32 = 1;
+pub const ENGINES: [&str; 3] = ["auto", "tectonic", "latexmk"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -190,6 +191,18 @@ impl Project {
     pub fn save_info(&self) -> Result<()> {
         let json = serde_json::to_vec_pretty(&self.info)?;
         atomic_write(&self.data_dir().join("project.json"), &json)
+    }
+
+    /// Choose which compiler this project uses: "auto", "tectonic" or "latexmk".
+    pub fn set_engine(&mut self, engine: &str) -> Result<()> {
+        if !ENGINES.contains(&engine) {
+            return Err(Error::app(
+                "bad_engine",
+                format!("{engine:?} is not a compiler Emquad knows"),
+            ));
+        }
+        self.info.engine = engine.to_string();
+        self.save_info()
     }
 
     /// Create a new project folder from a template. The folder must not already hold files.
@@ -496,6 +509,19 @@ mod tests {
         assert_eq!(files, ["main.tex"]);
         let reopened = Project::open(&dir).unwrap();
         assert_eq!(reopened.info.project_id, p.info.project_id);
+    }
+
+    #[test]
+    fn the_compiler_choice_is_validated_and_remembered() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        assert_eq!(p.info.engine, "auto");
+        assert_eq!(
+            p.set_engine("pdflatex --shell-escape").unwrap_err().code(),
+            "bad_engine"
+        );
+        p.set_engine("latexmk").unwrap();
+        assert_eq!(Project::open(&p.root).unwrap().info.engine, "latexmk");
     }
 
     #[test]

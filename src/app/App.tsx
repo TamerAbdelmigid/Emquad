@@ -47,6 +47,7 @@ export function App() {
         store().set({ log: log.length > 4000 ? [...log.slice(-3000), e.payload] : [...log, e.payload] });
       }),
       listen<string[]>("project://changed", (e) => void act.filesChangedOnDisk(e.payload)),
+      listen<string>("app://open-bundle", (e) => setStartupBundle(e.payload)),
     ];
     return () => off.forEach((p) => void p.then((stop) => stop()));
   }, [set]);

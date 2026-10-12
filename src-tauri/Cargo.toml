@@ -37,6 +37,7 @@ chrono = "0.4.45"
 uuid = { version = "1.28.0", features = ["v4"] }
 ts-rs = "12.0.1"
 tempfile = "3.27.0"
+tauri-plugin-single-instance = "2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

@@ -93,6 +93,25 @@
     await ok(document.documentElement.scrollHeight <= window.innerHeight, "the window does not scroll");
     await shot("02-editor");
 
+    // --- the compiler can be chosen per project, and a missing one is refused, not swapped
+    const engines = await invoke("engines_available");
+    await click("Settings");
+    await until("the compiler choices", () => $("#eng-auto") && $("#eng-tectonic") && $("#eng-latexmk"));
+    await ok($("#eng-auto").checked, "Settings offers the compiler choice, on Automatic by default");
+    await ok($("#eng-latexmk").disabled === !engines.latexmk, "a compiler that is not installed cannot be chosen");
+    await click("Cancel");
+    const other = engines.tectonic && engines.latexmk ? "latexmk" : null;
+    if (other) {
+      store().set({ info: await invoke("project_set_engine", { engine: other }) });
+      await click("Recompile");
+      await until("the other compiler to finish", () => text(".sfoot").includes("latexmk engine") && text(".proj .st") === "Compiled", 180000);
+      await ok(true, "choosing latexmk compiles with latexmk");
+      store().set({ info: await invoke("project_set_engine", { engine: "auto" }) });
+      await click("Recompile");
+      await until("the default compiler again", () => text(".sfoot").includes("Tectonic engine") && text(".proj .st") === "Compiled", 180000);
+      await ok(true, "and Automatic goes back to Tectonic");
+    }
+
     // --- an edit marks the tab unsaved
     const { buffers } = await import("/src/features/editor/buffers.ts");
     buffers.insert("% typed by the test\n");
