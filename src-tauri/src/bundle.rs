@@ -376,29 +376,37 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
     extract(path, scratch.path())?;
     let (head, pack) = validate(scratch.path(), &manifest)?;
 
+    let existed = dest.exists();
     fs::create_dir_all(&dest)?;
-    let project = Project {
-        root: dest.clone(),
-        info: ProjectInfo {
-            format_version: FORMAT_VERSION,
-            project_id: manifest.project.id.clone(),
-            name: manifest.project.name.clone(),
-            main_file: manifest.project.main_file.clone(),
-            engine: manifest.project.engine.clone(),
-        },
+    let build = || -> Result<Project> {
+        let project = Project {
+            root: dest.clone(),
+            info: ProjectInfo {
+                format_version: FORMAT_VERSION,
+                project_id: manifest.project.id.clone(),
+                name: manifest.project.name.clone(),
+                main_file: manifest.project.main_file.clone(),
+                engine: manifest.project.engine.clone(),
+            },
+        };
+        let history = History::open(&project)?;
+        index_pack(&history.repo, &pack)?;
+        history.repo.reference(MAIN, head, true, "import bundle")?;
+        history.repo.reference(
+            &format!("refs/bundles/{}", manifest.bundle_id),
+            head,
+            true,
+            "import bundle",
+        )?;
+        history.checkout(&project, history.repo.find_commit(head)?.tree_id())?;
+        project.save_info()?;
+        Ok(project)
     };
-    let history = History::open(&project)?;
-    index_pack(&history.repo, &pack)?;
-    history.repo.reference(MAIN, head, true, "import bundle")?;
-    history.repo.reference(
-        &format!("refs/bundles/{}", manifest.bundle_id),
-        head,
-        true,
-        "import bundle",
-    )?;
-    history.checkout(&project, history.repo.find_commit(head)?.tree_id())?;
-    project.save_info()?;
-    Ok(project)
+    let project = build();
+    if project.is_err() && !existed {
+        let _ = fs::remove_dir_all(&dest);
+    }
+    project
 }
 
 #[cfg(test)]

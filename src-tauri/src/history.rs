@@ -16,6 +16,9 @@ use ts_rs::TS;
 
 pub const MAIN: &str = "refs/heads/main";
 pub const WORKING: &str = "working";
+/// Far beyond any real LaTeX project; see `History::files_in`.
+const MAX_TREE_DEPTH: usize = 64;
+const MAX_TREE_FILES: usize = 100_000;
 
 #[derive(Debug, Clone)]
 pub struct Author {
@@ -324,14 +327,20 @@ impl History {
         }
     }
 
-    /// Every file in a tree, by forward-slash path.
+    /// Every file in a tree, by forward-slash path. Bounded in depth and size: a crafted
+    /// history can describe an astronomically large tree in a few bytes by reusing one folder
+    /// many times over, and listing it must fail rather than hang the app.
     pub fn files_in(&self, tree: Oid) -> Result<BTreeMap<String, Oid>> {
         fn walk(
             repo: &Repository,
             tree: &Tree,
             prefix: &str,
+            depth: usize,
             out: &mut BTreeMap<String, Oid>,
         ) -> Result<()> {
+            if depth > MAX_TREE_DEPTH {
+                return Err(Error::app("bad_path", "Folders are nested too deeply"));
+            }
             for entry in tree.iter() {
                 let Ok(name) = entry.name() else { continue };
                 let path = if prefix.is_empty() {
@@ -340,8 +349,13 @@ impl History {
                     format!("{prefix}/{name}")
                 };
                 match entry.kind() {
-                    Some(ObjectType::Tree) => walk(repo, &repo.find_tree(entry.id())?, &path, out)?,
+                    Some(ObjectType::Tree) => {
+                        walk(repo, &repo.find_tree(entry.id())?, &path, depth + 1, out)?
+                    }
                     Some(ObjectType::Blob) => {
+                        if out.len() >= MAX_TREE_FILES {
+                            return Err(Error::app("bad_path", "There are too many files"));
+                        }
                         out.insert(path, entry.id());
                     }
                     _ => {}
@@ -350,7 +364,7 @@ impl History {
             Ok(())
         }
         let mut out = BTreeMap::new();
-        walk(&self.repo, &self.repo.find_tree(tree)?, "", &mut out)?;
+        walk(&self.repo, &self.repo.find_tree(tree)?, "", 0, &mut out)?;
         Ok(out)
     }
 
@@ -687,6 +701,29 @@ pub mod tests {
             before,
             "a failed restore leaves the files as they were"
         );
+    }
+
+    #[test]
+    fn a_tree_that_expands_without_bound_is_refused_quickly() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_p, h) = new_project(&tmp.path().join("p"));
+        // Each level holds the level below twice: 2^40 files described by 40 small trees.
+        let mut level = tree_with(&h, &[("a.tex", "x")]);
+        for _ in 0..40 {
+            let mut builder = h.repo.treebuilder(None).unwrap();
+            builder.insert("l", level, 0o040000).unwrap();
+            builder.insert("r", level, 0o040000).unwrap();
+            level = builder.write().unwrap();
+        }
+        assert_eq!(h.files_in(level).unwrap_err().code(), "bad_path");
+        // A single chain deeper than any real project is refused as well.
+        let mut chain = tree_with(&h, &[("a.tex", "x")]);
+        for _ in 0..80 {
+            let mut builder = h.repo.treebuilder(None).unwrap();
+            builder.insert("d", chain, 0o040000).unwrap();
+            chain = builder.write().unwrap();
+        }
+        assert_eq!(h.files_in(chain).unwrap_err().code(), "bad_path");
     }
 
     #[test]

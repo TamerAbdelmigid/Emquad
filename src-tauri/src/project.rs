@@ -401,7 +401,9 @@ impl Project {
         for src in sources {
             let name = src
                 .file_name()
-                .ok_or_else(|| Error::app("bad_path", "Source has no file name"))?;
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| Error::app("bad_path", "Source has no usable file name"))?;
+            check_component(name)?;
             fs::copy(src, dest.join(name))?;
         }
         Ok(())

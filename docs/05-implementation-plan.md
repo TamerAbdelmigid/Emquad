@@ -16,6 +16,13 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 | M5 Bundles, review, merge | Done | Opening a bundle by double-clicking it in Explorer is configured (file association, start-up argument) but only testable from an installed build |
 | M6 Language intelligence and release | Partly done | Done: completion for commands, environments, labels and citation keys; templates; settings. Not done: texlab, resizable panels, the Windows installer build, the user guide |
 
+Known limitations, none of which lose data:
+
+- A file in the user's folder whose name contains `~` followed by a digit (such as `chapter~1.tex`), or a folder named `.git` below the top level, is ignored by the app: it is not listed and not stored in versions. The rule behind this is in `03-bundles-and-history.md`.
+- If one side turned a folder into a file of the same name while the other added files inside it, Finish merge fails and puts everything back each time, until a decision in the review is changed. The message does not yet say which decision.
+- A bundle made on Linux that holds two folders differing only in capital letters is rejected on Windows with a message about its files not matching its history, rather than one that names the real cause.
+- On macOS, file names with invisible Unicode characters have not been examined for the aliasing that the file-name rule guards against on Windows.
+
 Evidence: `pnpm verify` (unit, property and real-compile tests) and `scripts/e2e.js` (the full hand-off loop in the real window).
 
 ## Before starting
