@@ -7,6 +7,7 @@ import {
   deleteColumn,
   deleteRow,
   ensureMultirow,
+  escapeInserted,
   escapeTex,
   escapeTyped,
   expandRect,
@@ -420,6 +421,17 @@ describe("the text around a table", () => {
       `\\begin{center}\n${tabular}\n\\captionof{table}{Old}\n\\end{center}`,
       `\\begin{table}\n${tabular}\n\\caption{Old % note\n more}\n\\end{table}`,
       `\\begin{table}\n${tabular}\n\\caption{Old\n\nmore}\n\\end{table}`,
+      `Text\n$$\n${tabular}\n$$`,
+      `\\begin{table}\n$$${tabular}$$\n\\end{table}`,
+      `\\twocolumn[\nTitle\n\n${tabular}\n\n]`,
+      `\\setbox0\\hbox\\bgroup\n\n${tabular}\n\n\\egroup`,
+      `\\table[h]\n\n${tabular}\n\n\\caption{Old}\n\\endtable`,
+      `Use \\lstinline{foo}: \\fbox{${tabular}}`,
+      `\\begin{figure}\n\\begin{subfigure}{.4\\textwidth}x\\caption{Image}\\end{subfigure}\n${tabular}\n\\end{figure}`,
+      `\\begin{figure}\n\\parbox{4cm}{x\\caption{Left}}\n${tabular}\n\\end{figure}`,
+      `Some words ${tabular} in a sentence.`,
+      `Text straight above\n${tabular}`,
+      `\\begin{center}\n${tabular}\n\\end{center}`,
     ]) {
       const text = `${DOC0}${body}`;
       const result = where(text);
@@ -433,6 +445,21 @@ describe("the text around a table", () => {
     // In a file that another includes, the surroundings cannot be seen, so nothing is done.
     expect(where(tabular).place.kind).toBe("no");
     expect(where(`\\newcommand{\\bt}{\\begin{table}}\n${DOC0}\\bt\n${tabular}\n\\end{table}`).place.kind).toBe("no");
+    // Commands that open or close something out of sight, however they are written.
+    for (const preamble of [
+      "\\newcommand{\\bmp}[1]{\\begin{minipage}{#1}}\n\\newcommand{\\emp}{\\end{minipage}}",
+      "\\newcommand{\\bt}{%\n  \\begin{table}[h]\\centering}",
+      "\\def\\bt{\\bgroup}",
+    ]) {
+      expect(where(`\\documentclass{article}\n${preamble}\n\\begin{document}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("no");
+    }
+    // A class without ordinary floats.
+    expect(where(`\\documentclass{standalone}\n\\begin{document}\n${tabular}\n\\end{document}`).place.kind).toBe("no");
+    expect(where(`\\documentclass[12pt]{article}\n\\begin{document}\n${tabular}\n\\end{document}`).place.kind).toBe("bare");
+    // A comment or verbatim text that mentions verbatim must not hide what follows it.
+    const hidden = `${DOC0}% Code goes in \\begin{verbatim} blocks.\n\\begin{minipage}{5cm}\n${tabular}\n\\end{minipage}\n\\begin{verbatim}\nx\n\\end{verbatim}`;
+    expect(where(hidden).place.kind).toBe("no");
+    expect(where(`${DOC0}Say \\verb|\\begin{verbatim}| and\n\n\\fbox{${tabular}}\n\n\\begin{verbatim}\nx\n\\end{verbatim}`).place.kind).toBe("no");
     // Each table of a pair with its own sub-float has its own caption.
     const pair = `${DOC0}\\begin{table}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{First}\n\\end{subtable}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{Second}\n\\end{subtable}\n\\end{table}`;
     const at = pair.lastIndexOf(tabular);
@@ -661,6 +688,25 @@ describe("text typed into a cell", () => {
     expect(escapeTyped("\\textbf{R&D}")).toBe("\\textbf{R\\&D}");
     expect(escapeTyped("$50%$")).toBe("$50\\%$");
     expect(escapeTyped("ends \\")).toBe("ends \\");
+  });
+});
+
+describe("text typed into a box that already held text", () => {
+  it("escapes what was typed and never what was there", () => {
+    const had = "\\xymatrix{A \\ar[r] & B \\\\ C & D} and \\url{http://x.org/?a=1&b=2}";
+    expect(escapeInserted(had, `${had}!`)).toBe(`${had}!`);
+    expect(escapeInserted(had, `x${had}`)).toBe(`x${had}`);
+    expect(escapeInserted(had, `${had} R&D 5%`)).toBe(`${had} R\\&D 5\\%`);
+    expect(escapeInserted("a  b", "a & b")).toBe("a \\& b");
+    expect(escapeInserted(had, had)).toBe(had);
+    expect(escapeInserted(had, had.slice(0, -1))).toBe(had.slice(0, -1));
+  });
+
+  it("knows mathematics and a waiting backslash from what stands before", () => {
+    expect(escapeInserted("$a  b$", "$a & b$")).toBe("$a & b$");
+    expect(escapeInserted("$a$  b", "$a$ & b")).toBe("$a$ \\& b");
+    expect(escapeInserted("50\\", "50\\%")).toBe("50\\%");
+    expect(escapeInserted("", "R&D")).toBe("R\\&D");
   });
 });
 

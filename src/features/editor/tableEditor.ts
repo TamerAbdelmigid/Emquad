@@ -19,7 +19,7 @@ import {
   deleteColumn,
   deleteRow,
   ensureMultirow,
-  escapeTyped,
+  escapeInserted,
   expandRect,
   hasBorders,
   insertColumn,
@@ -86,6 +86,8 @@ class Controller {
   private head: At | null = null;
   private dragging = false;
   private input: HTMLInputElement | null = null;
+  /** What the box being typed in held before the last keystroke. */
+  private typed = "";
   private menu: HTMLElement | null = null;
   private warned = false;
 
@@ -149,7 +151,10 @@ class Controller {
         }),
       );
       const now = this.table.rows[at.r][at.c].tex;
-      if (trimSpaces(escapeTyped(this.input.value)) !== now) this.input.value = now;
+      if (trimSpaces(this.input.value) !== now) {
+        this.input.value = now;
+        this.typed = now;
+      }
       this.fit();
     } else {
       const editing = this.input ? { caret: this.input.selectionStart ?? 0 } : null;
@@ -280,6 +285,7 @@ class Controller {
     td.replaceChildren(input);
     td.classList.add("editing");
     this.input = input;
+    this.typed = input.value;
     this.fit();
     this.paintSelection();
     input.focus({ preventScroll: true });
@@ -310,7 +316,9 @@ class Controller {
     const input = this.input;
     const at = this.head;
     if (!input || !at) return;
-    const escaped = escapeTyped(input.value);
+    // Only what was just typed is escaped. What the cell already held is left as written.
+    const escaped = escapeInserted(this.typed, input.value);
+    this.typed = escaped;
     if (escaped !== input.value) {
       const caret = (input.selectionStart ?? 0) + (escaped.length - input.value.length);
       input.value = escaped;
@@ -394,8 +402,8 @@ class Controller {
       const caption = await prompt("Table caption", had ?? "", "Save", "Shown under the table in the PDF. Leave it empty to remove the caption.");
       const again = this.place();
       if (caption === null || !again || again.from !== at.from || again.text !== at.text) return;
-      const wanted = escapeTyped(trimSpaces(caption));
-      if (wanted === (had ?? "")) return;
+      if (trimSpaces(caption) === (had ?? "")) return;
+      const wanted = trimSpaces(escapeInserted(had ?? "", caption));
       if (!wanted && where.kind === "float" && where.labelled) {
         return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
       }
