@@ -19,6 +19,7 @@ import {
   setCaption,
   setCell,
   smallestChange,
+  soundCaption,
   splitIntoColumns,
   splitIntoRows,
   splitMerged,
@@ -225,7 +226,6 @@ describe("splitting", () => {
     ]);
     expect(t.rows[0][0].rowSpan).toBe(2);
     expect(t.rows[0][2].rowSpan).toBe(2);
-    expect(t.hrules[1]).toEqual({ kind: "cline", cols: [false, true, false] });
     expect(writeTable(t).split("\n").slice(2, 5)).toEqual(["\\multirow{2}{*}{a1} & b1 & \\multirow{2}{*}{c1} \\\\", "\\cline{2-2}", "&  & \\\\"]);
     expect(needsMultirow(t)).toBe(true);
   });
@@ -248,7 +248,8 @@ describe("borders", () => {
   it("never draw a rule through a cell merged downwards", () => {
     const merged = merge(grid(3, 3, false), { top: 0, left: 1, bottom: 2, right: 1 });
     const t = toggleBorders(merged);
-    expect(t.hrules).toEqual([{ kind: "hline" }, { kind: "cline", cols: [true, false, true] }, { kind: "cline", cols: [true, false, true] }, { kind: "hline" }]);
+    const rules = writeTable(t).split("\n").filter((line) => line.includes("line"));
+    expect(rules).toEqual(["\\hline", "\\cline{1-1}\\cline{3-3}", "\\cline{1-1}\\cline{3-3}", "\\hline"]);
     expect(writeTable(t)).toContain("\\cline{1-1}\\cline{3-3}");
     expect(writeTable(t)).not.toMatch(/\\\\\n\\hline\n&/);
   });
@@ -270,7 +271,7 @@ describe("rows and columns", () => {
     const through = insertRow(merge(grid(2, 2), { top: 0, left: 0, bottom: 1, right: 0 }), 1);
     expect(through.rows[0][0].rowSpan).toBe(3);
     expect(tex(through)[1]).toEqual(["·", ""]);
-    expect(through.hrules[1]).toEqual({ kind: "cline", cols: [false, true] });
+    expect(writeTable(through).split("\n").slice(3, 6)).toEqual(["\\cline{2-2}", "& \\\\", "\\cline{2-2}"]);
     expect(read(writeTable(through))).toEqual(through);
   });
 
@@ -355,6 +356,11 @@ describe("the text around a table", () => {
     expect(ensureMultirow(DOC.replace("graphicx", "booktabs, multirow"))).toBe("present");
     expect(ensureMultirow(DOC.replace("\\usepackage{graphicx} % pictures", "% \\usepackage{multirow}"))).not.toBe("present");
     expect(ensureMultirow("\\section{An included file}\ntext\n")).toBe("no-preamble");
+    // Never inside a condition, and a class written over two lines still counts.
+    const conditional = "\\documentclass[a4paper]\n{article}\n\\ifxetex\n\\usepackage{fontspec}\n\\else\n\\usepackage[T1]{fontenc}\n\\fi\n\\begin{document}\nx\n\\end{document}\n";
+    const change2 = ensureMultirow(conditional);
+    if (typeof change2 === "string") throw new Error(change2);
+    expect(apply(conditional, [change2])).toContain("\\fi\n\\usepackage{multirow}\n\\begin{document}");
   });
 
   it("gives a lone table a float to carry its caption, and changes or removes a caption later", () => {
@@ -374,12 +380,161 @@ describe("the text around a table", () => {
     expect(setCaption(text, from, from + tabular.length, "")).toEqual([]);
   });
 
+  it("uses the float a table is already in, whatever kind, and the caption it already has", () => {
+    const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
+    for (const float of ["table*", "figure", "sidewaystable"]) {
+      const text = `\\begin{${float}}\n${tabular}\n\\end{${float}}`;
+      const from = text.indexOf(tabular);
+      const out = apply(text, setCaption(text, from, from + tabular.length, "Wide"));
+      expect(out).toBe(`\\begin{${float}}\n${tabular}\n\\caption{Wide}\n\\end{${float}}`);
+    }
+    const had = `\\begin{table}\n${tabular}\n\\caption[Short]{Long one}\n\\end{table}`;
+    const at = had.indexOf(tabular);
+    expect(captionOf(had, at, at + tabular.length)).toBe("Long one");
+    expect(apply(had, setCaption(had, at, at + tabular.length, "New"))).toBe(`\\begin{table}\n${tabular}\n\\caption[Short]{New}\n\\end{table}`);
+  });
+
+  it("knows a caption that would break the document", () => {
+    expect(soundCaption("Results for \\textbf{2025}")).toBe(true);
+    expect(soundCaption("50\\% done")).toBe(true);
+    expect(soundCaption("50% done")).toBe(false);
+    expect(soundCaption("open {brace")).toBe(false);
+    expect(soundCaption("close} brace")).toBe(false);
+    expect(soundCaption("ends with \\")).toBe(false);
+  });
+
   it("finds the smallest change between two versions of a table", () => {
     const before = "\\begin{tabular}{ll}\na & b \\\\\n\\end{tabular}";
     const after = "\\begin{tabular}{ll}\na & bc \\\\\n\\end{tabular}";
     expect(smallestChange(before, after, 100)).toEqual({ from: 100 + before.indexOf("b ") + 1, to: 100 + before.indexOf("b ") + 1, insert: "c" });
     expect(smallestChange(before, before)).toBeNull();
     expect(smallestChange("aaa", "aa", 0)).toEqual({ from: 2, to: 3, insert: "" });
+  });
+});
+
+describe("hand-written tables that must not be touched", () => {
+  const wrap = (spec: string, body: string) => `\\begin{tabular}{${spec}}\n${body}\n\\end{tabular}`;
+
+  it("keeps the space of a control space at the end of a merged cell", () => {
+    const t = read(wrap("ll", "\\multicolumn{2}{c}{a\\ } \\\\\n\\multirow{2}{*}{b\\ } & c \\\\\n & d \\\\"));
+    expect(t.rows[0][0].tex).toBe("a\\ ");
+    const written = writeTable(insertRow(t, 3));
+    expect(written).toContain("\\multicolumn{2}{c}{a\\ }");
+    expect(written).toContain("\\multirow{2}{*}{b\\ }");
+    expect(parseTable(written).ok).toBe(true);
+  });
+
+  it("refuses verbatim text, whose & and \\\\ are not what they look like", () => {
+    expect(reason(wrap("ll", "\\verb|a&b| \\\\"))).toMatch(/verb/);
+    expect(reason(wrap("l", "\\verb|a\\\\b| \\\\"))).toMatch(/verb/);
+    expect(reason(wrap("ll", "\\lstinline|x| & b \\\\"))).toMatch(/lstinline/);
+  });
+
+  it("refuses a rule with a thickness, and text that would be taken for one", () => {
+    expect(reason(wrap("ll", "a & b \\\\\n\\midrule[2pt]\nc & d \\\\"))).toMatch(/thickness/);
+    expect(reason(wrap("ll", "\\toprule\n[1] & b \\\\"))).toMatch(/thickness/);
+    // ... so typing "[1]" into the first cell after such a rule is held back, not written.
+    const t = read(wrap("ll", "\\toprule\na & b \\\\\nc & d \\\\"));
+    expect(parseTable(writeTable(setCell(t, 0, 0, "[1]"))).ok).toBe(false);
+    expect(parseTable(writeTable(setCell(t, 1, 0, "[1]"))).ok).toBe(false);
+    expect(parseTable(writeTable(setCell(t, 0, 1, "[1]"))).ok).toBe(true);
+  });
+
+  it("refuses rules of kinds it does not know, but not a rule drawn inside a cell", () => {
+    expect(reason(wrap("ll", "\\firsthline a & b \\\\"))).toMatch(/firsthline/);
+    expect(reason(wrap("ll", "a & b \\\\ \\Xhline{1pt} c & d \\\\"))).toMatch(/Xhline/);
+    expect(reason(wrap("ll", "a & b \\\\ \\hlineB{2} c & d \\\\"))).toMatch(/hlineB/);
+    expect(reason(wrap("ll", "a & \\rule{1cm}{1pt} \\\\"))).toBe("editable");
+  });
+
+  it("refuses empty cells under a merged cell that are described differently from it", () => {
+    expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\multicolumn{1}{l|}{} & d \\\\"))).toMatch(/described differently/);
+    expect(reason(wrap("lll", "\\multicolumn{2}{c|}{\\multirow{2}{*}{a}} & b \\\\\n\\multicolumn{2}{c}{} & d \\\\"))).toMatch(/described differently/);
+    expect(reason(wrap("lll", "\\multicolumn{2}{c|}{\\multirow{2}{*}{a}} & b \\\\\n\\multicolumn{2}{c|}{} & d \\\\"))).toBe("editable");
+  });
+
+  it("refuses a rule written straight through a merged cell, which it would have to cut", () => {
+    expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\hline\n & d \\\\"))).toMatch(/through a merged cell/);
+    expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\midrule\n & d \\\\"))).toMatch(/through a merged cell/);
+    expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\cline{1-2}\n & d \\\\"))).toMatch(/through a merged cell/);
+    expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\cline{2-2}\n & d \\\\"))).toBe("editable");
+  });
+});
+
+describe("rules and merged cells", () => {
+  it("a rule cut by a merge is whole again when the cell is split", () => {
+    const start = grid(2, 1);
+    const merged = merge(start, { top: 0, left: 0, bottom: 1, right: 0 });
+    expect(writeTable(merged)).not.toContain("\\\\\n\\hline\n\\\\");
+    const one = merge(grid(3, 2), { top: 0, left: 0, bottom: 1, right: 0 });
+    expect(writeTable(one)).toContain("\\cline{2-2}");
+    expect(splitMerged(one, 0, 0).hrules).toEqual(grid(3, 2).hrules);
+  });
+
+  it("a column added beside a merged cell gets the rules its neighbours have", () => {
+    const t = insertColumn(merge(grid(2, 2), { top: 0, left: 0, bottom: 1, right: 0 }), 2);
+    expect(writeTable(t)).toContain("\\cline{2-3}");
+  });
+
+  it("deleting a row out of a merged cell leaves no stray partial rule", () => {
+    const merged = merge(grid(3, 2), { top: 0, left: 0, bottom: 1, right: 0 });
+    const t = deleteRow(merged, 1);
+    expect(t.rows[0][0].rowSpan).toBe(1);
+    expect(writeTable(t)).not.toContain("cline");
+    expect(t.hrules.map((r) => r.kind)).toEqual(["hline", "hline", "hline"]);
+  });
+
+  it("merging across a booktabs rule turns it into one that can go around the cell", () => {
+    const t = read("\\begin{tabular}{ll}\n\\toprule\na & b \\\\\n\\midrule\nc & d \\\\\n\\bottomrule\n\\end{tabular}");
+    const merged = merge(t, { top: 0, left: 0, bottom: 1, right: 0 });
+    expect(writeTable(merged).split("\n")).toEqual(["\\begin{tabular}{ll}", "\\toprule", "\\multirow{2}{*}{a c} & b \\\\", "\\cline{2-2}", "& d \\\\", "\\bottomrule", "\\end{tabular}"]);
+    expect(read(writeTable(merged))).toEqual(merged);
+  });
+
+  it("holds through a long run of varied actions", () => {
+    // A fixed pseudo-random walk: every table along it must read back as itself, and no
+    // action except deleting a row or column may lose a word that was typed.
+    let seed = 12345;
+    const next = (n: number) => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    const words = (t: Table) => t.rows.flat().flatMap((c) => c.tex.split(" ")).filter(Boolean).sort().join(" ");
+    let t = grid(3, 3);
+    for (let step = 0; step < 600; step++) {
+      const [rows, cols] = [t.rows.length, t.aligns.length];
+      const [r, c] = [next(rows), next(cols)];
+      const block = { top: r, left: c, bottom: Math.min(rows - 1, r + next(2)), right: Math.min(cols - 1, c + next(2)) };
+      const before = words(t);
+      const kind = next(11);
+      let deletes = false;
+      if (kind === 0 && rows * cols < 60) t = merge(t, block);
+      else if (kind === 1 && !t.rows[r][c].hidden && (t.rows[r][c].colSpan > 1 || t.rows[r][c].rowSpan > 1)) t = splitMerged(t, r, c);
+      else if (kind === 2 && cols < 7) t = splitIntoColumns(t, r, c);
+      else if (kind === 3 && rows < 7) t = splitIntoRows(t, r, c);
+      else if (kind === 4 && rows < 7) t = insertRow(t, next(rows + 1));
+      else if (kind === 5 && cols < 7) t = insertColumn(t, next(cols + 1));
+      else if (kind === 6 && rows > 2) {
+        t = deleteRow(t, r);
+        deletes = true;
+      }
+      else if (kind === 7 && cols > 2) {
+        t = deleteColumn(t, c);
+        deletes = true;
+      }
+      else if (kind === 8) t = toggleBorders(t);
+      else if (kind === 9) t = setAlign(t, block, (["l", "c", "r"] as const)[next(3)]);
+      else if (!t.rows[r][c].hidden) {
+        t = setCell(t, r, c, `w${step}`);
+        deletes = true;
+      }
+      expect(t.rows.every((row) => row.length === t.aligns.length)).toBe(true);
+      expect(t.hrules).toHaveLength(t.rows.length + 1);
+      expect(t.vrules).toHaveLength(t.aligns.length + 1);
+      const back = parseTable(writeTable(t));
+      expect(back.ok && JSON.stringify(back.table)).toBe(JSON.stringify(t));
+      if (!deletes) expect(words(t)).toBe(before);
+    }
   });
 });
 
@@ -402,6 +557,10 @@ describe("tables from the clipboard", () => {
     expect(copied).toEqual([[{ text: "Name" }, { text: "Share" }], [{ text: "R&D" }, { text: "50%" }]]);
     expect(writeTable(tableFromCopied(copied!)!)).toBe("\\begin{tabular}{|l|l|}\n\\hline\nName & Share \\\\\n\\hline\nR\\&D & 50\\% \\\\\n\\hline\n\\end{tabular}");
     expect(copiedFromPlain("just a sentence\nand another")).toBeNull();
+    // Indented source and ragged lines have tabs too, and are not tables.
+    expect(copiedFromPlain("\\begin{itemize}\n\t\\item a\n\t\\item b\n\\end{itemize}")).toBeNull();
+    expect(copiedFromPlain("a\tb\nc")).toBeNull();
+    expect(copiedFromPlain("one\tcell too many\textra\na\tb")).toBeNull();
     expect(tableFromCopied([])).toBeNull();
   });
 

@@ -491,6 +491,18 @@
       tool("alignCentre").click();
       await ok((tabular().match(/\\\\/g) ?? []).length === 3 && tabular().startsWith("\\begin{tabular}{|l|c|}"), "and deleted, and a column centred");
 
+      // Into the table without a mouse: it is in the tab order, and Enter goes into its cells.
+      document.activeElement.blur();
+      await ok($(".cm-v-tedit").tabIndex === 0, "the table can be reached with Tab");
+      $(".cm-v-tedit").focus();
+      drag(td(0, 0), td(0, 0));
+      press(box(), "Escape");
+      press($(".cm-v-tedit"), "ArrowDown");
+      await ok(td(1, 0).classList.contains("cur") && !box(), "with the table focused, the arrow keys move between cells");
+      press($(".cm-v-tedit"), "Enter");
+      await ok(box()?.closest("td") === td(1, 0), "and Enter starts typing in the cell");
+      press(box(), "Escape");
+
       // The menu, from the keyboard.
       press($(".cm-v-tedit"), "F10", { shiftKey: true });
       const items = await until("the table menu", () => ($(".cm-v-tmenu") ? $$(".cm-v-tmenu button") : null));
@@ -530,6 +542,11 @@
       await click("Paste as table");
       await until("the pasted table", () => src().includes("\\multicolumn{2}{|l|}{R\\&D costs} \\\\"));
       await ok(src().includes("2025 & 50\\% \\\\"), "a table copied from Word or Excel is offered as a table, merged cells and special characters included");
+      const indented = new DataTransfer();
+      indented.setData("text/plain", "\\begin{itemize}\n\t\\item a\n\\end{itemize}\n");
+      $(".cm-content").dispatchEvent(new ClipboardEvent("paste", { clipboardData: indented, bubbles: true, cancelable: true }));
+      await sleep(300);
+      await ok(!$("dialog[open]"), "ordinary text with tabs in it is not taken for a table");
       $(".cm-content").dispatchEvent(new ClipboardEvent("paste", { clipboardData: copied, bubbles: true, cancelable: true }));
       await until("the paste question again", () => text("dialog[open]").includes("2 rows and 2 columns"));
       await click("Cancel");

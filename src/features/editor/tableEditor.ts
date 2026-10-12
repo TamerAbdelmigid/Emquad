@@ -1,6 +1,7 @@
 // The table editor of visual mode: a drawn table whose cells can be typed in, merged, split and
 // so on. Every action is worked out on the grid in tableModel.ts and written straight back to
 // the LaTeX source as one editor change, so the source stays the only truth and undo works.
+import { closeCompletion } from "@codemirror/autocomplete";
 import { isolateHistory, redo, undo } from "@codemirror/commands";
 import { type ChangeSpec, type Extension } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
@@ -30,6 +31,7 @@ import {
   setCaption,
   setCell,
   smallestChange,
+  soundCaption,
   splitIntoColumns,
   splitIntoRows,
   splitMerged,
@@ -92,9 +94,11 @@ class Controller {
     const parsed = parseTable(source);
     this.table = parsed.ok ? parsed.table : { aligns: ["l"], vrules: [false, false], rows: [], hrules: [{ kind: "none" }] };
     this.dom.className = "cm-v-tedit";
-    this.dom.tabIndex = -1;
+    // In the tab order, so the table can be reached without a mouse: Esc leaves the text,
+    // Tab comes here, and Enter goes into the first cell.
+    this.dom.tabIndex = 0;
     this.dom.setAttribute("role", "group");
-    this.dom.setAttribute("aria-label", "Table. Click a cell to type in it.");
+    this.dom.setAttribute("aria-label", "Table. Press Enter to go into its cells, or click one to type in it.");
     this.bar.className = "cm-v-tbar";
     this.bar.setAttribute("role", "toolbar");
     this.bar.setAttribute("aria-label", "Table tools");
@@ -336,6 +340,12 @@ class Controller {
     const at = this.place();
     if (!at) return false;
     const changes: ChangeSpec[] = [];
+    // Nothing is written that would not read back as the very table that was meant.
+    const back = parseTable(writeTable(next));
+    if (!back.ok || !same(back.table, next)) {
+      store().notify("That change could not be written as LaTeX without altering the table, so it was not made. Use Edit source for this one.", true);
+      return false;
+    }
     const change = smallestChange(this.source, writeTable(next, at.indent), at.from);
     if (!change) return false;
     changes.push(change);
@@ -354,6 +364,8 @@ class Controller {
       userEvent: structural ? "input.table" : "input.type",
       annotations: structural ? isolateHistory.of("full") : undefined,
     });
+    // Typing in a cell is typing, but not at the text cursor: no suggestions belong there.
+    closeCompletion(this.view);
     return true;
   }
 
@@ -378,7 +390,9 @@ class Controller {
       const caption = await prompt("Table caption", had ?? "", "Save", "Shown under the table in the PDF. Leave it empty to remove the caption.");
       const again = this.place();
       if (caption === null || !again || again.from !== at.from || again.text !== at.text) return;
-      const changes = setCaption(at.text, at.from, to, caption.trim());
+      const wanted = escapeTyped(caption.trim());
+      if (!soundCaption(wanted)) return store().notify("That caption's braces do not match, so it was not changed.", true);
+      const changes = setCaption(at.text, at.from, to, wanted);
       if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });
       return;
     }
@@ -566,8 +580,14 @@ class Controller {
     if (mod && !e.altKey && (key.toLowerCase() === "z" || key.toLowerCase() === "y")) {
       // Undo belongs to the document, not to the box being typed in.
       done();
+      // Undo scrolls to the text cursor, which is not where the table is: stay here.
+      const scroller = this.view.scrollDOM;
+      const [top, left] = [scroller.scrollTop, scroller.scrollLeft];
       if (key.toLowerCase() === "y" || e.shiftKey) redo(this.view);
       else undo(this.view);
+      const stay = () => scroller.scrollTo(left, top);
+      stay();
+      this.view.requestMeasure({ read: () => null, write: stay });
       return;
     }
     if (target.closest(".cm-v-tbar")) {
@@ -727,7 +747,17 @@ export const tablePaste: Extension = EditorView.domEventHandlers({
     const size = `${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"} and ${table.aligns.length} ${table.aligns.length === 1 ? "column" : "columns"}`;
     void confirm("Paste as a table?", `The clipboard holds a table of ${size}. Cancel pastes it as plain text instead.`, "Paste as table").then((yes) => {
       const insert = yes ? `${writeTable(table)}\n` : plain;
-      view.dispatch(view.state.replaceSelection(insert), { userEvent: "input.paste", annotations: isolateHistory.of("full") });
+      const pasted = view.state.replaceSelection(insert);
+      // Cells that were merged downwards need the multirow package, here as anywhere.
+      const need = yes && needsMultirow(table) ? ensureMultirow(view.state.doc.toString()) : "present";
+      const main = view.state.selection.main;
+      if (typeof need === "object" && (need.from <= main.from || need.from >= main.to)) {
+        view.dispatch({ changes: [pasted.changes ?? [], need], userEvent: "input.paste", annotations: isolateHistory.of("full") });
+        store().notify("Added \\usepackage{multirow} to the preamble. Cells merged down a column need it.");
+      } else {
+        view.dispatch(pasted, { userEvent: "input.paste", annotations: isolateHistory.of("full") });
+        if (need === "no-preamble") store().notify("Cells merged down a column need \\usepackage{multirow}. This file has no preamble, so add it to your main file's.", true);
+      }
       view.focus();
     });
     return true;

@@ -18,8 +18,10 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 
 Known limitations, none of which lose data:
 
-- The table editor edits plain `tabular` tables whose columns are `l`, `c` and `r`. A table with any other column type, a nested environment, a comment, `booktabs`' `\cmidrule`, row colours, a row gap set by hand, or `\multirow` with a width is drawn read-only and changed in its source. `tabularx`, `tabular*` and `longtable` are always read-only.
+- The table editor edits plain `tabular` tables whose columns are `l`, `c` and `r`. A table with any other column type, a nested environment, a comment, `booktabs`' `\cmidrule`, row colours, a row gap set by hand, `\verb`, a rule with a thickness, a rule drawn through a merged cell, or `\multirow` with a width is drawn read-only and changed in its source. `tabularx`, `tabular*` and `longtable` are always read-only.
 - Editing a hand-written table rewrites it in the editor's own layout: one row to a line, cells separated by ` & `. Its cells, merges, rules and column descriptions are kept; its spacing is not.
+- A horizontal rule that merged cells cross along its whole length is forgotten: splitting those cells later does not bring it back. A rule crossed only in part is drawn around the merged cell and is whole again after a split.
+- Merging across a `booktabs` rule (`\midrule`) turns that rule into an ordinary one, because only an ordinary rule can be drawn around a merged cell.
 - Borders are all or nothing from the tool bar. A table that came with some rules keeps them until Borders is pressed.
 - Splitting an ordinary cell into rows, and merging down a column, need the `multirow` package. The app adds it to the preamble of the file being edited; when that file has no preamble (it is included by another), it says so and the user adds it to the main file.
 - A cell holds one line of LaTeX. A line break inside a cell has to be written as LaTeX allows inside `l`, `c` and `r` columns, which is to say not at all without another package.

@@ -8,7 +8,12 @@
 
 export type Align = "l" | "c" | "r";
 
-/** The rule on one horizontal boundary: none, a full rule, or a `\cline` over some columns. */
+/**
+ * The rule meant on one horizontal boundary: none, a full rule, or a `\cline` over some columns.
+ * Where a cell merged downwards crosses the boundary the rule is not drawn through it; that
+ * is worked out when the table is written, so the rule comes back by itself if the cell is
+ * split again.
+ */
 export interface Rule {
   kind: "none" | "hline" | "toprule" | "midrule" | "bottomrule" | "cline";
   /** For `cline`: which columns the rule runs under. */
@@ -75,13 +80,39 @@ const UNKNOWN = new Set([
   "begin", "end", "tabularnewline", "noalign", "rowcolor", "columncolor", "endhead", "endfirsthead", "endfoot", "endlastfoot", "cmidrule",
   "specialrule", "addlinespace", "arrayrulecolor", "hhline", "input", "include", "newline", "cr", "omit", "span", "multispan", "hdashline",
   "cdashline", "morecmidrules", "extracolsep", "vline", "arraybackslash", "makecell", "diagbox", "nopagebreak", "pagebreak", "captionof",
+  "verb", "Verb", "lstinline", "mintinline",
 ]);
+const RULES = new Set(["hline", "cline", "toprule", "midrule", "bottomrule"]);
+/** Any other command that draws a rule between rows, whatever package it comes from. */
+const SOME_RULE = /hline|rule$|cline|dashline/i;
+
+/**
+ * Trim, but keep the space of a `\ ` at the end: without it the backslash would swallow
+ * whatever is written next.
+ */
+function trimTex(text: string): string {
+  const out = text.trim();
+  const slashes = /\\+$/.exec(out)?.[0].length ?? 0;
+  return slashes % 2 === 1 && /\s$/.test(text) ? `${out} ` : out;
+}
 const RULE_AT_START = /^\s*(?:\\(hline|toprule|midrule|bottomrule)(?![a-zA-Z@])|\\cline\s*\{\s*(\d+)\s*-\s*(\d+)\s*\})/;
 const RULE_ANYWHERE = /\\(?:hline|cline|toprule|midrule|bottomrule)(?![a-zA-Z@])/;
 const no = (reason: string): Parsed => ({ ok: false, reason });
 
-/** Read a whole `\begin{tabular}…\end{tabular}`. */
+/**
+ * Read a whole `\begin{tabular}…\end{tabular}`. A table is only accepted if writing it out
+ * and reading that again gives the very same table, so nothing can be read that would not be
+ * kept.
+ */
 export function parseTable(source: string): Parsed {
+  const read = readTable(source);
+  if (!read.ok) return read;
+  const again = readTable(writeTable(read.table));
+  if (!again.ok || JSON.stringify(again.table) !== JSON.stringify(read.table)) return no("It is written in a way that cannot be kept exactly");
+  return read;
+}
+
+function readTable(source: string): Parsed {
   const head = /^\\begin\{tabular\}\s*(?:\[([tbc])\])?\s*\{/.exec(source);
   if (!head) return no("Only plain tabular tables can be edited here");
   const specEnd = closing(source, head[0].length - 1);
@@ -121,6 +152,7 @@ export function parseTable(source: string): Parsed {
       } else if (/[a-zA-Z@]/.test(next)) {
         const name = /^[a-zA-Z@]+/.exec(body.slice(i + 1))![0];
         if (UNKNOWN.has(name)) return no(name === "begin" ? "It has another environment inside it" : `It uses \\${name}, which cannot be edited here`);
+        if (!RULES.has(name) && name !== "rule" && SOME_RULE.test(name)) return no(`It uses \\${name}, a kind of rule that cannot be edited here`);
         add(`\\${name}`);
         i += name.length;
       } else {
@@ -148,6 +180,8 @@ export function parseTable(source: string): Parsed {
       if (m[1]) {
         if (rule.kind !== "none") return no("It has more than one rule between two rows");
         rule.kind = m[1] as Rule["kind"];
+        // What follows a booktabs rule in brackets is its thickness, not text.
+        if (m[1] !== "hline" && /^\s*[[(]/.test(cells[0])) return no("It sets the thickness of a rule");
       } else {
         const [a, b] = [Number(m[2]), Number(m[3])];
         if (rule.kind !== "none" && rule.kind !== "cline") return no("It has more than one rule between two rows");
@@ -161,7 +195,7 @@ export function parseTable(source: string): Parsed {
     hrules.push(rule);
     const last = k === chunks.length - 1;
     if (last && cells.length === 1 && cells[0].trim() === "") break;
-    raw.push(cells.map((text) => text.trim()));
+    raw.push(cells.map(trimTex));
     // A last row written without its line end has no rule under it.
     if (last) hrules.push({ kind: "none" });
   }
@@ -181,14 +215,14 @@ export function parseTable(source: string): Parsed {
         made.colSpan = Number(multi[1]);
         made.spec = tex.slice(multi[0].length, specClose - 1).replace(/\s/g, "");
         if (!/^\|?[lcr]\|?$/.test(made.spec) || made.colSpan < 1) return no("A \\multicolumn uses a column type other than l, c and r");
-        tex = tex.slice(open + 1, end - 1).trim();
+        tex = trimTex(tex.slice(open + 1, end - 1));
       }
       const down = /^\\multirow\s*\{\s*(\d+)\s*\}\s*\{\s*\*\s*\}\s*\{/.exec(tex);
       if (down) {
         if (closing(tex, down[0].length - 1) !== tex.length) return no("A \\multirow is written in a way that cannot be edited here");
         made.rowSpan = Number(down[1]);
         if (made.rowSpan < 1) return no("A \\multirow covers no rows");
-        tex = tex.slice(down[0].length, -1).trim();
+        tex = trimTex(tex.slice(down[0].length, -1));
       }
       if (/\\multi(?:column|row)(?![a-zA-Z@])/.test(tex)) return no("A merged cell is written in a way that cannot be edited here");
       made.tex = tex;
@@ -198,20 +232,30 @@ export function parseTable(source: string): Parsed {
     if (row.length !== n) return no("A row does not have one cell for every column");
     rows.push(row);
   }
-  // A cell merged downwards is followed, in the rows it covers, by empty cells of its width.
+  const table: Table = { aligns, vrules, rows, hrules, ...(head[1] ? { pos: head[1] } : {}) };
+  // A cell merged downwards is followed, in the rows it covers, by empty cells of its width,
+  // described the way this module would describe them.
   for (let r = 0; r < rows.length; r++) {
     for (let c = 0; c < n; c++) {
       const top = rows[r][c];
       if (top.hidden || top.rowSpan === 1) continue;
       if (r + top.rowSpan > rows.length) return no("A \\multirow covers more rows than the table has");
+      const described = top.colSpan > 1 ? (top.spec ?? specFor(table, c, top.colSpan)) : undefined;
       for (let below = r + 1; below < r + top.rowSpan; below++) {
         const under = rows[below][c];
         if (under.hidden || under.tex !== "" || under.rowSpan !== 1 || under.colSpan !== top.colSpan) return no("The cells under a \\multirow are not empty");
+        if (under.spec !== described) return no("The empty cells under a \\multirow are described differently from it");
         for (let col = c; col < c + top.colSpan; col++) rows[below][col] = cell("", true);
       }
     }
   }
-  const table: Table = { aligns, vrules, rows, hrules, ...(head[1] ? { pos: head[1] } : {}) };
+  // A rule written straight through a merged cell cannot be kept: it would be cut on writing.
+  for (let b = 1; b < rows.length; b++) {
+    const through = hrules[b].kind !== "none" && hrules[b].kind !== "cline" && crossed(table, b).some(Boolean);
+    const partly = hrules[b].kind === "cline" && crossed(table, b).some((cut, c) => cut && hrules[b].cols?.[c]);
+    if (through || partly) return no("A rule runs through a merged cell");
+  }
+  normalize(table);
   // A description that says only what the table's own columns say need not be remembered.
   rows.forEach((row) =>
     row.forEach((at, c) => {
@@ -236,11 +280,17 @@ function specFor(t: Table, c: number, span: number): string {
   return (c === 0 && t.vrules[0] ? "|" : "") + t.aligns[c] + (t.vrules[c + span] ? "|" : "");
 }
 
-function ruleLine(rule: Rule): string {
+/** For each column, whether a cell merged downwards crosses horizontal boundary `b` there. */
+function crossed(t: Table, b: number): boolean[] {
+  return t.aligns.map((_, c) => b > 0 && b < t.rows.length && anchorOf(t, b, c).r < b);
+}
+
+/** The LaTeX for a rule, drawn only under the columns not in `cut`. */
+function ruleLine(rule: Rule, cut: boolean[]): string {
   if (rule.kind === "none") return "";
-  if (rule.kind !== "cline") return `\\${rule.kind}`;
+  if (rule.kind !== "cline" && !cut.some(Boolean)) return `\\${rule.kind}`;
   let out = "";
-  const cols = rule.cols ?? [];
+  const cols = cut.map((gone, c) => !gone && (rule.kind !== "cline" || Boolean(rule.cols?.[c])));
   for (let c = 0; c < cols.length; c++) {
     if (!cols[c]) continue;
     let end = c;
@@ -256,7 +306,7 @@ export function writeTable(t: Table, indent = ""): string {
   const spec = t.aligns.map((a, c) => (t.vrules[c] ? "|" : "") + a).join("") + (t.vrules[columns(t)] ? "|" : "");
   const lines = [`\\begin{tabular}${t.pos ? `[${t.pos}]` : ""}{${spec}}`];
   const rule = (b: number) => {
-    const line = ruleLine(t.hrules[b]);
+    const line = ruleLine(t.hrules[b], crossed(t, b));
     if (line) lines.push(line);
   };
   rule(0);
@@ -294,27 +344,26 @@ export function newTable(rowCount: number, colCount: number, borders = true): Ta
 }
 
 /**
- * Keep rules out of merged cells: where a cell merged downwards crosses a boundary, the rule
- * there becomes a `\cline` that stops short of it. A `\cline` that has come to run under every
- * column is written as a full rule again.
+ * Put the rules in their one plain form, so that the same table is always described the same
+ * way: a `\cline` says nothing about columns a merged cell crosses, one that runs under every
+ * other column is a full rule, and one that runs under none is no rule. A booktabs rule that
+ * a merged cell has come to cross becomes an ordinary one, which can be drawn around the cell.
  */
-function fixRules(t: Table): Table {
-  const n = columns(t);
-  t.hrules = t.hrules.map((rule, b) => {
-    if (rule.kind !== "hline" && rule.kind !== "cline") return rule;
-    const cols = rule.kind === "hline" ? Array.from({ length: n }, () => true) : Array.from({ length: n }, (_, c) => rule.cols?.[c] ?? false);
-    if (b > 0 && b < t.rows.length) {
-      for (let c = 0; c < n; c++) {
-        const owner = anchorOf(t, b, c);
-        if (owner.r < b) cols[c] = false;
-      }
-    }
-    if (cols.every(Boolean)) return { kind: "hline" };
+function normalize(t: Table): Table {
+  t.hrules = t.hrules.map((rule, b): Rule => {
+    const cut = crossed(t, b);
+    // A boundary that merged cells cross from end to end has no rule to speak of.
+    if (rule.kind === "none" || cut.every(Boolean)) return { kind: "none" };
+    if (rule.kind === "hline") return { kind: "hline" };
+    if (rule.kind !== "cline") return cut.some(Boolean) ? { kind: "hline" } : { kind: rule.kind };
+    const cols = cut.map((gone, c) => !gone && Boolean(rule.cols?.[c]));
     if (!cols.some(Boolean)) return { kind: "none" };
+    if (cols.every((on, c) => on || cut[c])) return { kind: "hline" };
     return { kind: "cline", cols };
   });
   return t;
 }
+const fixRules = normalize;
 
 /** Grow a block until no merged cell sticks out of it. */
 export function expandRect(t: Table, rect: Rect): Rect {
@@ -370,7 +419,8 @@ export function splitMerged(table: Table, r: number, c: number): Table {
   const at = t.rows[r][c];
   for (let row = r; row < r + at.rowSpan; row++) for (let col = c; col < c + at.colSpan; col++) t.rows[row][col] = cell();
   t.rows[r][c].tex = at.tex;
-  // The rules that stopped short of the merged cell run under its cells again.
+  // A partial rule that stopped at the merged cell runs under its cells again. A full rule
+  // was only ever drawn around it, and is whole again without being touched.
   for (let b = r + 1; b < r + at.rowSpan; b++) {
     const rule = t.hrules[b];
     if (rule.kind === "cline" && rule.cols) for (let col = c; col < c + at.colSpan; col++) rule.cols[col] = true;
@@ -543,32 +593,54 @@ export function ensureMultirow(text: string): Change | "present" | "no-preamble"
   const preamble = begin < 0 ? text : text.slice(0, begin);
   const uncommented = preamble.replace(/(?<!\\)%.*$/gm, "");
   if (/\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]*\bmultirow\b[^}]*\}/.test(uncommented)) return "present";
-  const klass = /^[^%\n]*\\documentclass(?:\[[^\]]*\])?\{[^}]*\}.*$/m.exec(preamble);
-  if (!klass || begin < 0) return "no-preamble";
-  // After the last package already loaded, or else after the document class.
-  let at = klass.index + klass[0].length;
-  for (const m of preamble.matchAll(/^[^%\n]*\\usepackage(?:\[[^\]]*\])?\{[^}]*\}.*$/gm)) at = Math.max(at, m.index + m[0].length);
-  return { from: at, to: at, insert: "\n\\usepackage{multirow}" };
+  if (begin < 0 || !/\\documentclass\s*(?:\[[^\]]*\])?\s*\{/.test(uncommented)) return "no-preamble";
+  // On a line of its own just before the document starts: the one place in a preamble that
+  // is never inside a condition or a group.
+  const at = text.lastIndexOf("\n", begin) + 1;
+  const lead = text.slice(at, begin);
+  return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: "\\usepackage{multirow}\n" } : { from: begin, to: begin, insert: "\n\\usepackage{multirow}\n" };
 }
 
-/** The `table` environment a tabular at `from`..`to` sits in, if it sits in one. */
+const FLOATS = ["table", "table*", "sidewaystable", "figure", "figure*", "wraptable", "minipage"];
+const CAPTION = /\\caption\*?\s*(?:\[[^\]]*\])?\s*\{/;
+
+/** The float a tabular at `from`..`to` sits in, if it sits in one: the nearest around it. */
 function floatAround(text: string, from: number, to: number): { from: number; to: number } | null {
-  const open = text.lastIndexOf("\\begin{table}", from);
-  if (open < 0 || text.slice(open, from).includes("\\end{table}")) return null;
-  const close = text.indexOf("\\end{table}", to);
-  if (close < 0 || text.slice(to, close).includes("\\begin{table}")) return null;
-  return { from: open, to: close };
+  let best: { from: number; to: number } | null = null;
+  for (const name of FLOATS) {
+    const [begin, end] = [`\\begin{${name}}`, `\\end{${name}}`];
+    const open = text.lastIndexOf(begin, from);
+    if (open < 0 || text.slice(open, from).includes(end)) continue;
+    const close = text.indexOf(end, to);
+    if (close < 0 || text.slice(to, close).includes(begin)) continue;
+    if (!best || open > best.from) best = { from: open, to: close };
+  }
+  return best;
 }
 
 /** The caption of the tabular at `from`..`to`, or null when it has none. */
 export function captionOf(text: string, from: number, to: number): string | null {
   const float = floatAround(text, from, to);
   if (!float) return null;
-  const at = /\\caption\s*\{/.exec(text.slice(float.from, float.to));
+  const at = CAPTION.exec(text.slice(float.from, float.to));
   if (!at) return null;
   const open = float.from + at.index + at[0].length - 1;
   const end = closing(text, open);
   return end < 0 || end > float.to ? null : text.slice(open + 1, end - 1);
+}
+
+/** Whether text can be a caption as it stands: its braces match, and it ends no group early. */
+export function soundCaption(caption: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < caption.length; i++) {
+    if (caption[i] === "\\") {
+      // A backslash with nothing after it would take the closing brace for itself.
+      if (++i >= caption.length) return false;
+    } else if (caption[i] === "{") depth++;
+    else if (caption[i] === "}" && --depth < 0) return false;
+    else if (caption[i] === "%") return false;
+  }
+  return depth === 0;
 }
 
 /**
@@ -586,7 +658,7 @@ export function setCaption(text: string, from: number, to: number, caption: stri
       { from: to, to, insert: `\n${indent}\\caption{${caption}}\n${indent}\\end{table}` },
     ];
   }
-  const at = /\\caption\s*\{/.exec(text.slice(float.from, float.to));
+  const at = CAPTION.exec(text.slice(float.from, float.to));
   if (!at) return caption ? [{ from: to, to, insert: `\n${indent}\\caption{${caption}}` }] : [];
   const start = float.from + at.index;
   const open = start + at[0].length - 1;
@@ -679,6 +751,9 @@ export function tableFromCopied(copied: Copied[][]): Table | null {
 export function copiedFromPlain(text: string): Copied[][] | null {
   const lines = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n");
   if (!text.includes("\t") || lines.length > 500) return null;
+  // Indented text has tabs too. A table has no line that starts with one, and the same
+  // number of cells, at least two, on every line.
+  if (lines.some((line) => line.startsWith("\t"))) return null;
   const rows = lines.map((line) => line.split("\t").map((cellText) => ({ text: cellText })));
-  return rows.some((row) => row.length > 1) ? rows : null;
+  return rows[0].length > 1 && rows.every((row) => row.length === rows[0].length) ? rows : null;
 }

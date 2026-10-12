@@ -35,6 +35,8 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 **Select cells** by dragging across them, or with Shift and the arrow keys.
 
+**Without a mouse.** Esc leaves the text; Tab then reaches the table. Enter (or an arrow key) selects its first cell, the arrow keys move between cells, and Enter starts typing in the selected one.
+
 **The tools** are in the bar above the table and on its right-click menu (Shift+F10 from the keyboard; Esc then Tab reaches the bar):
 
 | Tool | What it does |
@@ -45,16 +47,16 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 | Row ↑ ↓ ✕, Col ← → ✕ | Insert or delete rows and columns |
 | Left, Centre, Right | Align the selected columns |
 | Borders | Draws every border, or removes them all |
-| Caption | Adds, changes or (left empty) removes the caption. A table without one is put in a `table` environment to carry it |
+| Caption | Adds, changes or (left empty) removes the caption. A table that is not in a float yet is put in a `table` environment to carry it; one already in a `table`, `table*` or `figure` gets the caption there |
 | Edit source | Shows the table's LaTeX so you can change it directly. Move the cursor out of it to see the table again |
 
 Every action changes your `.tex` file at once, and **Code** shows exactly what was written. Each action is one step for Undo (Ctrl+Z).
 
-**Merging down a column needs the `multirow` package.** The first time you do it, Emquad adds `\usepackage{multirow}` to the preamble and tells you. If the file you are in has no preamble, because it is included from another file, add that line to your main file yourself; Emquad reminds you.
+**Merging down a column needs the `multirow` package.** The first time you do it, Emquad adds `\usepackage{multirow}` on a line of its own just before `\begin{document}` and tells you. The same happens when you paste a table from Word or Excel that has cells merged downwards. If the file you are in has no preamble, because it is included from another file, add that line to your main file yourself; Emquad reminds you.
 
 **Paste from Word or Excel.** Copy a table there and paste it into the editor. Emquad asks whether to paste it as a table; merged cells are kept and characters LaTeX treats specially are escaped. Cancel pastes the plain text.
 
-**Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly, such as a `p{3cm}` column, a table inside a table, a comment, or `tabularx`, is drawn with a note saying why and an **Edit source** link. Emquad never rewrites such a table.
+**Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly is drawn with a note saying why and an **Edit source** link. Examples: a `p{3cm}` column, a table inside a table, a comment, `erb`, a rule with a thickness such as `\midrule[2pt]`, a rule drawn straight through a merged cell, or `tabularx`. Emquad never rewrites such a table. Before accepting any table it checks that writing it out and reading it again gives the same table, and it makes the same check before every change.
 
 When you edit a table you wrote by hand, Emquad lays its source out its own way, one row to a line. The cells, merges and rules are kept as they were.
 
