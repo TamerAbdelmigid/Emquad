@@ -80,7 +80,7 @@ const UNKNOWN = new Set([
   "begin", "end", "tabularnewline", "noalign", "rowcolor", "columncolor", "endhead", "endfirsthead", "endfoot", "endlastfoot", "cmidrule",
   "specialrule", "addlinespace", "arrayrulecolor", "hhline", "input", "include", "newline", "cr", "omit", "span", "multispan", "hdashline",
   "cdashline", "morecmidrules", "extracolsep", "vline", "arraybackslash", "makecell", "diagbox", "nopagebreak", "pagebreak", "captionof",
-  "verb", "Verb", "lstinline", "mintinline", "path", "nolinkurl",
+  "verb", "Verb", "lstinline", "mintinline", "path", "nolinkurl", "crcr",
 ]);
 const RULES = new Set(["hline", "cline", "toprule", "midrule", "bottomrule"]);
 /** Any other command that draws a rule between rows, whatever package it comes from. */
@@ -99,7 +99,8 @@ export function trimSpaces(text: string): string {
  * whatever is written next.
  */
 function trimTex(text: string): string {
-  const out = trimSpaces(text);
+  // A cell written over two lines reads as one: to TeX a single line end is a space.
+  const out = trimSpaces(text).replace(/[ \t]*\r?\n[ \t]*/g, " ");
   const slashes = /\\+$/.exec(out)?.[0].length ?? 0;
   return slashes % 2 === 1 && /[ \t\r\n]$/.test(text) ? `${out} ` : out;
 }
@@ -202,6 +203,7 @@ function readTable(source: string): Parsed {
       }
     }
     if (cells.some((text) => RULE_ANYWHERE.test(text))) return no("It has a rule in the middle of a row");
+    if (cells.some((text) => /\n[ \t\r]*\n/.test(trimSpaces(text)))) return no("It has a blank line inside a cell");
     hrules.push(rule);
     const last = k === chunks.length - 1;
     if (last && cells.length === 1 && trimSpaces(cells[0]) === "") break;
@@ -543,8 +545,9 @@ export function deleteColumn(table: Table, c: number): Table {
     const at = t.rows[a.r][a.c];
     if (a.c < c) at.colSpan--;
     else if (at.colSpan > 1) {
-      // A cell merged across from this column keeps its text and starts one column later.
-      t.rows[a.r][c + 1] = { ...at, colSpan: at.colSpan - 1 };
+      // A cell merged across from this column keeps its text and its own alignment, and
+      // starts one column later.
+      t.rows[a.r][c + 1] = { ...at, colSpan: at.colSpan - 1, spec: at.spec ?? specFor(t, a.c, at.colSpan) };
     }
   }
   t.rows.forEach((row) => row.splice(c, 1));
@@ -615,64 +618,117 @@ export function ensureMultirow(text: string): Change | "present" | "no-preamble"
 /** Environments that can carry a caption. */
 const FLOATS = new Set(["table", "table*", "sidewaystable", "figure", "figure*", "subtable", "subfigure"]);
 /** Environments a table may sit in, inside its float or on the page, and still take a caption. */
-const PLAIN = new Set(["document", "center", "flushleft", "flushright", "centering"]);
+const PLAIN = new Set(["document", "center", "flushleft", "flushright"]);
 const CAPTION = /\\caption\*?[ \t\r\n]*(?:\[[^\]]*\])?[ \t\r\n]*\{/g;
 
-/** The text with every comment blanked out, each character still where it was. */
+/**
+ * The text with everything that only looks like LaTeX blanked out, each character still where
+ * it was: comments, and verbatim text.
+ */
 function uncommented(text: string): string {
-  return text.replace(/(?<!\\)%.*$/gm, (m) => " ".repeat(m.length));
+  const blank = (m: string) => m.replace(/[^\n]/g, " ");
+  return text
+    .replace(/\\begin\{(verbatim\*?|lstlisting|minted|comment)\}[\s\S]*?\\end\{\1\}/g, blank)
+    .replace(/\\(?:verb|lstinline)\*?([^a-zA-Z\s])[^\n]*?\1/g, blank)
+    // A percent sign starts a comment unless an odd number of backslashes stands before it.
+    .replace(/(?<!\\)((?:\\\\)*)%.*$/gm, (m, slashes: string) => slashes + " ".repeat(m.length - slashes.length));
 }
 
 export type CaptionPlace =
   /** In a float: where the float's body is, and its caption's braces if it has one. */
-  | { kind: "float"; from: number; to: number; open?: number; close?: number; start?: number }
+  | { kind: "float"; from: number; to: number; open?: number; close?: number; start?: number; labelled: boolean }
   /** On the page with nothing around it: a float can be put around it. */
   | { kind: "bare" }
-  /** Somewhere a caption cannot be put without breaking the document. */
+  /** Somewhere a caption cannot be put, or changed, with certainty that the document still compiles. */
   | { kind: "no"; reason: string };
 
-/** Where the caption of the tabular at `from`..`to` is or could go. */
+const SOURCE = "Add or change it in the source.";
+
+/**
+ * Where the caption of the tabular at `from`..`to` is or could go. This is deliberately
+ * cautious: a caption in the wrong place stops a document compiling, so anything unusual
+ * around the table is a reason to leave captions to the source.
+ */
 export function captionPlace(text: string, from: number, to: number): CaptionPlace {
   const clean = uncommented(text);
+  const refuse = (why: string): CaptionPlace => ({ kind: "no", reason: `${why} ${SOURCE}` });
+  const body = clean.indexOf("\\begin{document}");
+  if (body < 0 || body > from) return refuse("This file is included by another, so the table's surroundings cannot be seen from here.");
+  if (/\\(?:def|newcommand|renewcommand|providecommand|newenvironment|renewenvironment)\b[^\n]*\\(?:begin|end)[ \t]*\{(?:table|figure)/.test(clean)) {
+    return refuse("This document makes its own commands for floats.");
+  }
+  if (/\\(?:begin|end)[ \t]+\{/.test(clean.slice(0, to))) return refuse("An environment here is written with a space after \\begin.");
   // The environments open at the table, outermost first.
   const open: { name: string; at: number }[] = [];
   for (const m of clean.slice(0, from).matchAll(/\\(begin|end)\{([^}]*)\}/g)) {
     if (m[1] === "begin") open.push({ name: m[2], at: m.index });
     else if (open.length && open[open.length - 1].name === m[2]) open.pop();
+    else return refuse("The environments before this table do not match up.");
   }
   let floatAt = open.length - 1;
   while (floatAt >= 0 && !FLOATS.has(open[floatAt].name)) floatAt--;
   const inner = open.slice(floatAt + 1).filter((env) => !PLAIN.has(env.name));
-  if (inner.length) return { kind: "no", reason: `This table is inside a ${inner[inner.length - 1].name} environment, where a caption cannot go. Add one in the source.` };
-  // Inside the braces of a box such as \resizebox, a caption or a float would not compile.
+  if (inner.length) return refuse(`This table is inside a ${inner[inner.length - 1].name} environment, where a caption cannot go.`);
+  // Inside the braces of a box such as \resizebox a caption or a float would not compile,
+  // nor inside an optional argument or mathematics.
+  const since = floatAt < 0 ? body : open[floatAt].at;
   let depth = 0;
-  const since = floatAt < 0 ? 0 : open[floatAt].at;
   for (let i = since; i < from; i++) {
     if (clean[i] === "\\") i++;
     else if (clean[i] === "{") depth++;
     else if (clean[i] === "}") depth--;
   }
-  if (depth !== 0) return { kind: "no", reason: "This table is inside the braces of another command, where a caption cannot go. Add one in the source." };
-  if (floatAt < 0) return { kind: "bare" };
+  if (depth !== 0) return refuse("This table is inside the braces of another command, where a caption cannot go.");
+  // Brackets and mathematics do not reach across a blank line, so only this paragraph counts.
+  const paragraph = Math.max(since, clean.lastIndexOf("\n\n", from) + 1);
+  let brackets = 0;
+  let math = false;
+  for (let i = paragraph; i < from; i++) {
+    const ch = clean[i];
+    if (ch === "\\") {
+      const next = clean[i + 1];
+      if (next === "[" || next === "(") math = true;
+      if (next === "]" || next === ")") math = false;
+      i++;
+    } else if (ch === "$") math = !math;
+    else if (ch === "[") brackets++;
+    else if (ch === "]") brackets = Math.max(0, brackets - 1);
+  }
+  if (math) return refuse("This table is inside mathematics, where a caption cannot go.");
+  if (brackets !== 0) return refuse("This table is inside the square brackets of another command, where a caption cannot go.");
+
+  const scopeStart = open.length ? open[open.length - 1] : { name: "document", at: body };
+  if (floatAt < 0) {
+    const scopeEnd = clean.indexOf(`\\end{${scopeStart.name}}`, to);
+    if (clean.slice(scopeStart.at, scopeEnd < 0 ? clean.length : scopeEnd).includes("\\captionof")) return refuse("A caption is given here with \\captionof.");
+    return { kind: "bare" };
+  }
   const float = open[floatAt];
   const end = clean.indexOf(`\\end{${float.name}}`, to);
-  if (end < 0) return { kind: "no", reason: "The environment this table is in is not finished." };
-  const body = clean.slice(float.at, end);
-  if ((body.match(/\\begin\{tabular[x*]?\}/g) ?? []).length > 1) return { kind: "no", reason: "This table shares its float with another, so it is not clear whose caption is whose. Change it in the source." };
-  const found = [...body.matchAll(CAPTION)];
-  if (found.length > 1) return { kind: "no", reason: "This table's float has more than one caption. Change it in the source." };
-  if (found.length === 0) return { kind: "float", from: float.at, to: end };
+  if (end < 0) return refuse("The environment this table is in is not finished.");
+  const inside = clean.slice(float.at, end);
+  if (/\\begin\{(?:table|figure|sidewaystable)\*?\}/.test(clean.slice(to, end))) return refuse("The environment this table is in is not finished.");
+  if ((inside.match(/\\begin\{tabular[x*]?\}/g) ?? []).length > 1) return refuse("This table shares its float with another, so it is not clear whose caption is whose.");
+  if (inside.includes("\\captionof")) return refuse("A caption is given here with \\captionof.");
+  const found = [...inside.matchAll(CAPTION)];
+  if (found.length > 1) return refuse("This table's float has more than one caption.");
+  const labelled = inside.includes("\\label");
+  if (found.length === 0) return { kind: "float", from: float.at, to: end, labelled };
   const start = float.at + found[0].index;
   const brace = start + found[0][0].length - 1;
   const close = closing(clean, brace);
-  if (close < 0 || close > end) return { kind: "no", reason: "The caption this table has is not finished." };
-  return { kind: "float", from: float.at, to: end, open: brace + 1, close: close - 1, start };
+  if (close < 0 || close > end) return refuse("The caption this table has is not finished.");
+  // What is offered for editing must be the whole of the caption and nothing but it.
+  if (clean.slice(brace + 1, close - 1) !== text.slice(brace + 1, close - 1)) return refuse("The caption has a comment or verbatim text in it.");
+  if (/\n[ \t\r]*\n/.test(text.slice(brace + 1, close - 1))) return refuse("The caption has a blank line in it.");
+  return { kind: "float", from: float.at, to: end, open: brace + 1, close: close - 1, start, labelled };
 }
 
 /** The caption of the tabular at `from`..`to`, or null when it has none. */
 export function captionOf(text: string, from: number, to: number): string | null {
   const place = captionPlace(text, from, to);
-  return place.kind === "float" && place.open !== undefined ? text.slice(place.open, place.close) : null;
+  // Written over several lines, a caption reads as one: a line end is a space.
+  return place.kind === "float" && place.open !== undefined ? text.slice(place.open, place.close).replace(/[ \t]*\r?\n[ \t]*/g, " ") : null;
 }
 
 /** Whether text can be a caption as it stands: its braces match, and it ends no group early. */
@@ -732,21 +788,23 @@ export function smallestChange(before: string, after: string, offset = 0): Chang
 
 /**
  * A bare & or % typed in a cell means the character, so it is written the way LaTeX prints
- * it. Inside braces it is left alone: there it may be part of a matrix or a web address.
+ * it. Inside mathematics an & is left alone: there it separates the columns of a matrix.
  */
 export function escapeTyped(value: string): string {
   let out = "";
-  let depth = 0;
+  let math = false;
   for (let i = 0; i < value.length; i++) {
     const ch = value[i];
     if (ch === "\\") {
-      out += ch + (value[i + 1] ?? "");
+      const next = value[i + 1] ?? "";
+      if (next === "(" || next === "[") math = true;
+      if (next === ")" || next === "]") math = false;
+      out += ch + next;
       i++;
       continue;
     }
-    if (ch === "{") depth++;
-    if (ch === "}") depth = Math.max(0, depth - 1);
-    out += depth === 0 && (ch === "&" || ch === "%") ? `\\${ch}` : ch;
+    if (ch === "$") math = !math;
+    out += ch === "%" || (ch === "&" && !math) ? `\\${ch}` : ch;
   }
   return out;
 }

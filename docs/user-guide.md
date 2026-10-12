@@ -31,7 +31,7 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 **Insert.** The table button in the toolbar opens a small grid. Move over it (or use the arrow keys) to choose rows and columns, then click (or press Enter). Emquad writes the matching `tabular`.
 
-**Edit.** In **Visual** mode, click a cell and type. What you type is LaTeX, so `$x^2$` and `\textbf{…}` work; a plain `&` or `%` is written as `\&` or `\%` for you, except inside braces, where it may be part of a matrix or a web address. Tab and Shift+Tab move between cells, and Tab in the last cell adds a row. The arrow keys move to the next cell when the cursor is at the edge of the text. Esc stops typing and leaves the cell selected.
+**Edit.** In **Visual** mode, click a cell and type. What you type is LaTeX, so `$x^2$` and `\textbf{…}` work; a plain `&` or `%` is written as `\&` or `\%` for you (an `&` inside mathematics is left alone, where it separates the columns of a matrix). Tab and Shift+Tab move between cells, and Tab in the last cell adds a row. The arrow keys move to the next cell when the cursor is at the edge of the text. Esc stops typing and leaves the cell selected.
 
 **Select cells** by dragging across them, or with Shift and the arrow keys.
 
@@ -47,7 +47,7 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 | Row ↑ ↓ ✕, Col ← → ✕ | Insert or delete rows and columns |
 | Left, Centre, Right | Align the selected columns |
 | Borders | Draws every border, or removes them all |
-| Caption | Adds, changes or (left empty) removes the caption. A table that is not in a float yet is put in a `table` environment to carry it; one already in a `table`, `table*` or `figure` gets the caption there. Where a caption cannot go without breaking the document (a table inside a `minipage` or inside `\resizebox{…}`, or two tables sharing one float), Emquad says so and changes nothing |
+| Caption | Adds, changes or (left empty) removes the caption. A table that is not in a float yet is put in a `table` environment to carry it; one already in a `table`, `table*` or `figure` gets the caption there. Emquad adds or changes a caption only where it is certain the document will still compile. Otherwise it says why and changes nothing: for example a table inside a `minipage`, inside `\resizebox{…}` or mathematics, two tables sharing one float, a caption given with `\captionof`, or a table in a file that another file includes |
 | Edit source | Shows the table's LaTeX so you can change it directly. Move the cursor out of it to see the table again |
 
 Every action changes your `.tex` file at once, and **Code** shows exactly what was written. Each action is one step for Undo (Ctrl+Z).

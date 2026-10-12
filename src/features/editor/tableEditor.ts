@@ -394,7 +394,11 @@ class Controller {
       const caption = await prompt("Table caption", had ?? "", "Save", "Shown under the table in the PDF. Leave it empty to remove the caption.");
       const again = this.place();
       if (caption === null || !again || again.from !== at.from || again.text !== at.text) return;
-      const wanted = escapeTyped(caption.trim());
+      const wanted = escapeTyped(trimSpaces(caption));
+      if (wanted === (had ?? "")) return;
+      if (!wanted && where.kind === "float" && where.labelled) {
+        return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
+      }
       if (!soundCaption(wanted)) return store().notify("That caption's braces do not match, so it was not changed.", true);
       const changes = setCaption(at.text, at.from, to, wanted);
       if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });

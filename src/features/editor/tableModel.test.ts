@@ -347,6 +347,7 @@ describe("rows and columns", () => {
 
 describe("the text around a table", () => {
   const DOC = "\\documentclass{article}\n\\usepackage{graphicx} % pictures\n\\begin{document}\nx\n\\end{document}\n";
+  const DOC0 = "\\documentclass{article}\n\\begin{document}\n";
 
   it("adds the multirow package after the last package, once", () => {
     const change = ensureMultirow(DOC);
@@ -366,33 +367,33 @@ describe("the text around a table", () => {
 
   it("gives a lone table a float to carry its caption, and changes or removes a caption later", () => {
     const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
-    const text = `Before.\n\n${tabular}\n\nAfter.`;
+    const text = `\\documentclass{article}\n\\begin{document}\nBefore.\n\n${tabular}\n\nAfter.`;
     const from = text.indexOf(tabular);
     expect(captionOf(text, from, from + tabular.length)).toBeNull();
     const withCaption = apply(text, setCaption(text, from, from + tabular.length, "Results"));
-    expect(withCaption).toBe(`Before.\n\n\\begin{table}[h]\n\\centering\n${tabular}\n\\caption{Results}\n\\end{table}\n\nAfter.`);
+    expect(withCaption).toBe(`${DOC0}Before.\n\n\\begin{table}[h]\n\\centering\n${tabular}\n\\caption{Results}\n\\end{table}\n\nAfter.`);
 
     const at = withCaption.indexOf(tabular);
     expect(captionOf(withCaption, at, at + tabular.length)).toBe("Results");
     const changed = apply(withCaption, setCaption(withCaption, at, at + tabular.length, "New {results}"));
     expect(captionOf(changed, at, at + tabular.length)).toBe("New {results}");
     const removed = apply(changed, setCaption(changed, at, at + tabular.length, ""));
-    expect(removed).toBe(`Before.\n\n\\begin{table}[h]\n\\centering\n${tabular}\n\\end{table}\n\nAfter.`);
+    expect(removed).toBe(`${DOC0}Before.\n\n\\begin{table}[h]\n\\centering\n${tabular}\n\\end{table}\n\nAfter.`);
     expect(setCaption(text, from, from + tabular.length, "")).toEqual([]);
   });
 
   it("uses the float a table is already in, whatever kind, and the caption it already has", () => {
     const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
     for (const float of ["table*", "figure", "sidewaystable"]) {
-      const text = `\\begin{${float}}\n${tabular}\n\\end{${float}}`;
+      const text = `${DOC0}\\begin{${float}}\n${tabular}\n\\end{${float}}`;
       const from = text.indexOf(tabular);
       const out = apply(text, setCaption(text, from, from + tabular.length, "Wide"));
-      expect(out).toBe(`\\begin{${float}}\n${tabular}\n\\caption{Wide}\n\\end{${float}}`);
+      expect(out).toBe(`${DOC0}\\begin{${float}}\n${tabular}\n\\caption{Wide}\n\\end{${float}}`);
     }
-    const had = `\\begin{table}\n${tabular}\n\\caption[Short]{Long one}\n\\end{table}`;
+    const had = `${DOC0}\\begin{table}\n\\caption[Short]{Long\n  one}\n${tabular}\n\\end{table}`;
     const at = had.indexOf(tabular);
     expect(captionOf(had, at, at + tabular.length)).toBe("Long one");
-    expect(apply(had, setCaption(had, at, at + tabular.length, "New"))).toBe(`\\begin{table}\n${tabular}\n\\caption[Short]{New}\n\\end{table}`);
+    expect(apply(had, setCaption(had, at, at + tabular.length, "New"))).toBe(`${DOC0}\\begin{table}\n\\caption[Short]{New}\n${tabular}\n\\end{table}`);
   });
 
   it("refuses a caption where one cannot go, and never touches another table's", () => {
@@ -401,24 +402,44 @@ describe("the text around a table", () => {
       const from = text.lastIndexOf(tabular);
       return { place: captionPlace(text, from, from + tabular.length), changes: setCaption(text, from, from + tabular.length, "New") };
     };
-    for (const text of [
+    for (const body of [
       `\\begin{minipage}{5cm}\n${tabular}\n\\end{minipage}`,
       `\\begin{table}\n\\resizebox{\\textwidth}{!}{${tabular}}\n\\end{table}`,
       `\\resizebox{\\textwidth}{!}{${tabular}}`,
       `\\fbox{${tabular}}`,
       `\\begin{table}\n\\begin{minipage}{5cm}\n${tabular}\n\\end{minipage}\n\\caption{Old}\n\\end{table}`,
       `\\begin{table}\n${tabular}\n\\caption{First}\n${tabular}\n\\caption{Second}\n\\end{table}`,
+      `\\[ ${tabular} \\]`,
+      `Text $${tabular}$ text`,
+      `\\twocolumn[ ${tabular} ]`,
+      `\\section[${tabular}]{x}`,
+      `\\begin {table}\n${tabular}\n\\end {table}`,
+      `\\begin{table}\n\\fbox{x\\\\% }\n${tabular}}\n\\end{table}`,
+      `\\verb|\\begin{table}|\n\n${tabular}\n\n\\begin{table}\\caption{Other}\\end{table}`,
+      `\\iffalse\\begin{table}\\fi\n\n${tabular}\n\n\\begin{table}\\caption{Other}\\end{table}`,
+      `\\begin{center}\n${tabular}\n\\captionof{table}{Old}\n\\end{center}`,
+      `\\begin{table}\n${tabular}\n\\caption{Old % note\n more}\n\\end{table}`,
+      `\\begin{table}\n${tabular}\n\\caption{Old\n\nmore}\n\\end{table}`,
     ]) {
-      expect(where(text).place.kind).toBe("no");
-      expect(where(text).changes).toEqual([]);
+      const text = `${DOC0}${body}`;
+      const result = where(text);
+      const refused = result.place.kind === "no";
+      // Either refused, or at the least not mistaken for a caption that belongs elsewhere.
+      if (!refused) expect(apply(text, result.changes)).not.toMatch(/\\caption\{New\}\\end\{table\}/);
+      if (body.includes("\\verb") || body.includes("\\iffalse")) continue;
+      expect(refused).toBe(true);
+      expect(result.changes).toEqual([]);
     }
+    // In a file that another includes, the surroundings cannot be seen, so nothing is done.
+    expect(where(tabular).place.kind).toBe("no");
+    expect(where(`\\newcommand{\\bt}{\\begin{table}}\n${DOC0}\\bt\n${tabular}\n\\end{table}`).place.kind).toBe("no");
     // Each table of a pair with its own sub-float has its own caption.
-    const pair = `\\begin{table}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{First}\n\\end{subtable}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{Second}\n\\end{subtable}\n\\end{table}`;
+    const pair = `${DOC0}\\begin{table}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{First}\n\\end{subtable}\n\\begin{subtable}{.5\\linewidth}\n${tabular}\n\\caption{Second}\n\\end{subtable}\n\\end{table}`;
     const at = pair.lastIndexOf(tabular);
     expect(captionOf(pair, at, at + tabular.length)).toBe("Second");
     expect(apply(pair, setCaption(pair, at, at + tabular.length, "New"))).toBe(pair.replace("Second", "New"));
     // A caption in a comment is not the caption; a table centred in its float is still in it.
-    const commented = `\\begin{table}\n\\begin{center}\n${tabular}\n\\end{center}\n% \\caption{Old}\n\\caption{Real}\n\\end{table}`;
+    const commented = `${DOC0}\\begin{table}\n\\begin{center}\n${tabular}\n\\end{center}\n% \\caption{Old}\n\\caption{Real}\n\\end{table}`;
     const from = commented.indexOf(tabular);
     expect(captionOf(commented, from, from + tabular.length)).toBe("Real");
     expect(apply(commented, setCaption(commented, from, from + tabular.length, "New"))).toBe(commented.replace("Real", "New"));
@@ -537,6 +558,21 @@ describe("what a rewrite must leave alone", () => {
   });
 });
 
+describe("cells written over several lines", () => {
+  it("read as one line, with a space where the line ended", () => {
+    const t = read("\\begin{tabular}{ll}\nName & A long description that\n   continues here \\\\\n\\multicolumn{2}{c}{two\nlines} \\\\\n\\end{tabular}");
+    expect(t.rows[0][1].tex).toBe("A long description that continues here");
+    expect(t.rows[1][0].tex).toBe("two lines");
+    expect(reason("\\begin{tabular}{ll}\nName & a\n\nb \\\\\n\\end{tabular}")).toMatch(/blank line/);
+  });
+
+  it("a heading keeps its own alignment when the column it started in is deleted", () => {
+    const t = read("\\begin{tabular}{lcr}\nx & \\multicolumn{2}{c}{H} \\\\\na & b & c \\\\\n\\end{tabular}");
+    expect(writeTable(deleteColumn(t, 1)).split("\n").slice(0, 2)).toEqual(["\\begin{tabular}{lr}", "x & \\multicolumn{1}{c}{H} \\\\"]);
+    expect(reason("\\begin{tabular}{ll}\na & b\\crcr\n\\end{tabular}")).toMatch(/crcr/);
+  });
+});
+
 describe("rules and merged cells", () => {
   it("a rule cut by a merge is whole again when the cell is split", () => {
     const start = grid(2, 1);
@@ -621,7 +657,9 @@ describe("text typed into a cell", () => {
     expect(escapeTyped("$x$ \\textbf{b}")).toBe("$x$ \\textbf{b}");
     // Inside braces an ampersand may be part of a matrix or an address, and is left as typed.
     expect(escapeTyped("$\\pmatrix{a & b}$ & c")).toBe("$\\pmatrix{a & b}$ \\& c");
-    expect(escapeTyped("\\url{x?a=1&b=2%20}")).toBe("\\url{x?a=1&b=2%20}");
+    expect(escapeTyped("\\(\\matrix{a & b}\\) & c")).toBe("\\(\\matrix{a & b}\\) \\& c");
+    expect(escapeTyped("\\textbf{R&D}")).toBe("\\textbf{R\\&D}");
+    expect(escapeTyped("$50%$")).toBe("$50\\%$");
     expect(escapeTyped("ends \\")).toBe("ends \\");
   });
 });
