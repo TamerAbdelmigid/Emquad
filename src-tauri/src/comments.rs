@@ -136,7 +136,17 @@ pub fn load(project: &Project) -> Result<Vec<Comment>> {
         return Ok(Vec::new());
     }
     match serde_json::from_slice::<Stored>(&fs::read(&path)?) {
-        Ok(stored) => Ok(stored.comments),
+        Ok(mut stored) => {
+            // Written before places were timed: the last change of any kind is the best guess.
+            for c in stored
+                .comments
+                .iter_mut()
+                .filter(|c| c.placed_at.is_empty())
+            {
+                c.placed_at = c.updated_at.clone();
+            }
+            Ok(stored.comments)
+        }
         Err(_) => {
             let _ = fs::rename(&path, project.data_dir().join("comments.damaged.json"));
             Ok(Vec::new())
@@ -161,7 +171,7 @@ pub fn visible(comments: Vec<Comment>) -> Vec<Comment> {
 }
 
 fn change(project: &Project, id: &str, edit: impl FnOnce(&mut Comment)) -> Result<Vec<Comment>> {
-    let _guard = LOCK.lock().unwrap();
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = load(project)?;
     let comment = all
         .iter_mut()
@@ -188,7 +198,7 @@ pub fn add(
             "Select a few words to comment on, no more than a paragraph",
         ));
     }
-    let _guard = LOCK.lock().unwrap();
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = load(project)?;
     let at = now();
     all.push(Comment {
@@ -248,7 +258,7 @@ pub fn delete(project: &Project, id: &str) -> Result<Vec<Comment>> {
 /// Record where comments now sit, after the text they are on was edited. A passage that only
 /// moved to another line keeps its record as it is.
 pub fn reanchor(project: &Project, moved: Vec<Moved>) -> Result<Vec<Comment>> {
-    let _guard = LOCK.lock().unwrap();
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = load(project)?;
     let mut changed = false;
     for m in moved {
@@ -277,7 +287,7 @@ pub fn reanchor(project: &Project, moved: Vec<Moved>) -> Result<Vec<Comment>> {
 /// Keep comments with a file, or with everything in a folder, that was renamed or moved.
 pub fn follow_rename(project: &Project, from: &str, to: &str) -> Result<()> {
     let (from, to) = (clean_rel(from)?.join("/"), clean_rel(to)?.join("/"));
-    let _guard = LOCK.lock().unwrap();
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = load(project)?;
     let mut changed = false;
     let inside = format!("{from}/");
@@ -309,8 +319,9 @@ pub fn follow_rename(project: &Project, from: &str, to: &str) -> Result<()> {
 /// - its replies: every reply either copy has.
 fn merge_one(a: Comment, b: Comment) -> Comment {
     // Each choice looks only at the fields it decides, so that a merged copy is chosen again
-    // exactly as its parts were. The last element settles copies that tie, which only a
-    // tampered bundle can produce.
+    // exactly as its parts were. The last element settles copies that tie. For state that takes
+    // a tampered bundle; for place it is ordinary, since a passage that only moved to another
+    // line keeps its time, and either line serves until the next save corrects it.
     let state = |c: &Comment| {
         let rest = (&c.text, &c.author_id, &c.author_name, &c.created_at);
         (
@@ -353,8 +364,12 @@ fn merge_one(a: Comment, b: Comment) -> Comment {
     }
     let mut replies: Vec<Reply> = replies.into_values().collect();
     replies.sort_by(|x, y| (&x.created_at, &x.id).cmp(&(&y.created_at, &y.id)));
-    // Replies are kept even beside a deletion marker, so that the outcome never depends on
-    // the order bundles arrive in. A deleted comment is not shown either way.
+    // A deleted comment keeps nothing but its marker. Deletion is final, so emptying it here
+    // gives the same result whatever order the copies are combined in.
+    if winner.deleted {
+        winner.text.clear();
+        replies.clear();
+    }
     winner.replies = replies;
     winner.path = path;
     winner.anchor = anchor;
@@ -423,7 +438,7 @@ pub fn from_bundle(bytes: &[u8]) -> Vec<Comment> {
                 && short(&c.anchor.after, 400)
                 && short(&c.author_name, 200)
                 && short(&c.author_id, 64)
-                && c.replies.len() <= MAX_REPLIES;
+                && c.replies.len() <= MAX_REPLIES * 20;
             if !sound {
                 return None;
             }
@@ -453,7 +468,7 @@ pub fn import(project: &Project, bytes: &[u8]) -> Result<()> {
     if theirs.is_empty() {
         return Ok(());
     }
-    let _guard = LOCK.lock().unwrap();
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mine = load(project)?;
     let merged = merge(mine.clone(), theirs);
     if merged != mine {
@@ -680,6 +695,13 @@ mod tests {
             .collect();
         let merged = merge(all.clone(), Vec::new());
         assert_eq!(merged[0].replies.len(), MAX_REPLIES + 20);
+        // Two people can each fill a thread; the combined one must still travel in a bundle.
+        let stored = Stored {
+            format_version: 1,
+            comments: merged,
+        };
+        let arrived = from_bundle(&serde_json::to_vec(&stored).unwrap());
+        assert_eq!(arrived[0].replies.len(), MAX_REPLIES + 20);
         save(&p, &all).unwrap();
         assert_eq!(
             reply(&p, &me(), &all[0].id, "one more").unwrap_err().code(),
@@ -695,9 +717,29 @@ mod tests {
         let id = old[0].id.clone();
         std::thread::sleep(std::time::Duration::from_millis(3));
         let mine = delete(&p, &id).unwrap();
-        let merged = merge(mine.clone(), old.clone());
+        let answered = reply(&p, &me(), &id, "still here?");
+        assert!(answered.is_err());
+        let mut theirs = old.clone();
+        theirs[0].replies.push(Reply {
+            id: "r-1".into(),
+            author_id: "b".into(),
+            author_name: "Lina".into(),
+            created_at: now(),
+            text: "a reply made before the deletion arrived".into(),
+        });
+        let merged = merge(mine.clone(), theirs.clone());
         assert!(merged[0].deleted);
-        assert_eq!(merged, merge(old, mine));
+        assert!(merged[0].replies.is_empty() && merged[0].text.is_empty());
+        assert_eq!(merged, merge(theirs, mine.clone()));
+
+        // A file from before places were timed loads with a usable time.
+        let raw = fs::read_to_string(p.data_dir().join(FILE)).unwrap();
+        let timed = format!("\"placedAt\": \"{}\"", mine[0].placed_at);
+        assert!(raw.contains(&timed));
+        let untimed = raw.replace(&timed, "\"placedAt\": \"\"");
+        fs::write(p.data_dir().join(FILE), untimed).unwrap();
+        let loaded = load(&p).unwrap();
+        assert_eq!(loaded[0].placed_at, loaded[0].updated_at);
     }
 
     #[test]
@@ -816,11 +858,14 @@ mod tests {
                 let kept = ab.iter().find(|m| m.id == comment.id);
                 prop_assert!(kept.is_some());
                 // ... with every reply it had.
+                let kept = kept.unwrap();
                 for reply in &comment.replies {
-                    prop_assert!(kept.unwrap().replies.iter().any(|r| r.id == reply.id));
+                    prop_assert!(kept.deleted || kept.replies.iter().any(|r| r.id == reply.id));
                 }
+                // A deleted comment carries nothing but its marker.
+                prop_assert!(!kept.deleted || (kept.text.is_empty() && kept.replies.is_empty()));
                 // A deletion is never undone.
-                prop_assert!(!comment.deleted || kept.unwrap().deleted);
+                prop_assert!(!comment.deleted || kept.deleted);
             }
         }
     }

@@ -143,7 +143,6 @@ pub fn export(
         .parent()
         .ok_or_else(|| Error::app("bad_path", "Destination has no parent folder"))?;
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-    let mut written = 0u64;
     {
         let mut zip = zip::ZipWriter::new(tmp.as_file_mut());
         let options = SimpleFileOptions::default();
@@ -170,14 +169,7 @@ pub fn export(
         }
         for entry in extras.packages.map_or(&[][..], |p| p.entries()) {
             zip.start_file(format!("{PACKAGES_DIR}/{}", entry.name), options)?;
-            written += std::io::copy(&mut fs::File::open(&entry.path)?, &mut zip)?;
-        }
-        // A bundle its recipient would refuse as too large is not worth writing.
-        if written > MAX_BYTES / 2 {
-            return Err(Error::app(
-                "bundle_too_large",
-                "The LaTeX packages on this computer are too large to put in a bundle. Export without them.",
-            ));
+            std::io::copy(&mut fs::File::open(&entry.path)?, &mut zip)?;
         }
         zip.finish()?;
     }

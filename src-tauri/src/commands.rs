@@ -333,7 +333,7 @@ pub fn compile_run(app: AppHandle, state: State<AppState>) -> Result<BuildOutput
     let project = current(&state)?;
     // A new request replaces a compile already in flight.
     compile_cancel(state.clone());
-    let _one_at_a_time = state.compile_lock.lock().unwrap();
+    let _one_at_a_time = state.compile_lock.lock().unwrap_or_else(|e| e.into_inner());
     let engine = compile::pick_engine(&project.info.engine, &state.sidecar_dirs)?;
     let _ = app.emit("compile://started", engine.name());
     let on_log = |line: &str| {
@@ -514,7 +514,7 @@ pub fn bundle_export(
 ) -> Result<Manifest> {
     let p = current(&state)?;
     // Held from the offline check until the bundle is written, so no compile runs between.
-    let _one_at_a_time = state.compile_lock.lock().unwrap();
+    let _one_at_a_time = state.compile_lock.lock().unwrap_or_else(|e| e.into_inner());
     let mut carried = None;
     if include_packages {
         let (tectonic, store) = package_source(&state, &p).ok_or_else(|| {

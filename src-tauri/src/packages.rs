@@ -38,6 +38,9 @@ pub struct PackagesInfo {
     pub bytes: u64,
 }
 
+/// The most package data a bundle may carry. A recipient refuses a bundle over 1 GiB in all.
+pub const MAX_BYTES: u64 = 512 << 20;
+
 fn invalid() -> Error {
     Error::app(
         "bundle_invalid",
@@ -144,7 +147,7 @@ pub fn list(store: &Path) -> Result<Vec<Entry>> {
             path: index,
         });
         for (name, path, size) in files_in(&store.join("data").join(&digest))? {
-            if check_component(&name).is_ok() {
+            if check_component(&name).is_ok() && !name.ends_with(PARTIAL) {
                 out.push(Entry {
                     name: format!("data/{digest}/{name}"),
                     path,
@@ -164,13 +167,18 @@ pub fn info(entries: &[Entry]) -> PackagesInfo {
     }
 }
 
+/// What the name of a file still being copied ends with. Such a file is never a package.
+const PARTIAL: &str = ".emquad-partial";
+
 /// Copy a file to its place under a temporary name first, so a copy cut short never leaves
 /// half a file where a whole one is expected.
 fn copy_whole(from: &Path, to: &Path) -> Result<()> {
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
-    let partial = to.with_extension("emquad-partial");
+    let mut name = to.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".{}{PARTIAL}", uuid::Uuid::new_v4().simple()));
+    let partial = to.with_file_name(name);
     let copied = fs::copy(from, &partial).and_then(|_| fs::rename(&partial, to));
     if copied.is_err() {
         let _ = fs::remove_file(&partial);
@@ -218,6 +226,12 @@ impl Verified {
 /// Prove that the project compiles from exactly these files with no network, by doing it in a
 /// scratch folder. A bundle must not promise offline compiling it cannot deliver.
 pub fn verify(tectonic: &Path, project: &Project, entries: &[Entry]) -> Result<Verified> {
+    if entries.iter().map(|e| e.size).sum::<u64>() > MAX_BYTES {
+        return Err(Error::app(
+            "bundle_too_large",
+            "The LaTeX packages on this computer are too large to put in a bundle. Export without them.",
+        ));
+    }
     let scratch = tempfile::tempdir()?;
     let cache = scratch.path().join("cache");
     let store = cache.join("bundles");
@@ -343,9 +357,8 @@ fn checked(dir: &Path) -> Result<Vec<Entry>> {
 /// the store is removed again and the project goes on compiling as it did before.
 pub fn install(dir: &Path, project: &Project) -> Result<usize> {
     let entries = checked(dir)?;
-    let cache = project_cache(project);
-    let existed = cache.exists();
     let store = project_store(project);
+    let existed = store.exists();
     let put = || -> Result<usize> {
         let mut added = 0;
         let (records, files): (Vec<&Entry>, Vec<&Entry>) =
@@ -365,7 +378,7 @@ pub fn install(dir: &Path, project: &Project) -> Result<usize> {
     };
     let added = put();
     if added.is_err() && !existed {
-        let _ = fs::remove_dir_all(&cache);
+        let _ = fs::remove_dir_all(&store);
     }
     added
 }
@@ -516,7 +529,7 @@ pub(crate) mod tests {
             .unwrap();
         assert!(install(&dir, &p).is_err());
         assert!(
-            !project_cache(&p).exists(),
+            !project_cache(&p).join("bundles").exists(),
             "the project still compiles from the shared store"
         );
         drop(held);
