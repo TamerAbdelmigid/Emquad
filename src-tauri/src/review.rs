@@ -4,7 +4,7 @@
 use crate::diff::{Chunk, Class, Segment, diff3, word_segments};
 use crate::error::{Error, Result};
 use crate::history::{Author, History};
-use crate::project::{Project, as_text, atomic_write};
+use crate::project::{Project, as_text, atomic_write, remove_file_retry};
 use git2::Oid;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -378,19 +378,56 @@ pub fn finish(project: &Project, history: &History, me: &Author, bundle_id: &str
         ));
     }
     // Resolve everything before touching any file, so an unresolved conflict changes nothing.
-    let mut writes = Vec::new();
+    let mut changes = Vec::new();
     for (path, triple, plan) in planned(history, &session)? {
         let merged = resolve(&path, &triple, &plan, &session.decisions)?;
         if merged != triple.ours {
-            writes.push((path, merged));
+            changes.push((path, merged));
         }
     }
-    for (path, merged) in writes {
-        let target = project.resolve(&path)?;
-        match merged {
-            Some(bytes) => atomic_write(&target, &bytes)?,
-            None => fs::remove_file(&target)?,
+    // The files as they will be afterwards must all be nameable and able to sit side by side.
+    let ours_tree = history.repo.find_commit(ours)?.tree_id();
+    let mut after: BTreeSet<String> = history.files_in(ours_tree)?.into_keys().collect();
+    for (path, merged) in &changes {
+        if merged.is_some() {
+            after.insert(path.clone());
+        } else {
+            after.remove(path);
         }
+    }
+    crate::history::check_paths(after.iter())?;
+
+    // Removals first, so a file renamed only in its capitalisation is not removed after being
+    // written under its new name on a filesystem that ignores case.
+    let apply = || -> Result<()> {
+        for (path, _) in changes.iter().filter(|(_, merged)| merged.is_none()) {
+            remove_file_retry(&project.resolve(path)?)?;
+        }
+        for (path, merged) in &changes {
+            if let Some(bytes) = merged {
+                let target = project.resolve(path)?;
+                if target.is_dir() {
+                    fs::remove_dir(&target)?;
+                }
+                atomic_write(&target, bytes)?;
+            }
+        }
+        Ok(())
+    };
+    if let Err(e) = apply() {
+        // A merge is all or nothing: put every file back as it was when the review began.
+        let put_back = history.checkout(project, ours_tree).is_ok();
+        return Err(Error::app(
+            "merge_failed",
+            format!(
+                "The merge could not be written ({e}). {}",
+                if put_back {
+                    "Your files were put back as they were, and the review is still open."
+                } else {
+                    "Some files may be partly merged: restore the version saved before the import from History."
+                }
+            ),
+        ));
     }
     let from = their_name(history, theirs)?;
     let head = history.head().unwrap_or(ours);
@@ -760,6 +797,82 @@ mod tests {
             "working_copy_changed"
         );
         assert_eq!(file(a, "main.tex"), "typed during review\n");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_rename_that_only_changes_capitals_keeps_exactly_one_file() {
+        let pair = hand_off(
+            &[],
+            &[("old.tex", None), ("Old.tex", Some("renamed by them"))],
+        );
+        let (a, ha, id) = (&pair.a, &pair.ha, pair.bundle_id.as_str());
+        let me = author("Tamer");
+        get(a, ha, &me, id).unwrap();
+        finish(a, ha, &me, id).unwrap();
+        let names: Vec<String> = fs::read_dir(&a.root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.to_lowercase() == "old.tex")
+            .collect();
+        assert_eq!(names, ["Old.tex"]);
+        assert_eq!(file(a, "Old.tex"), "renamed by them");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn keeping_an_edited_file_whose_capitals_they_changed_is_never_overwritten() {
+        let pair = hand_off(
+            &[("old.tex", Some("my edit"))],
+            &[("old.tex", None), ("Old.tex", Some("theirs"))],
+        );
+        let (a, ha, id) = (&pair.a, &pair.ha, pair.bundle_id.as_str());
+        let me = author("Tamer");
+        let before = read_all(a);
+        get(a, ha, &me, id).unwrap();
+        // Keep our edited file. Their copy under the other capitalisation is still accepted by
+        // default, and the two cannot both exist here: the merge must refuse, not overwrite.
+        decide(a, id, "old.tex#file", Decision::Mine).unwrap();
+        assert_eq!(finish(a, ha, &me, id).unwrap_err().code(), "case_collision");
+        assert_eq!(read_all(a), before);
+        decide(a, id, "Old.tex#file", Decision::Mine).unwrap();
+        finish(a, ha, &me, id).unwrap();
+        assert_eq!(file(a, "old.tex"), "my edit");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_merge_that_cannot_be_written_in_full_changes_nothing_and_can_be_retried() {
+        let pair = hand_off(
+            &[],
+            &[
+                ("main.tex", Some("their main")),
+                ("refs.bib", Some("their refs")),
+            ],
+        );
+        let (a, ha, id) = (&pair.a, &pair.ha, pair.bundle_id.as_str());
+        let me = author("Tamer");
+        get(a, ha, &me, id).unwrap();
+        let before = read_all(a);
+        // refs.bib cannot be replaced while it is read-only; main.tex is written before it.
+        let blocked = a.root.join("refs.bib");
+        let mut perms = fs::metadata(&blocked).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&blocked, perms.clone()).unwrap();
+        let outcome = finish(a, ha, &me, id);
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        fs::set_permissions(&blocked, perms).unwrap();
+        assert_eq!(outcome.unwrap_err().code(), "merge_failed");
+        assert_eq!(
+            read_all(a),
+            before,
+            "a failed merge leaves no file half merged"
+        );
+
+        finish(a, ha, &me, id).unwrap();
+        assert_eq!(file(a, "main.tex"), "their main");
+        assert_eq!(file(a, "refs.bib"), "their refs");
     }
 
     #[test]

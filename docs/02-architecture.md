@@ -229,7 +229,7 @@ Features do not import from one another's internals; shared pieces go in `design
 
 - Tauri capabilities are restricted to the commands above. The webview has no general file-system or shell permission.
 - Every path argument is resolved and checked to lie inside the project root (or, for bundle import and export, the path the user picked in a native dialog).
-- Bundle extraction rejects entries with absolute paths, `..` segments, or symbolic links, and enforces a size ceiling.
+- Bundle extraction rejects entries with absolute paths, `..` segments, symbolic links, or names that fail the file-name rule in `03-bundles-and-history.md`, and enforces a size ceiling. Every version in a bundle's history is held to the same rule before any of it is accepted.
 - A received bundle is untrusted input. Importing it never runs anything from it; compiling its LaTeX is subject to the engine's own restrictions (Tectonic does not enable shell escape by default; keep it that way).
 
 ## Risks

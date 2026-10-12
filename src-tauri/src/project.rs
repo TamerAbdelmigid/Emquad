@@ -4,7 +4,7 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use ts_rs::TS;
 
 pub const DATA_DIR: &str = ".emquad";
@@ -78,27 +78,65 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     }
 }
 
+/// Check one path component: it must be a name that means the same thing on every supported
+/// filesystem. Windows quietly maps several spellings onto one file (trailing dots and spaces,
+/// "~1" short names, device names, "name:stream"), which would let a crafted name reach a folder
+/// it does not appear to name, such as `.git` or the app's own data.
+pub fn check_component(name: &str) -> Result<()> {
+    let bad = |why: &str| {
+        Err(Error::app(
+            "bad_path",
+            format!("{name:?} cannot be used as a file name: {why}"),
+        ))
+    };
+    if name.is_empty() || name == "." || name == ".." {
+        return bad("it is not a name");
+    }
+    if name
+        .chars()
+        .any(|c| c.is_control() || "<>:\"|?*/\\".contains(c))
+    {
+        return bad("it contains a character that is not allowed");
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        return bad("it ends with a dot or a space");
+    }
+    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+    let numbered = |prefix: &str| {
+        stem.len() == 4 && stem.starts_with(prefix) && matches!(stem.as_bytes()[3], b'1'..=b'9')
+    };
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") || numbered("COM") || numbered("LPT")
+    {
+        return bad("it is a reserved device name");
+    }
+    if name
+        .as_bytes()
+        .windows(2)
+        .any(|w| w[0] == b'~' && w[1].is_ascii_digit())
+    {
+        return bad("it looks like a Windows short name");
+    }
+    if name.eq_ignore_ascii_case(".git") {
+        return bad("it is reserved for git");
+    }
+    Ok(())
+}
+
 /// Validate a project-relative path and split it into its components.
-/// Rejects absolute paths, `..`, and anything inside the app's own data directory.
+/// Rejects absolute paths, `..`, unsafe names (see `check_component`), and anything inside the
+/// app's own data directory.
 pub fn clean_rel(rel: &str) -> Result<Vec<String>> {
     let rel = rel.replace('\\', "/");
+    if rel.starts_with('/') {
+        return Err(Error::app(
+            "bad_path",
+            format!("{rel:?} is outside the project"),
+        ));
+    }
     let mut parts = Vec::new();
-    for comp in Path::new(&rel).components() {
-        match comp {
-            Component::Normal(s) => {
-                let s = s
-                    .to_str()
-                    .ok_or_else(|| Error::app("bad_path", "Path is not valid Unicode"))?;
-                parts.push(s.to_string());
-            }
-            Component::CurDir => {}
-            _ => {
-                return Err(Error::app(
-                    "bad_path",
-                    format!("\"{rel}\" is outside the project"),
-                ));
-            }
-        }
+    for part in rel.split('/').filter(|p| !p.is_empty() && *p != ".") {
+        check_component(part)?;
+        parts.push(part.to_string());
     }
     if parts.first().map(|p| p.eq_ignore_ascii_case(DATA_DIR)) == Some(true) {
         return Err(Error::app(
@@ -109,8 +147,25 @@ pub fn clean_rel(rel: &str) -> Result<Vec<String>> {
     Ok(parts)
 }
 
-fn skip_at_root(name: &str) -> bool {
-    name.eq_ignore_ascii_case(DATA_DIR) || name == ".git"
+/// Whether the app deals with a directory entry at all. Entries it cannot name safely are
+/// left completely alone: not listed, not stored in versions, and never deleted.
+pub fn is_tracked(name: &str, at_root: bool) -> bool {
+    check_component(name).is_ok() && !(at_root && name.eq_ignore_ascii_case(DATA_DIR))
+}
+
+/// Delete a file, riding out the brief sharing violations Windows produces.
+pub fn remove_file_retry(path: &Path) -> Result<()> {
+    let mut attempts = 0;
+    loop {
+        match fs::remove_file(path) {
+            Ok(()) => return Ok(()),
+            Err(e) if attempts < 20 && e.kind() == std::io::ErrorKind::PermissionDenied => {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
+            Err(e) => return Err(Error::Io(e)),
+        }
+    }
 }
 
 impl Project {
@@ -227,7 +282,7 @@ impl Project {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if prefix.is_empty() && skip_at_root(&name) {
+                if !is_tracked(&name, prefix.is_empty()) {
                     continue;
                 }
                 let rel = if prefix.is_empty() {
@@ -256,7 +311,7 @@ impl Project {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if prefix.is_empty() && skip_at_root(&name) {
+                if !is_tracked(&name, prefix.is_empty()) {
                     continue;
                 }
                 let path = if prefix.is_empty() {
@@ -371,6 +426,50 @@ mod tests {
             assert!(clean_rel(bad).is_err(), "{bad} should be rejected");
         }
         assert_eq!(clean_rel("a\\b/./c.tex").unwrap(), ["a", "b", "c.tex"]);
+    }
+
+    #[test]
+    fn rejects_names_windows_would_map_onto_something_else() {
+        for bad in [
+            ".git/config",
+            ".GIT/hooks/pre-commit",
+            "sub/.Git/config",
+            "GIT~1/config",
+            "EMQUAD~1/history.git/HEAD",
+            ".emquad./project.json",
+            ".emquad /x",
+            "notes.tex.",
+            "main.tex:stream",
+            "con.tex",
+            "sub/NUL",
+            "lpt3.txt",
+            "a<b.tex",
+            "tab\t.tex",
+        ] {
+            assert!(clean_rel(bad).is_err(), "{bad} should be rejected");
+        }
+        for good in [
+            "main.tex",
+            "sections/intro é.tex",
+            "a b/c-d_e.v2.tex",
+            ".gitignore",
+            "console.tex",
+            "com.tex",
+        ] {
+            assert!(clean_rel(good).is_ok(), "{good} should be accepted");
+        }
+    }
+
+    #[test]
+    fn entries_the_app_cannot_name_safely_are_invisible_to_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        fs::create_dir_all(p.root.join("vendor/.git")).unwrap();
+        fs::write(p.root.join("vendor/.git/config"), "x").unwrap();
+        fs::write(p.root.join("draft~1.tex"), "x").unwrap();
+        let files: Vec<String> = p.walk_files().unwrap().into_iter().map(|f| f.0).collect();
+        assert_eq!(files, ["main.tex"]);
+        assert!(p.tree().unwrap().iter().all(|n| n.name != "draft~1.tex"));
     }
 
     #[test]

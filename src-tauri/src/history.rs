@@ -6,7 +6,7 @@
 
 use crate::diff::{Block, diff_blocks};
 use crate::error::{Error, Result};
-use crate::project::{Project, as_text, atomic_write};
+use crate::project::{Project, as_text, atomic_write, remove_file_retry};
 use git2::{ObjectType, Oid, Repository, Signature, Sort, Tree};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -74,6 +74,26 @@ pub struct FileDiff {
     pub binary: bool,
 }
 
+/// Check a set of paths that are about to exist side by side in a project folder: each must be
+/// a safe name, and on filesystems that ignore case no two may differ only in capitalisation.
+pub fn check_paths<'a>(paths: impl Iterator<Item = &'a String>) -> Result<()> {
+    let mut seen: HashMap<String, &String> = HashMap::new();
+    for path in paths {
+        crate::project::clean_rel(path)?;
+        if cfg!(any(windows, target_os = "macos"))
+            && let Some(other) = seen.insert(path.to_lowercase(), path)
+        {
+            return Err(Error::app(
+                "case_collision",
+                format!(
+                    "{other:?} and {path:?} differ only in capital letters and cannot both exist on this computer"
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub struct History {
     pub repo: Repository,
 }
@@ -118,7 +138,7 @@ impl History {
         for entry in entries {
             let name = entry.file_name();
             let Some(name) = name.to_str() else { continue };
-            if root && (name.eq_ignore_ascii_case(crate::project::DATA_DIR) || name == ".git") {
+            if !crate::project::is_tracked(name, root) {
                 continue;
             }
             let ty = entry.file_type()?;
@@ -386,12 +406,32 @@ impl History {
         }
     }
 
+    /// Check, across every version reachable from `head`, that each stored path is one this
+    /// app would be willing to write. Used on bundles before any of their history is accepted.
+    pub fn check_history_paths(&self, head: Oid) -> Result<()> {
+        let mut walk = self.repo.revwalk()?;
+        walk.push(head)?;
+        let mut seen = HashSet::new();
+        for oid in walk {
+            let tree = self.repo.find_commit(oid?)?.tree_id();
+            if seen.insert(tree) {
+                check_paths(self.files_in(tree)?.keys())?;
+            }
+        }
+        Ok(())
+    }
+
     /// Make the project folder's files identical to a tree: write what differs, remove the rest.
+    /// Every path is checked before anything is touched, so a tree this app cannot represent
+    /// safely is refused whole rather than applied in part.
     pub fn checkout(&self, project: &Project, tree: Oid) -> Result<()> {
         let wanted = self.files_in(tree)?;
+        check_paths(wanted.keys())?;
+        // Removals first: on a filesystem that ignores case, a file renamed only in its
+        // capitalisation is the same file under both names.
         for (rel, path) in project.walk_files()? {
             if !wanted.contains_key(&rel) {
-                fs::remove_file(&path)?;
+                remove_file_retry(&path)?;
                 let mut dir = path.parent();
                 while let Some(d) = dir.filter(|d| *d != project.root) {
                     if fs::remove_dir(d).is_err() {
@@ -408,6 +448,10 @@ impl History {
                 .and_then(|bytes| Oid::hash_object(ObjectType::Blob, &bytes).ok())
                 == Some(*id);
             if !same {
+                // Versions do not record empty folders, so one may be sitting where a file goes.
+                if path.is_dir() {
+                    fs::remove_dir(&path)?;
+                }
                 atomic_write(&path, &self.blob(*id)?)?;
             }
         }
@@ -430,7 +474,24 @@ impl History {
             "automatic",
             &format!("Before restoring {label}"),
         )?;
-        self.checkout(project, target.tree_id())?;
+        if let Err(e) = self.checkout(project, target.tree_id()) {
+            // Put the files back as they were; the snapshot just taken holds that state.
+            let put_back = self
+                .head()
+                .and_then(|h| self.repo.find_commit(h).ok())
+                .is_some_and(|c| self.checkout(project, c.tree_id()).is_ok());
+            return Err(Error::app(
+                "restore_failed",
+                format!(
+                    "That version could not be restored ({e}). {}",
+                    if put_back {
+                        "Your files were put back as they were."
+                    } else {
+                        "Some files may have changed: restore the version saved just before from History."
+                    }
+                ),
+            ));
+        }
         self.snapshot(project, author, "restore", &format!("Restored {label}"))
     }
 }
@@ -545,6 +606,87 @@ pub mod tests {
         assert!(h.file_diff(old, new, "fig.bin").unwrap().binary);
         let d = h.file_diff(old, new, "a.tex").unwrap();
         assert!(matches!(&d.blocks[1], Block::Change { new_text, .. } if new_text == "TWO\r\n"));
+    }
+
+    /// A tree made by hand, as a bundle from elsewhere could contain.
+    fn tree_with(h: &History, files: &[(&str, &str)]) -> Oid {
+        let mut builder = h.repo.treebuilder(None).unwrap();
+        for (name, content) in files {
+            let blob = h.repo.blob(content.as_bytes()).unwrap();
+            builder.insert(name, blob, 0o100644).unwrap();
+        }
+        builder.write().unwrap()
+    }
+
+    #[test]
+    fn a_tree_with_an_unsafe_name_is_refused_before_anything_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (p, h) = new_project(&tmp.path().join("p"));
+        p.write_file("keep.tex", "keep").unwrap();
+        let before = read_all(&p);
+        let tree = tree_with(&h, &[("main.tex", "new"), ("draft~1.tex", "alias")]);
+        assert_eq!(h.checkout(&p, tree).unwrap_err().code(), "bad_path");
+        assert_eq!(read_all(&p), before, "nothing may be deleted or written");
+        let commit = h
+            .commit(tree, &[], &author("Lina"), "snapshot", "bad", None)
+            .unwrap();
+        assert_eq!(
+            h.check_history_paths(commit).unwrap_err().code(),
+            "bad_path"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn names_differing_only_in_case_are_refused_and_a_case_rename_is_applied() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (p, h) = new_project(&tmp.path().join("p"));
+        let before = read_all(&p);
+        let both = tree_with(&h, &[("Main.tex", "a"), ("main.tex", "b")]);
+        assert_eq!(h.checkout(&p, both).unwrap_err().code(), "case_collision");
+        assert_eq!(read_all(&p), before);
+
+        let renamed = tree_with(&h, &[("Main.tex", "renamed")]);
+        h.checkout(&p, renamed).unwrap();
+        let names: Vec<_> = fs::read_dir(&p.root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n != ".emquad")
+            .collect();
+        assert_eq!(names, ["Main.tex"]);
+        assert_eq!(
+            fs::read_to_string(p.root.join("Main.tex")).unwrap(),
+            "renamed"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_restore_that_cannot_complete_puts_the_files_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (p, h) = new_project(&tmp.path().join("p"));
+        let me = author("Tamer");
+        p.write_file("a.tex", "old a").unwrap();
+        p.write_file("z.tex", "old z").unwrap();
+        let v1 = h.snapshot(&p, &me, "snapshot", "Draft 1").unwrap();
+        p.write_file("a.tex", "new a").unwrap();
+        p.write_file("z.tex", "new z").unwrap();
+        let before = read_all(&p);
+        // z.tex cannot be replaced while it is read-only; a.tex is rewritten before it.
+        let blocked = p.root.join("z.tex");
+        let mut perms = fs::metadata(&blocked).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&blocked, perms.clone()).unwrap();
+        let outcome = h.restore(&p, &me, &v1.to_string());
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        fs::set_permissions(&blocked, perms).unwrap();
+        assert_eq!(outcome.unwrap_err().code(), "restore_failed");
+        assert_eq!(
+            read_all(&p),
+            before,
+            "a failed restore leaves the files as they were"
+        );
     }
 
     #[test]

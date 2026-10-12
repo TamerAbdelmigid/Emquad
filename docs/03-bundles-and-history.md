@@ -23,6 +23,20 @@ Versions are git commits in `.emquad/history.git`. The user never sees git termi
 
 Excluded from every version: `.emquad/` itself, and nothing else. The app does not apply the user's `.gitignore`; a project is small and everything in it is the document.
 
+## File names the app will handle
+
+Windows quietly treats several different spellings as the same file. A crafted name in a bundle could use that to reach a folder it does not appear to name, such as `.git` or the app's own `.emquad`. So one rule decides which names the app deals with at all (`check_component` in `project.rs`). A name is refused if it:
+
+- is empty, `.` or `..`, or contains a control character or any of `< > : " | ? * / \`
+- ends with a dot or a space
+- is a Windows device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`), with or without an extension
+- contains `~` followed by a digit, the shape of a Windows short name such as `GIT~1`
+- is `.git` in any capitalisation, at any depth
+
+The rule applies everywhere a path enters: commands from the interface, entries in a bundle's archive, and every path in every version of a bundle's history. In the user's own folder, entries that fail it are left completely alone: not listed, not stored in versions, never deleted.
+
+On Windows and macOS, two paths that differ only in capital letters cannot both exist. Any operation that would need them to (a checkout, a merge result, a bundle's archive) is refused before it changes anything.
+
 ## When snapshots are taken
 
 | Trigger | Kind | Label |
@@ -90,7 +104,9 @@ Rules:
 
 - `formatVersion` is an integer. A reader refuses a bundle whose `formatVersion` is higher than it understands and says so plainly. Additive fields do not bump it.
 - `project.id` is how a bundle is matched to a project on the recipient's machine.
-- `head` must exist in `history/`; `tree/` must match it. A reader verifies both and rejects a bundle that fails.
+- `head` must exist in the history; `tree/` must match it. A reader verifies both and rejects a bundle that fails.
+- `project.mainFile` must be a safe path inside the project.
+- Every path in every version of the history must pass the file-name rule above, because any of those versions can later be restored.
 
 ### Export
 
@@ -147,8 +163,8 @@ If B equals O (we made no changes since the hand-off), there are no conflicts an
 
 ### Finish merge
 
-1. Compute the merged content of every affected file from the decisions.
-2. Write those files to the working copy. Write each file to a temporary file and rename it into place.
+1. Compute the merged content of every affected file from the decisions. Check that the resulting set of files can all be named safely and can exist side by side; if not, refuse and change nothing.
+2. Apply removals, then writes. Each file is written to a temporary file and renamed into place. If any step fails, every file is put back as it was when the review began, the review stays open, and the user is told.
 3. Record a merge version whose two parents are O and T.
 4. Remove the review session and the extracted bundle directory. The `refs/bundles/<bundleId>` ref stays, so History can still show what the bundle contained.
 
@@ -158,7 +174,7 @@ Discard the review session. The working copy is exactly as it was. The automatic
 
 ## Restore
 
-Restoring a version takes an automatic snapshot of the working copy if it differs from head, then makes the working copy's tracked files identical to the chosen version (including deleting files that the version does not contain), and records a new snapshot labelled "Restored <label>". History is never rewritten; restore only adds versions.
+Restoring a version takes an automatic snapshot of the working copy if it differs from head, then makes the working copy's tracked files identical to the chosen version (including deleting files that the version does not contain), and records a new snapshot labelled "Restored <label>". History is never rewritten; restore only adds versions. If the files cannot all be written, they are put back as they were from the snapshot just taken.
 
 ## Invariants
 
@@ -177,4 +193,5 @@ These must hold after every operation and are the basis of the test suite for th
 - **Unit:** classification of hunks for hand-written B/O/T triples covering every row of the classification table and every whole-file case.
 - **Property-based:** generate random B, apply random independent edits to get O and T, run the merge with random decisions, and assert invariants 1, 3 and 4. Assert that when edits touch disjoint lines there are no conflicts and the result contains both sets of edits.
 - **Round trip:** invariant 5 on projects with nested folders, binary files, CRLF and LF files, non-ASCII file names and an empty file.
-- **Hostile input:** bundles with path traversal entries, a `head` not present in history, a `tree/` that disagrees with `head`, a future `formatVersion`, and a truncated zip. Each must be rejected with a specific error and leave the project untouched.
+- **Hostile input:** bundles with path traversal entries, names that alias another file on Windows (in the archive and in an older version of the history), a main file outside the project, a `head` not present in history, a `tree/` that disagrees with `head`, a future `formatVersion`, and a truncated zip. Each must be rejected with a specific error and leave the project untouched.
+- **Failure part-way:** a merge and a restore that cannot write one of their files must leave every file as it was.

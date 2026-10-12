@@ -5,7 +5,7 @@
 
 use crate::error::{Error, Result};
 use crate::history::{Author, History, MAIN};
-use crate::project::{FORMAT_VERSION, Project, ProjectInfo};
+use crate::project::{FORMAT_VERSION, Project, ProjectInfo, check_component, clean_rel};
 use git2::{Oid, Repository};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -94,9 +94,7 @@ pub fn export(
         builder.write_buf(&mut pack)?;
     }
 
-    let pdf = project
-        .build_dir()
-        .join(Path::new(&project.info.main_file).with_extension("pdf"));
+    let pdf = crate::compile::pdf_path(project);
     let has_pdf = include_pdf && pdf.is_file();
     let manifest = Manifest {
         format_version: BUNDLE_FORMAT,
@@ -173,6 +171,10 @@ fn check_manifest(manifest: &Manifest) -> Result<()> {
     if !safe_id(&manifest.bundle_id) || !safe_id(&manifest.project.id) {
         return Err(invalid("The bundle's manifest is malformed"));
     }
+    // The main file is later joined to paths inside the project; it must stay inside it.
+    if clean_rel(&manifest.project.main_file).is_err() {
+        return Err(invalid("The bundle names a main file outside the project"));
+    }
     Ok(())
 }
 
@@ -194,6 +196,7 @@ pub fn read_manifest(path: &Path) -> Result<Manifest> {
 fn extract(path: &Path, dest: &Path) -> Result<()> {
     let mut zip = open_zip(path)?;
     let mut total = 0u64;
+    let mut names = std::collections::HashSet::new();
     for i in 0..zip.len() {
         let mut entry = zip
             .by_index(i)
@@ -214,11 +217,16 @@ fn extract(path: &Path, dest: &Path) -> Result<()> {
             .filter(|p| !p.is_empty() && *p != ".")
             .collect();
         if name.starts_with('/')
-            || name.contains(['\\', ':'])
-            || parts.contains(&"..")
             || parts.is_empty()
+            || parts.iter().any(|p| check_component(p).is_err())
         {
             return Err(unsafe_path());
+        }
+        // Two entries that differ only in capitals would overwrite each other here.
+        if !names.insert(parts.join("/").to_lowercase()) {
+            return Err(invalid(
+                "The bundle contains two files whose names differ only in capital letters",
+            ));
         }
         let out = parts.iter().fold(dest.to_path_buf(), |p, c| p.join(c));
         if entry.is_dir() {
@@ -258,8 +266,11 @@ fn validate(dir: &Path, manifest: &Manifest) -> Result<(Oid, Vec<u8>)> {
         )
     })?;
     let scratch = tempfile::tempdir()?;
-    let repo = Repository::init_bare(scratch.path())?;
-    index_pack(&repo, &pack).map_err(|_| invalid("The bundle's history is damaged"))?;
+    let scratch_history = History {
+        repo: Repository::init_bare(scratch.path())?,
+    };
+    index_pack(&scratch_history.repo, &pack)
+        .map_err(|_| invalid("The bundle's history is damaged"))?;
     let missing = || {
         Error::app(
             "bundle_head_missing",
@@ -267,10 +278,22 @@ fn validate(dir: &Path, manifest: &Manifest) -> Result<(Oid, Vec<u8>)> {
         )
     };
     let head = Oid::from_str(&manifest.head).map_err(|_| missing())?;
-    let expected = repo.find_commit(head).map_err(|_| missing())?.tree_id();
+    let expected = scratch_history
+        .repo
+        .find_commit(head)
+        .map_err(|_| missing())?
+        .tree_id();
+    // Every version in the bundle can later be restored, so every one of them is checked, not
+    // only the newest.
+    scratch_history.check_history_paths(head).map_err(|e| {
+        Error::app(
+            "bundle_unsafe_path",
+            format!("The bundle's history contains a file name that cannot be used safely: {e}"),
+        )
+    })?;
     let tree_dir = dir.join("tree");
     fs::create_dir_all(&tree_dir)?;
-    let actual = History { repo }.tree_of_dir(&tree_dir)?;
+    let actual = scratch_history.tree_of_dir(&tree_dir)?;
     if actual != expected {
         return Err(Error::app(
             "bundle_tree_mismatch",
@@ -492,6 +515,26 @@ mod tests {
     }
 
     #[test]
+    fn an_unsafe_name_anywhere_in_a_bundles_history_rejects_the_bundle() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (c, hc) = new_project(&tmp.path().join("c"));
+        let lina = author("Lina");
+        // An older version holds a name that would alias another file on Windows; the newest
+        // version is clean, so only a check of the whole history can catch it.
+        let mut builder = hc.repo.treebuilder(None).unwrap();
+        let blob = hc.repo.blob(b"alias").unwrap();
+        builder.insert("draft~1.tex", blob, 0o100644).unwrap();
+        let bad_tree = builder.write().unwrap();
+        hc.commit(bad_tree, &[], &lina, "snapshot", "old", None)
+            .unwrap();
+        let file = tmp.path().join("c.emquad");
+        export(&c, &hc, &lina, &file, "", false).unwrap();
+        let err = import_new(&file, &tmp.path().join("elsewhere")).unwrap_err();
+        assert_eq!(err.code(), "bundle_unsafe_path");
+        assert!(!tmp.path().join("elsewhere").exists());
+    }
+
+    #[test]
     fn hostile_and_broken_bundles_are_rejected_and_leave_the_project_untouched() {
         let tmp = tempfile::tempdir().unwrap();
         let (a, ha) = new_project(&tmp.path().join("a"));
@@ -552,6 +595,31 @@ mod tests {
 
         let bytes = fs::read(&reply).unwrap();
         fs::write(&bad, &bytes[..bytes.len() / 2]).unwrap();
+        expect("bundle_invalid");
+
+        for outside in ["C:/Users/x/private.tex", "../../private.tex", ".git/config"] {
+            tamper(&reply, &bad, |e| {
+                let m = e.iter_mut().find(|(n, _)| n == "manifest.json").unwrap();
+                let mut manifest: Manifest = serde_json::from_slice(&m.1).unwrap();
+                manifest.project.main_file = outside.into();
+                m.1 = serde_json::to_vec(&manifest).unwrap();
+            });
+            expect("bundle_invalid");
+        }
+
+        for alias in [
+            "tree/.GIT/config",
+            "tree/GIT~1/config",
+            "tree/notes.tex.",
+            "tree/aux.tex",
+        ] {
+            tamper(&reply, &bad, |e| e.push((alias.into(), b"x".to_vec())));
+            expect("bundle_unsafe_path");
+        }
+
+        tamper(&reply, &bad, |e| {
+            e.push(("tree/MAIN.TEX".into(), b"x".to_vec()))
+        });
         expect("bundle_invalid");
 
         // A bundle from an unrelated project is refused for merging.
