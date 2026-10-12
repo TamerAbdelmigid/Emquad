@@ -21,6 +21,28 @@ pub struct Segment {
 
 pub fn word_segments(old: &str, new: &str) -> Vec<Segment> {
     let diff = TextDiff::from_words(old, new);
+    // When most of a passage was rewritten, word-by-word marks interleave into noise. Showing
+    // the old passage struck out and the new one after it reads better. Spaces are not counted:
+    // they match in any two sentences and say nothing about how alike the wording is.
+    let letters = |s: &str| s.chars().filter(|c| !c.is_whitespace()).count();
+    let kept: usize = diff
+        .iter_all_changes()
+        .filter(|c| c.tag() == ChangeTag::Equal)
+        .map(|c| letters(c.value()))
+        .sum();
+    let longest = letters(old).max(letters(new));
+    if longest > 0 && letters(old) > 0 && letters(new) > 0 && kept * 2 < longest {
+        return vec![
+            Segment {
+                tag: "delete".into(),
+                text: old.into(),
+            },
+            Segment {
+                tag: "insert".into(),
+                text: new.into(),
+            },
+        ];
+    }
     let mut out: Vec<Segment> = Vec::new();
     for change in diff.iter_all_changes() {
         let tag = match change.tag() {
@@ -101,10 +123,7 @@ fn regions(base: &[&str], new: &[&str]) -> Vec<Region> {
 #[ts(export)]
 pub enum Block {
     #[serde(rename_all = "camelCase")]
-    Equal {
-        new_start: u32,
-        text: String,
-    },
+    Equal { new_start: u32, text: String },
     #[serde(rename_all = "camelCase")]
     Change {
         old_start: u32,
@@ -296,9 +315,11 @@ mod tests {
         let theirs = "zero\none\nthree\nfour";
         let only_theirs = classes(&diff3(base, base, theirs));
         assert!(!only_theirs.is_empty() && only_theirs.iter().all(|c| *c == Class::Theirs));
-        assert!(classes(&diff3(base, theirs, theirs))
-            .iter()
-            .all(|c| *c == Class::Same));
+        assert!(
+            classes(&diff3(base, theirs, theirs))
+                .iter()
+                .all(|c| *c == Class::Same)
+        );
     }
 
     #[test]
@@ -324,6 +345,25 @@ mod tests {
         assert_eq!(changed.len(), 2);
         assert_eq!(changed[0].text, "give");
         assert_eq!(changed[1].text, "recall");
+    }
+
+    #[test]
+    fn a_mostly_rewritten_passage_is_shown_as_old_then_new() {
+        let old = "A short summary of the paper.
+";
+        let new = "A short summary, tightened by Lina.
+";
+        let tags: Vec<_> = word_segments(old, new)
+            .into_iter()
+            .map(|s| (s.tag, s.text))
+            .collect();
+        assert_eq!(
+            tags,
+            [
+                ("delete".to_string(), old.to_string()),
+                ("insert".to_string(), new.to_string())
+            ]
+        );
     }
 
     #[test]

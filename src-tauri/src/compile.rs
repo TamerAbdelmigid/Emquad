@@ -99,7 +99,8 @@ pub fn find_exe(name: &str, extra_dirs: &[PathBuf]) -> Option<PathBuf> {
 /// Choose the engine for a project. "auto" prefers the bundled Tectonic and falls back to a
 /// system latexmk; an explicit choice falls back the same way rather than failing outright.
 pub fn pick_engine(preference: &str, sidecar_dirs: &[PathBuf]) -> Result<Box<dyn Engine>> {
-    let tectonic = || find_exe("tectonic", sidecar_dirs).map(|p| Box::new(Tectonic(p)) as Box<dyn Engine>);
+    let tectonic =
+        || find_exe("tectonic", sidecar_dirs).map(|p| Box::new(Tectonic(p)) as Box<dyn Engine>);
     let latexmk = || find_exe("latexmk", &[]).map(|p| Box::new(Latexmk(p)) as Box<dyn Engine>);
     let found = if preference == "latexmk" {
         latexmk().or_else(tectonic)
@@ -164,7 +165,9 @@ pub fn run(
     let main = project.resolve(&project.info.main_file)?;
     let (cwd, main_name) = (
         main.parent().unwrap_or(&project.root),
-        main.file_name().and_then(|n| n.to_str()).unwrap_or_default(),
+        main.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default(),
     );
     let build = project.build_dir();
     fs::create_dir_all(&build)?;
@@ -177,7 +180,10 @@ pub fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|e| {
-        Error::app("engine_failed", format!("Could not start {}: {e}", engine.name()))
+        Error::app(
+            "engine_failed",
+            format!("Could not start {}: {e}", engine.name()),
+        )
     })?;
     *running.lock().unwrap() = Some(child.id());
 
@@ -239,14 +245,20 @@ pub fn run(
 fn clean_file(raw: &str, main_file: &str) -> String {
     let f = raw.trim().replace('\\', "/");
     let f = f.strip_prefix("./").unwrap_or(&f);
-    if f.is_empty() { main_file.to_string() } else { f.to_string() }
+    if f.is_empty() {
+        main_file.to_string()
+    } else {
+        f.to_string()
+    }
 }
 
 /// Pull errors and warnings out of compiler output. Log formats are irregular, so this
 /// recognises the common shapes and ignores the rest; see the fixture tests below.
 pub fn parse_log(log: &str, main_file: &str) -> Vec<Diagnostic> {
     // "./sections/a.tex:12: Undefined control sequence."  (file-line-error style)
-    let file_line = Regex::new(r"^(?:error: )?([^\s:][^:\n]*\.(?:tex|sty|cls|bib|bbl|aux)):(\d+): (.+)$").unwrap();
+    let file_line =
+        Regex::new(r"^(?:error: )?([^\s:][^:\n]*\.(?:tex|sty|cls|bib|bbl|aux)):(\d+): (.+)$")
+            .unwrap();
     // "warning: main.tex:7: Overfull \hbox ..."  (Tectonic)
     let tectonic_warn = Regex::new(r"^warning: ([^:\n]+\.tex):(\d+): (.+)$").unwrap();
     // "LaTeX Warning: Reference `x' on page 1 undefined on input line 9."
@@ -333,7 +345,12 @@ mod tests {
         assert_eq!(
             parse_log(log, "main.tex"),
             [
-                d("error", "sections/proof.tex", 4, "Undefined control sequence."),
+                d(
+                    "error",
+                    "sections/proof.tex",
+                    4,
+                    "Undefined control sequence."
+                ),
                 d(
                     "error",
                     "main.tex",
@@ -371,7 +388,12 @@ mod tests {
                     14,
                     "Token not allowed in a PDF string (hyperref)                on input line 14."
                 ),
-                d("warning", "main.tex", 7, "Overfull \\hbox (12.3pt too wide) in paragraph"),
+                d(
+                    "warning",
+                    "main.tex",
+                    7,
+                    "Overfull \\hbox (12.3pt too wide) in paragraph"
+                ),
                 d("error", "main.tex", 3, "Undefined control sequence"),
             ]
         );
@@ -379,6 +401,12 @@ mod tests {
 
     #[test]
     fn a_clean_log_has_no_diagnostics() {
-        assert!(parse_log("Output written on main.pdf (1 page, 12345 bytes).\n", "main.tex").is_empty());
+        assert!(
+            parse_log(
+                "Output written on main.pdf (1 page, 12345 bytes).\n",
+                "main.tex"
+            )
+            .is_empty()
+        );
     }
 }

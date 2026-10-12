@@ -1,0 +1,280 @@
+import { useEffect, useState } from "react";
+import { Dialog } from "../design/ui";
+import { api } from "../ipc/api";
+import { useStore } from "../state/store";
+import { createProject, exportBundle, guard } from "./actions";
+
+const TEMPLATES = [
+  { id: "article", label: "Article", note: "A paper with abstract and sections" },
+  { id: "report", label: "Report", note: "Chapters and a table of contents" },
+  { id: "exam", label: "Exam", note: "Header, name line and numbered questions" },
+  { id: "letter", label: "Letter", note: "A formal letter" },
+];
+
+const SHORTCUTS: [string, string][] = [
+  ["Recompile", "Ctrl+Enter"],
+  ["Save (and recompile, when compile on save is on)", "Ctrl+S"],
+  ["Go to this place in the PDF", "Ctrl+Alt+J"],
+  ["Go to the source", "Double-click in the PDF"],
+  ["Find and replace", "Ctrl+F"],
+  ["Show or hide the file panel", "Ctrl+B"],
+  ["Save snapshot", "Ctrl+Shift+S"],
+  ["Open History", "Ctrl+Shift+H"],
+  ["Export bundle", "Ctrl+Shift+E"],
+  ["Import bundle", "Ctrl+Shift+I"],
+];
+
+export function Dialogs() {
+  const dialog = useStore((s) => s.dialog);
+  const ask = useStore((s) => s.ask);
+  const set = useStore((s) => s.set);
+  const close = () => set({ dialog: null });
+  return (
+    <>
+      {dialog === "export" && <ExportDialog onClose={close} />}
+      {dialog === "newProject" && <NewProjectDialog onClose={close} />}
+      {dialog === "logs" && <LogsDialog onClose={close} />}
+      {dialog === "settings" && <SettingsDialog onClose={close} />}
+      {dialog === "shortcuts" && (
+        <Dialog title="Keyboard shortcuts" onClose={close}>
+          <dl className="keys">
+            {SHORTCUTS.map(([what, keys]) => (
+              <div key={what}>
+                <dt>{what}</dt>
+                <dd>
+                  <kbd>{keys}</kbd>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <div className="end">
+            <button className="btn" onClick={close}>
+              Close
+            </button>
+          </div>
+        </Dialog>
+      )}
+      {ask && <AskDialog key={ask.title} />}
+    </>
+  );
+}
+
+function AskDialog() {
+  const ask = useStore((s) => s.ask)!;
+  const set = useStore((s) => s.set);
+  const [value, setValue] = useState(ask.value ?? "");
+  const answer = (result: string | null) => {
+    set({ ask: null });
+    ask.resolve(result);
+  };
+  const isPrompt = ask.value !== undefined;
+  return (
+    <Dialog title={ask.title} intro={ask.message} onClose={() => answer(null)}>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          answer(isPrompt ? value : "yes");
+        }}
+      >
+        {isPrompt && (
+          <div className="f">
+            <label htmlFor="ask-value" className="sr">
+              {ask.title}
+            </label>
+            <input id="ask-value" type="text" autoFocus value={value} onChange={(e) => setValue(e.target.value)} />
+          </div>
+        )}
+        <div className="end">
+          <button type="button" className="btn" onClick={() => answer(null)}>
+            Cancel
+          </button>
+          <button type="submit" className={`btn ${ask.danger ? "dark" : "go"}`} autoFocus={!isPrompt}>
+            {ask.confirmLabel}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function ExportDialog({ onClose }: { onClose: () => void }) {
+  const hasPdf = useStore((s) => !!s.build?.hasPdf || s.pdfVersion > 0);
+  const [note, setNote] = useState("");
+  const [includePdf, setIncludePdf] = useState(true);
+  return (
+    <Dialog title="Export bundle" intro="One file. Opens in Emquad on any computer, ready to continue." onClose={onClose}>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void exportBundle(note, includePdf && hasPdf);
+        }}
+      >
+        <fieldset>
+          <legend>Included</legend>
+          <label className="ck">
+            <input id="inc-src" type="checkbox" checked disabled readOnly />
+            <span>Sources and figures</span>
+            <small>always</small>
+          </label>
+          <label className="ck">
+            <input id="inc-hist" type="checkbox" checked disabled readOnly />
+            <span>Changes and snapshots</span>
+            <small>needed to merge the reply</small>
+          </label>
+          <label className="ck">
+            <input id="inc-pdf" type="checkbox" checked={includePdf && hasPdf} disabled={!hasPdf} onChange={(e) => setIncludePdf(e.target.checked)} />
+            <span>Compiled PDF</span>
+            <small>{hasPdf ? "readable without Emquad" : "compile first to include it"}</small>
+          </label>
+        </fieldset>
+        <div className="f">
+          <label htmlFor="note">Note to the recipient</label>
+          <textarea id="note" rows={3} placeholder="What changed, and what to look at" value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        <div className="end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn go">
+            Choose where to save…
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function NewProjectDialog({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [template, setTemplate] = useState("article");
+  return (
+    <Dialog title="New project" intro="Creates a folder with a starting document. You choose where next." onClose={onClose}>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) void createProject(name.trim(), template);
+        }}
+      >
+        <div className="f">
+          <label htmlFor="np-name">Project name</label>
+          <input id="np-name" type="text" autoFocus value={name} placeholder="my-paper" onChange={(e) => setName(e.target.value)} />
+        </div>
+        <fieldset>
+          <legend>Start from</legend>
+          {TEMPLATES.map((t) => (
+            <label className="ck" key={t.id}>
+              <input id={`tpl-${t.id}`} type="radio" name="template" checked={template === t.id} onChange={() => setTemplate(t.id)} />
+              <span>{t.label}</span>
+              <small>{t.note}</small>
+            </label>
+          ))}
+        </fieldset>
+        <div className="end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn go" disabled={!name.trim()}>
+            Choose folder…
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function LogsDialog({ onClose }: { onClose: () => void }) {
+  const build = useStore((s) => s.build);
+  const log = useStore((s) => s.log);
+  const [raw, setRaw] = useState(false);
+  const items = build?.diagnostics ?? [];
+  return (
+    <Dialog title="Logs and messages" onClose={onClose} wide>
+      {!build && <p>Nothing has been compiled yet.</p>}
+      {build && items.length === 0 && <p>The last compile finished with no errors or warnings.</p>}
+      {items.length > 0 && (
+        <ul className="diags">
+          {items.map((d, i) => (
+            <li key={i} className={d.severity}>
+              <b>{d.severity === "error" ? "Error" : "Warning"}</b>
+              <span className="where">{d.line ? `${d.file}, line ${d.line}` : d.file}</span>
+              <span>{d.message}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {raw && <pre className="rawlog">{log.join("\n") || "No output was captured."}</pre>}
+      <div className="end">
+        <button className="btn" onClick={() => setRaw(!raw)}>
+          {raw ? "Hide" : "Show"} full compiler output
+        </button>
+        <button className="btn go" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => void; firstRun?: boolean }) {
+  const settings = useStore((s) => s.settings);
+  const set = useStore((s) => s.set);
+  const [name, setName] = useState(settings?.displayName ?? "");
+  const [compileOnSave, setCompileOnSave] = useState(settings?.compileOnSave ?? true);
+  const [fontSize, setFontSize] = useState(settings?.editorFontSize ?? 13);
+  useEffect(() => {
+    if (settings && !name) setName(settings.displayName);
+    // Only to pick up settings that arrive after the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+  const submit = () =>
+    guard(async () => {
+      set({ settings: await api.settingsUpdate({ displayName: name, compileOnSave, editorFontSize: fontSize }) });
+      onClose();
+    });
+  return (
+    <Dialog
+      title={firstRun ? "Welcome to Emquad" : "Settings"}
+      intro={firstRun ? "Your name is attached to the snapshots and bundles you make, so collaborators can tell whose changes are whose. It stays on this computer and in the bundles you export." : undefined}
+      onClose={firstRun ? () => {} : onClose}
+    >
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name.trim()) void submit();
+        }}
+      >
+        <div className="f">
+          <label htmlFor="set-name">Your name</label>
+          <input id="set-name" type="text" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        {!firstRun && (
+          <>
+            <label className="ck">
+              <input id="set-cos" type="checkbox" checked={compileOnSave} onChange={(e) => setCompileOnSave(e.target.checked)} />
+              <span>Compile when saving</span>
+              <small>Ctrl+S saves and recompiles</small>
+            </label>
+            <div className="f">
+              <label htmlFor="set-font">Editor text size</label>
+              <input id="set-font" type="number" min={9} max={28} value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} />
+            </div>
+          </>
+        )}
+        <div className="end">
+          {!firstRun && (
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+          )}
+          <button type="submit" className="btn go" disabled={!name.trim()}>
+            {firstRun ? "Continue" : "Save"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}

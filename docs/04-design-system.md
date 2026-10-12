@@ -123,7 +123,7 @@ Build these once in `src/design/` and use them everywhere.
 | `ChoiceCard` | mine, theirs; unselected, selected | A real button with pressed state; selected gets a 2px ring in the author's colour |
 | `Dialog` | — | Native `<dialog>` semantics, focus trapped, Escape cancels |
 
-## Interaction and accessibility reemquadments
+## Interaction and accessibility requirements
 
 - Every control is a real `button`, `input`, or link, reachable by keyboard, with a visible focus ring (the mockup uses a 3px blue outline).
 - Icon-only controls have accessible names. Decorative icons are hidden from assistive technology.
@@ -146,6 +146,19 @@ Initial set; make them discoverable in menus and tooltips.
 | Save snapshot | Ctrl+Shift+S |
 | Open History | Ctrl+Shift+H |
 | Export bundle / import bundle | Ctrl+Shift+E / Ctrl+Shift+I |
+
+## Where the app differs from the mockup
+
+Deliberate differences, so nobody "fixes" them back:
+
+- **The mark.** The top bar and start screen show the Emquad mark beside the wordmark; the mockup predates the logo.
+- **No Code / Visual switch.** Visual mode is planned after version 1, and a switch that does nothing would mislead. The toolbar's right side holds **Show changes**, which opens History on the working copy.
+- **No mode menu.** Change tracking is always derived from versions, so there is no editing mode to choose.
+- **Review panel.** It has a second key, "Start this review over". Automatic merges show accept and reject as a pressed pair, and a rejected one is struck through.
+- **File tree rows** have a "···" menu for rename, delete, and set as main file; the main file carries a "Main" tag.
+- **History** has no "Files in this version" list of everything, only the files that changed, each tagged Added, Edited or Removed.
+- **A start screen** (new project, open folder, open bundle, recent projects) and a first-run prompt for the user's name exist in the app and not in the mockup.
+- **Panels are not resizable yet.** The file panel can be hidden and the layout switched between source and PDF, source only, and PDF only.
 
 ## What the mockup fakes
 

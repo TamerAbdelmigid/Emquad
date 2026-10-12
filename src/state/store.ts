@@ -1,0 +1,103 @@
+import { create } from "zustand";
+import type { BuildOutput, ProjectIndex, ProjectInfo, Settings, TreeNode } from "../ipc/api";
+
+export type View = "start" | "editor" | "history";
+export type Layout = "split" | "editor" | "pdf";
+
+export interface Tab {
+  path: string;
+  dirty: boolean;
+}
+
+/** A question the app is asking: a text prompt or a yes/no confirmation. */
+export interface Ask {
+  title: string;
+  message?: string;
+  /** Present for text prompts: the initial value. */
+  value?: string;
+  confirmLabel: string;
+  danger?: boolean;
+  resolve: (answer: string | null) => void;
+}
+
+export interface Highlight {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Changes on every jump so the same place can be highlighted twice in a row. */
+  nonce: number;
+}
+
+interface State {
+  settings: Settings | null;
+  view: View;
+  layout: Layout;
+  filesOpen: boolean;
+  root: string | null;
+  info: ProjectInfo | null;
+  tree: TreeNode[];
+  index: ProjectIndex;
+  tabs: Tab[];
+  active: string | null;
+  cursor: { line: number; column: number };
+  compiling: boolean;
+  build: BuildOutput | null;
+  log: string[];
+  /** Bumped whenever there is a new PDF to show. */
+  pdfVersion: number;
+  highlight: Highlight | null;
+  /** Imported bundles still waiting for review. */
+  pendingReviews: number;
+  /** Bundle to select when History opens. */
+  focusBundle: string | null;
+  dialog: null | "export" | "logs" | "settings" | "newProject" | "shortcuts";
+  ask: Ask | null;
+  toast: { text: string; error: boolean } | null;
+  set: (patch: Partial<State>) => void;
+  notify: (text: string, error?: boolean) => void;
+}
+
+export const useStore = create<State>((set) => ({
+  settings: null,
+  view: "start",
+  layout: "split",
+  filesOpen: true,
+  root: null,
+  info: null,
+  tree: [],
+  index: { labels: [], citeKeys: [] },
+  tabs: [],
+  active: null,
+  cursor: { line: 1, column: 1 },
+  compiling: false,
+  build: null,
+  log: [],
+  pdfVersion: 0,
+  highlight: null,
+  pendingReviews: 0,
+  focusBundle: null,
+  dialog: null,
+  ask: null,
+  toast: null,
+  set: (patch) => set(patch),
+  notify: (text, error = false) => set({ toast: { text, error } }),
+}));
+
+export const store = () => useStore.getState();
+
+/** Ask for a line of text. Resolves to null when cancelled. */
+export function prompt(title: string, value = "", confirmLabel = "OK", message?: string) {
+  return new Promise<string | null>((resolve) =>
+    store().set({ ask: { title, value, confirmLabel, message, resolve } }),
+  );
+}
+
+/** Ask a yes/no question. */
+export async function confirm(title: string, message: string, confirmLabel: string, danger = false) {
+  const answer = await new Promise<string | null>((resolve) =>
+    store().set({ ask: { title, message, confirmLabel, danger, resolve } }),
+  );
+  return answer !== null;
+}

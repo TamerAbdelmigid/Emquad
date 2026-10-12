@@ -24,13 +24,15 @@ Other files in `mockup/` are superseded explorations. Do not build from them.
 
 ## Verifier
 
-Once the scaffold exists (milestone M0), the single command that must pass before any merge request is:
+The single command that must pass before any merge request is:
 
 ```bash
 pnpm verify
 ```
 
-It runs, in order: TypeScript type-check, lint, `vitest run`, `cargo fmt --check`, `cargo clippy` with warnings as errors, and `cargo test`. M0 creates this script; until then there is nothing to verify beyond the mockup opening in a browser.
+It runs, in order: TypeScript type-check, lint, `vitest run`, `cargo fmt --check`, `cargo clippy` with warnings as errors, and `cargo test`. `cargo test` also regenerates the TypeScript types in `src/ipc/bindings/`; commit them when they change.
+
+For a change to anything the user sees or to compile, bundles or review, also run the end-to-end script against the real window. The instructions are at the top of `scripts/e2e.js`; the app exits with code 0 when every check passes.
 
 Status command:
 
@@ -54,8 +56,8 @@ For those areas, the invariants in `docs/03-bundles-and-history.md` must each be
 
 - **Boundary:** the webview never reads or writes files or starts processes. Add a Rust command instead.
 - **Rust:** module logic is plain functions tested without Tauri; the `commands` layer is a thin wrapper. One serialisable error type with a stable `code`.
-- **Types across the boundary** are generated from Rust, not hand-written twice.
-- **Styling:** only the custom properties in `src/design/tokens.css`. No literal colours in components. No runtime styling library.
+- **Types across the boundary** are generated from Rust with `ts-rs`, not hand-written twice. A new command is added in three places: `commands.rs`, the `handlers!` list in `lib.rs`, and `src/ipc/api.ts`.
+- **Styling:** plain CSS in `src/design/`, built on the custom properties in `tokens.css`. No inline colours in components, no runtime styling library.
 - **Frontend features** do not import one another's internals.
 - **User files are sacred:** never write markers or metadata into a project's source files. App data goes in `.emquad/`.
 - **No network at runtime** except what the compiler does to fetch LaTeX packages. Fonts and assets are bundled.

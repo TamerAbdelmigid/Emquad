@@ -1,6 +1,6 @@
 # Bundles and history
 
-This document defines how versions are stored, what a `.emquad` file contains, and how an incoming bundle is compared, reviewed and merged. This is the part of the app where a mistake loses someone's writing, so the rules here are reemquadments, not suggestions.
+This document defines how versions are stored, what a `.emquad` file contains, and how an incoming bundle is compared, reviewed and merged. This is the part of the app where a mistake loses someone's writing, so the rules here are requirements, not suggestions.
 
 ## Model
 
@@ -62,7 +62,7 @@ A zip archive with this layout:
 
 ```
 manifest.json
-history/                 a bare git directory containing one packfile and its refs
+history/objects.pack     every version reachable from the head, as one git packfile
 tree/                    the head version's files, as plain files
 output/<name>.pdf        optional: the compiled PDF at export time
 packages/                optional, later: LaTeX package cache for offline compile
@@ -96,11 +96,11 @@ Rules:
 
 1. Save all open buffers.
 2. Take an export snapshot (see table above).
-3. Write the history reachable from the new head into a single packfile inside a fresh bare git directory.
+3. Write the history reachable from the new head into a single packfile.
 4. Write `tree/` from the head version, the PDF if requested and present, and the manifest.
 5. Write the zip to a temporary file next to the destination, then rename it into place, so a failed export never leaves a truncated file.
 
-The option to exclude history exists in the dialog but defaults to on and warns when turned off: a bundle without history can be opened as a new project but cannot be merged back.
+History is always included. A bundle without it could not be merged back, so the dialog shows it as a fixed part of the bundle rather than a choice.
 
 ### Import
 
@@ -135,15 +135,15 @@ If B equals O (we made no changes since the hand-off), there are no conflicts an
 
 ### Implementation guidance
 
-- Use libgit2's merge machinery (`git2`) to obtain B and to perform the per-file three-way merge with diff3-style output, so each conflict carries base, ours and theirs text. Derive the hunk list from that result.
-- If conflict markers are used as an intermediate representation, configure a long marker length and treat any input file that already contains that marker sequence as a whole-file conflict rather than parsing it.
+- libgit2 (`git2`) finds B. The per-file three-way comparison is `diff3` in `src-tauri/src/diff.rs`, built on line diffs from the `similar` crate; it returns structured chunks, so no conflict markers are ever written or parsed.
+- Changes from the two sides that overlap **or touch** (adjacent lines, or insertions at the same point) are treated as one conflict. Some of these could be merged automatically, but asking can never drop text silently.
 - A review session is held in memory and persisted under `.emquad/incoming/<bundleId>/review.json` so that closing the app mid-review loses no decisions.
 
 ### Decisions
 
-- Each conflict accepts `mine` or `theirs`. (A third option, edit by hand, can be added later; it would open the passage in the editor with both versions and is not reemquadd for version 1.)
+- Each conflict accepts `mine` or `theirs`. (A third option, edit by hand, can be added later; it would open the passage in the editor with both versions and is not required for version 1.)
 - Each automatic merge accepts `accept` (default) or `reject`. Reject restores B's text for that hunk.
-- Finish merge is enabled only when every conflict has a decision.
+- Finish merge is enabled only when every conflict has a decision. It is refused if the working copy changed after the review began, because the merge was computed against the state captured then; the user starts the review again.
 
 ### Finish merge
 

@@ -80,7 +80,12 @@ fn reviewable(class: Class) -> bool {
 }
 
 fn kind_of(class: Class) -> String {
-    if class == Class::Conflict { "conflict" } else { "auto" }.into()
+    if class == Class::Conflict {
+        "conflict"
+    } else {
+        "auto"
+    }
+    .into()
 }
 
 fn whole_file_note(t: &Triple, them: &str) -> String {
@@ -171,7 +176,11 @@ pub fn resolve(
                     } if reviewable(*class) => {
                         let decision = decide(format!("{path}#{n}"), *class)?;
                         n += 1;
-                        out.push_str(if decision == Decision::Mine { ours } else { theirs });
+                        out.push_str(if decision == Decision::Mine {
+                            ours
+                        } else {
+                            theirs
+                        });
                     }
                     Chunk::Change { ours, .. } => out.push_str(ours),
                 }
@@ -245,10 +254,18 @@ fn open_session(
     if let Some(head) = history.head()
         && history.is_ancestor(theirs, head)?
     {
-        return Err(Error::app("already_merged", "This bundle is already merged"));
+        return Err(Error::app(
+            "already_merged",
+            "This bundle is already merged",
+        ));
     }
     let from = their_name(history, theirs)?;
-    let ours = history.snapshot(project, me, "automatic", &format!("Before import from {from}"))?;
+    let ours = history.snapshot(
+        project,
+        me,
+        "automatic",
+        &format!("Before import from {from}"),
+    )?;
     let base = history.repo.merge_base(ours, theirs).map_err(|_| {
         Error::app(
             "no_common_history",
@@ -275,7 +292,11 @@ fn planned(history: &History, session: &Session) -> Result<Vec<(String, Triple, 
         files(&session.ours)?,
         files(&session.theirs)?,
     );
-    let paths: BTreeSet<&String> = base.keys().chain(ours.keys()).chain(theirs.keys()).collect();
+    let paths: BTreeSet<&String> = base
+        .keys()
+        .chain(ours.keys())
+        .chain(theirs.keys())
+        .collect();
     let mut out = Vec::new();
     for path in paths {
         if base.get(path) == theirs.get(path) || ours.get(path) == theirs.get(path) {
@@ -326,14 +347,13 @@ pub fn get(project: &Project, history: &History, me: &Author, bundle_id: &str) -
     })
 }
 
-pub fn decide(
-    project: &Project,
-    bundle_id: &str,
-    item_id: &str,
-    decision: Decision,
-) -> Result<()> {
-    let mut session = load(project, bundle_id)?
-        .ok_or_else(|| Error::app("not_found", "There is no review in progress for that bundle"))?;
+pub fn decide(project: &Project, bundle_id: &str, item_id: &str, decision: Decision) -> Result<()> {
+    let mut session = load(project, bundle_id)?.ok_or_else(|| {
+        Error::app(
+            "not_found",
+            "There is no review in progress for that bundle",
+        )
+    })?;
     session.decisions.insert(item_id.into(), decision);
     save(project, &session)
 }
@@ -341,9 +361,16 @@ pub fn decide(
 /// Write the merged files and record the merge. Refuses if the working copy has changed since
 /// the review began, because the merge was computed against the state captured then.
 pub fn finish(project: &Project, history: &History, me: &Author, bundle_id: &str) -> Result<Oid> {
-    let session = load(project, bundle_id)?
-        .ok_or_else(|| Error::app("not_found", "There is no review in progress for that bundle"))?;
-    let (ours, theirs) = (Oid::from_str(&session.ours)?, Oid::from_str(&session.theirs)?);
+    let session = load(project, bundle_id)?.ok_or_else(|| {
+        Error::app(
+            "not_found",
+            "There is no review in progress for that bundle",
+        )
+    })?;
+    let (ours, theirs) = (
+        Oid::from_str(&session.ours)?,
+        Oid::from_str(&session.theirs)?,
+    );
     if history.tree_of_dir(&project.root)? != history.repo.find_commit(ours)?.tree_id() {
         return Err(Error::app(
             "working_copy_changed",
@@ -437,7 +464,10 @@ mod tests {
         let added = triple(None, None, Some("new\n"));
         assert_eq!(kinds(&added), auto_file);
         assert_eq!(merged(&added, &[]).unwrap().as_deref(), Some("new\n"));
-        assert_eq!(merged(&added, &[("f.tex#file", Decision::Mine)]).unwrap(), None);
+        assert_eq!(
+            merged(&added, &[("f.tex#file", Decision::Mine)]).unwrap(),
+            None
+        );
         // They deleted a file we left alone.
         let deleted = triple(Some("a\n"), Some("a\n"), None);
         assert_eq!(kinds(&deleted), auto_file);
@@ -449,8 +479,18 @@ mod tests {
         ] {
             assert_eq!(kinds(&t), conflict_file);
             assert_eq!(merged(&t, &[]).unwrap_err().code(), "unresolved");
-            assert_eq!(merged(&t, &[("f.tex#file", Decision::Mine)]).unwrap().map(String::into_bytes), t.ours);
-            assert_eq!(merged(&t, &[("f.tex#file", Decision::Theirs)]).unwrap().map(String::into_bytes), t.theirs);
+            assert_eq!(
+                merged(&t, &[("f.tex#file", Decision::Mine)])
+                    .unwrap()
+                    .map(String::into_bytes),
+                t.ours
+            );
+            assert_eq!(
+                merged(&t, &[("f.tex#file", Decision::Theirs)])
+                    .unwrap()
+                    .map(String::into_bytes),
+                t.theirs
+            );
         }
         // Binary changed on both sides: one whole-file decision.
         let bin = Triple {
@@ -483,9 +523,12 @@ mod tests {
             "a\nTHEIRS1\nc\nd\ne\nf\nMINE\n"
         );
         assert_eq!(
-            merged(&t, &[("f.tex#0", Decision::Mine), ("f.tex#1", Decision::Theirs)])
-                .unwrap()
-                .unwrap(),
+            merged(
+                &t,
+                &[("f.tex#0", Decision::Mine), ("f.tex#1", Decision::Theirs)]
+            )
+            .unwrap()
+            .unwrap(),
             "a\nb\nc\nd\ne\nf\nTHEIRS2\n"
         );
     }
@@ -560,7 +603,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (a, ha) = new_project(&tmp.path().join("a"));
         let me = author("Tamer");
-        a.write_file("main.tex", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n").unwrap();
+        a.write_file("main.tex", "one\ntwo\nthree\nfour\nfive\nsix\nseven\n")
+            .unwrap();
         a.write_file("refs.bib", "@book{a}\n").unwrap();
         a.write_file("old.tex", "old\n").unwrap();
         let out = tmp.path().join("out.emquad");
@@ -596,9 +640,15 @@ mod tests {
     #[test]
     fn full_round_merges_what_was_chosen_and_keeps_both_histories() {
         let pair = hand_off(
-            &[("main.tex", Some("one\nTWO mine\nthree\nfour\nfive\nsix\nSEVEN mine\n"))],
+            &[(
+                "main.tex",
+                Some("one\nTWO mine\nthree\nfour\nfive\nsix\nSEVEN mine\n"),
+            )],
             &[
-                ("main.tex", Some("one\ntwo\nthree\nFOUR theirs\nfive\nsix\nSEVEN theirs\n")),
+                (
+                    "main.tex",
+                    Some("one\ntwo\nthree\nFOUR theirs\nfive\nsix\nSEVEN theirs\n"),
+                ),
                 ("refs.bib", Some("@book{a}\n@book{b}\n")),
                 ("new.tex", Some("added\n")),
                 ("old.tex", None),
@@ -626,7 +676,11 @@ mod tests {
                 ("refs.bib", "auto", 2),
             ]
         );
-        assert_eq!(read_all(a), before, "starting a review must not touch files");
+        assert_eq!(
+            read_all(a),
+            before,
+            "starting a review must not touch files"
+        );
 
         assert_eq!(finish(a, ha, &me, id).unwrap_err().code(), "unresolved");
         assert_eq!(read_all(a), before, "a refused finish must not touch files");
@@ -643,7 +697,11 @@ mod tests {
             file(a, "main.tex"),
             "one\nTWO mine\nthree\nFOUR theirs\nfive\nsix\nSEVEN theirs\n"
         );
-        assert_eq!(file(a, "refs.bib"), "@book{a}\n", "rejected change stays out");
+        assert_eq!(
+            file(a, "refs.bib"),
+            "@book{a}\n",
+            "rejected change stays out"
+        );
         assert_eq!(file(a, "new.tex"), "added\n");
         assert!(!a.root.join("old.tex").exists());
 
@@ -670,7 +728,10 @@ mod tests {
     fn cancel_changes_nothing_and_the_review_can_start_again() {
         let pair = hand_off(
             &[("main.tex", Some("one\ntwo\nthree\nfour\nfive\nsix\nmine\n"))],
-            &[("main.tex", Some("one\ntwo\nthree\nfour\nfive\nsix\ntheirs\n"))],
+            &[(
+                "main.tex",
+                Some("one\ntwo\nthree\nfour\nfive\nsix\ntheirs\n"),
+            )],
         );
         let (a, ha, id) = (&pair.a, &pair.ha, pair.bundle_id.as_str());
         let me = author("Tamer");
@@ -694,7 +755,10 @@ mod tests {
         assert!(review.items.iter().all(|i| i.kind == "auto"));
 
         a.write_file("main.tex", "typed during review\n").unwrap();
-        assert_eq!(finish(a, ha, &me, id).unwrap_err().code(), "working_copy_changed");
+        assert_eq!(
+            finish(a, ha, &me, id).unwrap_err().code(),
+            "working_copy_changed"
+        );
         assert_eq!(file(a, "main.tex"), "typed during review\n");
     }
 
@@ -714,7 +778,10 @@ mod tests {
         export(&c, &hc, &author("Lina"), &file, "", false).unwrap();
 
         let before = read_all(&a);
-        assert_eq!(import_into(&a, &ha, &file).unwrap_err().code(), "no_common_history");
+        assert_eq!(
+            import_into(&a, &ha, &file).unwrap_err().code(),
+            "no_common_history"
+        );
         assert_eq!(read_all(&a), before);
         assert!(ha.list(&a).unwrap().versions.iter().all(|v| !v.pending));
     }

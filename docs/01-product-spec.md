@@ -55,7 +55,7 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 
 ## Planned after version 1
 
-These are designed for but not reemquadd for the first release. `05-implementation-plan.md` places them in the last milestone.
+These are designed for but not required for the first release. `05-implementation-plan.md` places them in the last milestone.
 
 - **Visual mode.** The Code / Visual switch in the editor. Renders headings, emphasis, math and figures inline while the underlying text stays plain LaTeX.
 - **Fully offline bundles.** Including the LaTeX packages a document used inside the `.emquad` file, so the recipient can compile with no internet at all.

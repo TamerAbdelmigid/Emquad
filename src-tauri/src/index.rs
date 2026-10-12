@@ -27,7 +27,9 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
             continue;
         }
         let Ok(bytes) = fs::read(&path) else { continue };
-        let Some(text) = as_text(&bytes) else { continue };
+        let Some(text) = as_text(&bytes) else {
+            continue;
+        };
         if is_tex {
             labels.extend(label.captures_iter(text).map(|c| c[1].to_string()));
             keys.extend(bib_item.captures_iter(text).map(|c| c[1].to_string()));
@@ -54,7 +56,11 @@ mod tests {
             r"\begin{equation}\label{eq:polar}\end{equation} \label{sec:proof}",
         )
         .unwrap();
-        p.write_file("refs.bib", "@book{knuth84,\n title={The TeXbook}}\n@article{ lamport94 ,\n}\n").unwrap();
+        p.write_file(
+            "refs.bib",
+            "@book{knuth84,\n title={The TeXbook}}\n@article{ lamport94 ,\n}\n",
+        )
+        .unwrap();
         let index = build(&p).unwrap();
         assert_eq!(index.labels, ["eq:polar", "sec:proof"]);
         assert_eq!(index.cite_keys, ["knuth84", "lamport94"]);

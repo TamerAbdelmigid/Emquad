@@ -63,9 +63,7 @@ fn current(state: &AppState) -> Result<Project> {
 }
 
 fn activate(app: &AppHandle, state: &AppState, project: Project) -> Result<OpenedProject> {
-    let mut settings = Settings::load(&state.config_dir);
-    settings.remember(&project);
-    settings.save(&state.config_dir)?;
+    Settings::update(&state.config_dir, |s| s.remember(&project))?;
 
     let root = project.root.clone();
     let handle = app.clone();
@@ -102,9 +100,7 @@ fn activate(app: &AppHandle, state: &AppState, project: Project) -> Result<Opene
 
 #[tauri::command(async)]
 pub fn settings_get(state: State<AppState>) -> Result<Settings> {
-    let settings = Settings::load(&state.config_dir);
-    settings.save(&state.config_dir)?;
-    Ok(settings)
+    Settings::load(&state.config_dir)
 }
 
 #[tauri::command(async)]
@@ -114,18 +110,17 @@ pub fn settings_update(
     compile_on_save: Option<bool>,
     editor_font_size: Option<u32>,
 ) -> Result<Settings> {
-    let mut s = Settings::load(&state.config_dir);
-    if let Some(v) = display_name {
-        s.display_name = v.trim().to_string();
-    }
-    if let Some(v) = compile_on_save {
-        s.compile_on_save = v;
-    }
-    if let Some(v) = editor_font_size {
-        s.editor_font_size = v.clamp(9, 28);
-    }
-    s.save(&state.config_dir)?;
-    Ok(s)
+    Settings::update(&state.config_dir, |s| {
+        if let Some(v) = display_name {
+            s.display_name = v.trim().to_string();
+        }
+        if let Some(v) = compile_on_save {
+            s.compile_on_save = v;
+        }
+        if let Some(v) = editor_font_size {
+            s.editor_font_size = v.clamp(9, 28);
+        }
+    })
 }
 
 #[tauri::command(async)]
@@ -145,7 +140,10 @@ pub fn project_create(
 ) -> Result<OpenedProject> {
     let name = name.trim();
     if name.is_empty() || name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
-        return Err(Error::app("bad_name", "Choose a name without special characters"));
+        return Err(Error::app(
+            "bad_name",
+            "Choose a name without special characters",
+        ));
     }
     let project = Project::create(&Path::new(&parent_dir).join(name), name, &template)?;
     activate(&app, &state, project)
@@ -188,7 +186,10 @@ pub fn project_set_main(state: State<AppState>, path: String) -> Result<ProjectI
 
 #[tauri::command(async)]
 pub fn ui_state_save(state: State<AppState>, json: String) -> Result<()> {
-    atomic_write(&current(&state)?.data_dir().join("state.json"), json.as_bytes())
+    atomic_write(
+        &current(&state)?.data_dir().join("state.json"),
+        json.as_bytes(),
+    )
 }
 
 #[tauri::command(async)]
@@ -265,12 +266,24 @@ pub fn pdf_read(state: State<AppState>) -> Result<tauri::ipc::Response> {
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Save a copy of the compiled PDF wherever the user chose.
+#[tauri::command(async)]
+pub fn pdf_save(state: State<AppState>, dest: String) -> Result<()> {
+    fs::copy(compile::pdf_path(&current(&state)?), dest)
+        .map_err(|_| Error::app("no_pdf", "There is no PDF yet. Compile the document first."))?;
+    Ok(())
+}
+
 fn synctex(project: &Project) -> Result<SyncTex> {
     let main = project.resolve(&project.info.main_file)?;
     let cwd = main.parent().unwrap_or(&project.root);
     let base = compile::pdf_path(project);
     let gz = base.with_extension("synctex.gz");
-    let file = if gz.is_file() { gz } else { base.with_extension("synctex") };
+    let file = if gz.is_file() {
+        gz
+    } else {
+        base.with_extension("synctex")
+    };
     SyncTex::load(&file, cwd, &project.root)
 }
 
@@ -291,8 +304,8 @@ pub fn synctex_inverse(
 
 // ---------- history ----------
 
-fn author(state: &AppState) -> crate::history::Author {
-    Settings::load(&state.config_dir).author()
+fn author(state: &AppState) -> Result<crate::history::Author> {
+    Ok(Settings::load(&state.config_dir)?.author())
 }
 
 #[tauri::command(async)]
@@ -307,12 +320,17 @@ pub fn history_snapshot(state: State<AppState>, label: String) -> Result<String>
     let label = label.trim();
     let label = if label.is_empty() { "Snapshot" } else { label };
     Ok(History::open(&p)?
-        .snapshot(&p, &author(&state), "snapshot", label)?
+        .snapshot(&p, &author(&state)?, "snapshot", label)?
         .to_string())
 }
 
 /// `against` of `None` means the version's natural comparison (see `History::natural_base`).
-fn trees(p: &Project, h: &History, version: &str, against: Option<&str>) -> Result<(git2::Oid, git2::Oid)> {
+fn trees(
+    p: &Project,
+    h: &History,
+    version: &str,
+    against: Option<&str>,
+) -> Result<(git2::Oid, git2::Oid)> {
     let new = h.tree_for(p, version)?;
     let old = match against {
         Some(a) => h.tree_for(p, a)?,
@@ -349,11 +367,14 @@ pub fn history_file_diff(
 #[tauri::command(async)]
 pub fn history_restore(state: State<AppState>, version: String) -> Result<String> {
     if version == WORKING {
-        return Err(Error::app("bad_version", "The working copy is already current"));
+        return Err(Error::app(
+            "bad_version",
+            "The working copy is already current",
+        ));
     }
     let p = current(&state)?;
     Ok(History::open(&p)?
-        .restore(&p, &author(&state), &version)?
+        .restore(&p, &author(&state)?, &version)?
         .to_string())
 }
 
@@ -370,7 +391,7 @@ pub fn bundle_export(
     bundle::export(
         &p,
         &History::open(&p)?,
-        &author(&state),
+        &author(&state)?,
         Path::new(&dest),
         &note,
         include_pdf,
@@ -381,9 +402,8 @@ pub fn bundle_export(
 pub fn bundle_inspect(state: State<AppState>, path: String) -> Result<BundleInfo> {
     let manifest = bundle::read_manifest(Path::new(&path))?;
     let open = state.project.lock().unwrap().clone();
-    let matches_open_project =
-        open.is_some_and(|p| p.info.project_id == manifest.project.id);
-    let known_path = Settings::load(&state.config_dir)
+    let matches_open_project = open.is_some_and(|p| p.info.project_id == manifest.project.id);
+    let known_path = Settings::load(&state.config_dir)?
         .recent
         .into_iter()
         .find(|r| r.id == manifest.project.id && Path::new(&r.path).join(DATA_DIR).is_dir())
@@ -416,7 +436,7 @@ pub fn bundle_import_new(
 #[tauri::command(async)]
 pub fn review_get(state: State<AppState>, bundle_id: String) -> Result<Review> {
     let p = current(&state)?;
-    review::get(&p, &History::open(&p)?, &author(&state), &bundle_id)
+    review::get(&p, &History::open(&p)?, &author(&state)?, &bundle_id)
 }
 
 #[tauri::command(async)]
@@ -428,13 +448,13 @@ pub fn review_decide(
 ) -> Result<Review> {
     let p = current(&state)?;
     review::decide(&p, &bundle_id, &item_id, decision)?;
-    review::get(&p, &History::open(&p)?, &author(&state), &bundle_id)
+    review::get(&p, &History::open(&p)?, &author(&state)?, &bundle_id)
 }
 
 #[tauri::command(async)]
 pub fn review_finish(state: State<AppState>, bundle_id: String) -> Result<String> {
     let p = current(&state)?;
-    Ok(review::finish(&p, &History::open(&p)?, &author(&state), &bundle_id)?.to_string())
+    Ok(review::finish(&p, &History::open(&p)?, &author(&state)?, &bundle_id)?.to_string())
 }
 
 #[tauri::command(async)]

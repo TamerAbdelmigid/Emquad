@@ -1,0 +1,289 @@
+// One CodeMirror state per open file, kept while its tab is open so undo history and the cursor
+// survive switching tabs. The single EditorView shows whichever state is active.
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { HighlightStyle, StreamLanguage, bracketMatching, syntaxHighlighting } from "@codemirror/language";
+import { stex } from "@codemirror/legacy-modes/mode/stex";
+import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import { EditorSelection, EditorState, type Extension } from "@codemirror/state";
+import {
+  EditorView,
+  drawSelection,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  keymap,
+  lineNumbers,
+} from "@codemirror/view";
+import { tags as t } from "@lezer/highlight";
+import type { Diagnostic } from "../../ipc/api";
+import { store } from "../../state/store";
+import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
+
+const states = new Map<string, EditorState>();
+/** Text as last read from or written to disk, to tell whether a buffer has unsaved edits. */
+const saved = new Map<string, string>();
+let view: EditorView | null = null;
+let shownPath: string | null = null;
+let handlers = { save: () => {}, compile: () => {} };
+
+export function setHandlers(h: typeof handlers) {
+  handlers = h;
+}
+
+const highlight = HighlightStyle.define([
+  { tag: [t.tagName, t.keyword], color: "var(--k)" },
+  { tag: [t.atom, t.number, t.string, t.variableName], color: "var(--m)" },
+  { tag: t.comment, color: "#70747B", fontStyle: "italic" },
+  { tag: t.bracket, color: "var(--scr-dim)" },
+  { tag: t.invalid, color: "#FF8A6B" },
+]);
+
+const theme = EditorView.theme(
+  {
+    "&": { height: "100%", color: "var(--scr-tx)", backgroundColor: "transparent", fontSize: "var(--editor-size, 13px)" },
+    "&.cm-focused": { outline: "none" },
+    ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "1.85", overflow: "auto", scrollbarWidth: "thin", scrollbarColor: "#3A3D43 transparent" },
+    ".cm-content": { padding: "12px 0 16px", caretColor: "var(--acc)" },
+    ".cm-line": { padding: "0 18px 0 6px" },
+    ".cm-gutters": { backgroundColor: "transparent", color: "var(--scr-num)", border: "none" },
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 10px 0 14px", minWidth: "44px" },
+    ".cm-activeLine": { backgroundColor: "var(--scr-cur)" },
+    ".cm-activeLineGutter": { backgroundColor: "var(--scr-cur)", color: "var(--acc)" },
+    ".cm-cursor": { borderLeftColor: "var(--acc)", borderLeftWidth: "2px" },
+    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "#2F3F6B" },
+    ".cm-selectionMatch": { backgroundColor: "#3A3D43" },
+    ".cm-matchingBracket": { backgroundColor: "#3A3D43", outline: "1px solid #5C5F66" },
+    ".cm-tooltip": { backgroundColor: "#1B1D21", color: "var(--scr-tx)", border: "1px solid #34373D", borderRadius: "8px", overflow: "hidden" },
+    ".cm-tooltip-autocomplete > ul > li": { padding: "3px 10px", fontFamily: "var(--mono)" },
+    ".cm-tooltip-autocomplete > ul > li[aria-selected]": { backgroundColor: "var(--acc)", color: "#fff" },
+    ".cm-panels": { backgroundColor: "var(--scr-cur)", color: "var(--scr-tx)", borderTop: "1px solid var(--scr-line)" },
+    ".cm-panel input, .cm-panel button": { fontFamily: "var(--ui)", fontSize: "12px" },
+    ".cm-textfield": { backgroundColor: "#0D0E10", color: "var(--scr-tx)", border: "1px solid #34373D", borderRadius: "6px" },
+    ".cm-button": { backgroundImage: "none", backgroundColor: "#2A2D33", color: "var(--scr-tx)", border: "1px solid #34373D", borderRadius: "6px" },
+    ".cm-diagnostic": { fontFamily: "var(--ui)", fontSize: "12.5px" },
+  },
+  { dark: true },
+);
+
+function complete(context: CompletionContext): CompletionResult | null {
+  const line = context.state.doc.lineAt(context.pos);
+  const request = completionAt(line.text.slice(0, context.pos - line.from));
+  if (!request) return null;
+  if (request.kind === "command" && request.typed === "" && !context.explicit) return null;
+  const { labels, citeKeys } = store().index;
+  const pool = {
+    command: COMMANDS,
+    environment: ENVIRONMENTS,
+    label: labels,
+    cite: citeKeys,
+  }[request.kind];
+  return {
+    from: line.from + request.from,
+    options: pool.map((label) => ({ label, type: request.kind === "command" ? "keyword" : "variable" })),
+    validFor: /^[\w:.*-]*$/,
+  };
+}
+
+/** After "\begin{env}" + Enter, add the matching "\end{env}" and put the cursor between them. */
+function closeEnvironment(v: EditorView): boolean {
+  const { state } = v;
+  const range = state.selection.main;
+  if (!range.empty) return false;
+  const line = state.doc.lineAt(range.head);
+  const before = line.text.slice(0, range.head - line.from);
+  const match = /^(\s*).*\\begin\{([^}]+)\}\s*$/.exec(before);
+  if (!match || line.text.slice(range.head - line.from).trim() !== "") return false;
+  const [, indent, env] = match;
+  const rest = state.doc.sliceString(range.head, Math.min(state.doc.length, range.head + 2000));
+  const opens = rest.split(`\\begin{${env}}`).length - 1;
+  const closes = rest.split(`\\end{${env}}`).length - 1;
+  if (closes > opens) return false;
+  const inner = `\n${indent}  `;
+  v.dispatch({
+    changes: { from: range.head, insert: `${inner}\n${indent}\\end{${env}}` },
+    selection: EditorSelection.cursor(range.head + inner.length),
+    userEvent: "input",
+  });
+  return true;
+}
+
+function extensions(path: string): Extension[] {
+  return [
+    lineNumbers(),
+    highlightActiveLineGutter(),
+    highlightActiveLine(),
+    history(),
+    drawSelection(),
+    bracketMatching(),
+    closeBrackets(),
+    highlightSelectionMatches(),
+    search({ top: false }),
+    lintGutter(),
+    StreamLanguage.define(stex),
+    syntaxHighlighting(highlight),
+    autocompletion({ override: [complete] }),
+    EditorView.lineWrapping,
+    theme,
+    keymap.of([
+      { key: "Mod-s", run: () => (handlers.save(), true) },
+      { key: "Mod-Enter", run: () => (handlers.compile(), true) },
+      { key: "Enter", run: closeEnvironment },
+      ...closeBracketsKeymap,
+      ...defaultKeymap,
+      ...historyKeymap,
+      ...searchKeymap,
+      ...completionKeymap,
+      indentWithTab,
+    ]),
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged) {
+        const dirty = update.state.doc.toString() !== saved.get(path);
+        const s = store();
+        if (s.tabs.some((tab) => tab.path === path && tab.dirty !== dirty)) {
+          s.set({ tabs: s.tabs.map((tab) => (tab.path === path ? { ...tab, dirty } : tab)) });
+        }
+      }
+      if (update.selectionSet || update.docChanged) {
+        const head = update.state.selection.main.head;
+        const line = update.state.doc.lineAt(head);
+        store().set({ cursor: { line: line.number, column: head - line.from + 1 } });
+      }
+    }),
+  ];
+}
+
+export const buffers = {
+  has: (path: string) => states.has(path),
+
+  open(path: string, text: string) {
+    saved.set(path, text);
+    states.set(path, EditorState.create({ doc: text, extensions: extensions(path) }));
+  },
+
+  close(path: string) {
+    states.delete(path);
+    saved.delete(path);
+    if (shownPath === path) shownPath = null;
+  },
+
+  closeAll() {
+    states.clear();
+    saved.clear();
+    shownPath = null;
+  },
+
+  /** Follow a file that was renamed or moved. */
+  rename(from: string, to: string) {
+    const state = buffers.current(from);
+    if (!state) return;
+    const text = state.doc.toString();
+    const wasSaved = saved.get(from);
+    buffers.close(from);
+    buffers.open(to, text);
+    if (wasSaved !== undefined) saved.set(to, wasSaved);
+  },
+
+  current(path: string): EditorState | undefined {
+    return shownPath === path && view ? view.state : states.get(path);
+  },
+
+  text: (path: string) => buffers.current(path)?.doc.toString(),
+
+  markSaved(path: string, text: string) {
+    saved.set(path, text);
+  },
+
+  /** Replace a buffer's content, for example after the file changed on disk. */
+  replace(path: string, text: string) {
+    const state = buffers.current(path);
+    if (!state || state.doc.toString() === text) return saved.set(path, text);
+    saved.set(path, text);
+    const spec = { changes: { from: 0, to: state.doc.length, insert: text } };
+    if (shownPath === path && view) view.dispatch(spec);
+    else states.set(path, state.update(spec).state);
+  },
+
+  attach(parent: HTMLElement) {
+    view = new EditorView({ parent, state: EditorState.create({ doc: "" }) });
+    shownPath = null;
+    return () => {
+      buffers.stash();
+      view?.destroy();
+      view = null;
+    };
+  },
+
+  /** Keep the visible state before the view shows something else. */
+  stash() {
+    if (view && shownPath && states.has(shownPath)) states.set(shownPath, view.state);
+  },
+
+  show(path: string | null) {
+    if (!view || path === shownPath) return;
+    buffers.stash();
+    shownPath = path;
+    const state = path ? states.get(path) : undefined;
+    view.setState(state ?? EditorState.create({ doc: "" }));
+    if (state) view.focus();
+  },
+
+  goToLine(line: number) {
+    if (!view) return;
+    const target = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));
+    view.dispatch({
+      selection: EditorSelection.cursor(target.from),
+      effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+    });
+    view.focus();
+  },
+
+  run(command: (v: EditorView) => boolean) {
+    if (view) {
+      command(view);
+      view.focus();
+    }
+  },
+
+  /** Wrap the selection, or insert a snippet with the cursor between `before` and `after`. */
+  insert(before: string, after = "") {
+    if (!view || !shownPath) return;
+    const range = view.state.selection.main;
+    const selected = view.state.sliceDoc(range.from, range.to);
+    view.dispatch({
+      changes: { from: range.from, to: range.to, insert: before + selected + after },
+      selection: EditorSelection.range(range.from + before.length, range.from + before.length + selected.length),
+      userEvent: "input",
+    });
+    view.focus();
+  },
+
+  /** Show compile errors and warnings in every open file they belong to. */
+  setDiagnostics(all: Diagnostic[]) {
+    for (const path of states.keys()) {
+      const state = buffers.current(path);
+      if (!state) continue;
+      const mine: CmDiagnostic[] = all
+        .filter((d) => d.file === path && d.line > 0 && d.line <= state.doc.lines)
+        .map((d) => {
+          const line = state.doc.line(d.line);
+          return {
+            from: line.from,
+            to: Math.max(line.to, line.from),
+            severity: d.severity === "error" ? "error" : "warning",
+            message: d.message,
+          };
+        });
+      const spec = setDiagnostics(state, mine);
+      if (shownPath === path && view) view.dispatch(spec);
+      else states.set(path, state.update(spec).state);
+    }
+  },
+};

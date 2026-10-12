@@ -102,7 +102,9 @@ fn normalise(raw: &str, cwd: &Path, root: &Path) -> String {
     match full.strip_prefix(&base) {
         Some(rest) => {
             let keep = clean.to_string_lossy().replace('\\', "/");
-            keep[keep.len() - rest.len()..].trim_start_matches('/').to_string()
+            keep[keep.len() - rest.len()..]
+                .trim_start_matches('/')
+                .to_string()
         }
         None => clean.to_string_lossy().replace('\\', "/"),
     }
@@ -161,7 +163,9 @@ impl SyncTex {
                 }
                 continue;
             }
-            let Some(first) = line.chars().next() else { continue };
+            let Some(first) = line.chars().next() else {
+                continue;
+            };
             match first {
                 '}' => in_page = false,
                 ')' | ']' => {
@@ -308,7 +312,11 @@ fn parse_record(body: &str, scale: f64, x_off: f64, y_off: f64) -> Option<Rec> {
     let h: f64 = point.next()?.parse().ok()?;
     let v: f64 = point.next()?.parse().ok()?;
     let mut size = parts.next().unwrap_or("").split(',');
-    let mut next = || size.next().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+    let mut next = || {
+        size.next()
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
     let (w, hh, d) = (next(), next(), next());
     // A negative width means the box was set right to left; keep its left edge on the left.
     let (x, w) = if w < 0.0 { (h + w, -w) } else { (h, w) };
@@ -385,7 +393,10 @@ Count:12
         assert_eq!(r.page, 1);
         // 8799518 sp is about 133.8 pt; the box is 655360 sp (10 TeX pt) tall above its baseline.
         assert!((r.x - 133.77).abs() < 0.1, "{r:?}");
-        assert!((r.y - (11000000.0 - 655360.0) / 65781.76).abs() < 0.01, "{r:?}");
+        assert!(
+            (r.y - (11000000.0 - 655360.0) / 65781.76).abs() < 0.01,
+            "{r:?}"
+        );
         assert!((r.width - 26673152.0 / 65781.76).abs() < 0.01);
     }
 
@@ -402,11 +413,26 @@ Count:12
     fn inverse_uses_the_nearest_position_within_the_line() {
         let s = sample();
         let at = |x: f64, v: f64| s.inverse(1, x / 65781.76, v / 65781.76).unwrap();
-        assert_eq!(at(9900000.0, 10900000.0), SourcePos { file: "main.tex".into(), line: 7 });
-        assert_eq!(at(19900000.0, 10900000.0), SourcePos { file: "main.tex".into(), line: 8 });
+        assert_eq!(
+            at(9900000.0, 10900000.0),
+            SourcePos {
+                file: "main.tex".into(),
+                line: 7
+            }
+        );
+        assert_eq!(
+            at(19900000.0, 10900000.0),
+            SourcePos {
+                file: "main.tex".into(),
+                line: 8
+            }
+        );
         assert_eq!(
             at(9900000.0, 12900000.0),
-            SourcePos { file: "sections/proof.tex".into(), line: 3 }
+            SourcePos {
+                file: "sections/proof.tex".into(),
+                line: 3
+            }
         );
         // Below all text on the page: the nearest line still answers.
         assert_eq!(at(9900000.0, 30000000.0).line, 3);

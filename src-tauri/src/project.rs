@@ -62,8 +62,20 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
     tmp.write_all(bytes)?;
     tmp.flush()?;
-    tmp.persist(path).map_err(|e| Error::Io(e.error))?;
-    Ok(())
+    // On Windows the destination can be held open for a moment by another reader (a virus
+    // scanner, a file watcher), which makes the replace fail. A short retry rides that out.
+    let mut attempts = 0;
+    loop {
+        match tmp.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(e) if attempts < 20 && e.error.kind() == std::io::ErrorKind::PermissionDenied => {
+                attempts += 1;
+                tmp = e.file;
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
+            Err(e) => return Err(Error::Io(e.error)),
+        }
+    }
 }
 
 /// Validate a project-relative path and split it into its components.
@@ -192,8 +204,10 @@ impl Project {
 
     fn guess_main(&self) -> Result<String> {
         let files = self.walk_files()?;
-        let tex: Vec<&(String, PathBuf)> =
-            files.iter().filter(|(rel, _)| rel.ends_with(".tex")).collect();
+        let tex: Vec<&(String, PathBuf)> = files
+            .iter()
+            .filter(|(rel, _)| rel.ends_with(".tex"))
+            .collect();
         if let Some((rel, _)) = tex.iter().find(|(rel, _)| rel == "main.tex") {
             return Ok(rel.clone());
         }

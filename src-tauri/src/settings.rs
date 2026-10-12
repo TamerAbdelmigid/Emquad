@@ -6,6 +6,7 @@ use crate::project::{Project, atomic_write};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::Mutex;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -40,16 +41,49 @@ impl Default for Settings {
     }
 }
 
+/// Settings are read, changed and written back as one step; this keeps two commands from
+/// interleaving and one of them writing stale or default values over the other's.
+static LOCK: Mutex<()> = Mutex::new(());
+
 impl Settings {
-    pub fn load(dir: &Path) -> Settings {
-        fs::read(dir.join("settings.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+    fn read(dir: &Path) -> Result<Settings> {
+        let path = dir.join("settings.json");
+        if !path.exists() {
+            let fresh = Settings::default();
+            fresh.write(dir)?;
+            return Ok(fresh);
+        }
+        match serde_json::from_slice(&fs::read(&path)?) {
+            Ok(settings) => Ok(settings),
+            Err(_) => {
+                // Unreadable settings must not be silently replaced: keep the file for recovery.
+                let _ = fs::rename(&path, dir.join("settings.damaged.json"));
+                let fresh = Settings::default();
+                fresh.write(dir)?;
+                Ok(fresh)
+            }
+        }
     }
 
-    pub fn save(&self, dir: &Path) -> Result<()> {
-        atomic_write(&dir.join("settings.json"), &serde_json::to_vec_pretty(self)?)
+    fn write(&self, dir: &Path) -> Result<()> {
+        atomic_write(
+            &dir.join("settings.json"),
+            &serde_json::to_vec_pretty(self)?,
+        )
+    }
+
+    pub fn load(dir: &Path) -> Result<Settings> {
+        let _guard = LOCK.lock().unwrap();
+        Self::read(dir)
+    }
+
+    /// Change the stored settings and return the result.
+    pub fn update(dir: &Path, change: impl FnOnce(&mut Settings)) -> Result<Settings> {
+        let _guard = LOCK.lock().unwrap();
+        let mut settings = Self::read(dir)?;
+        change(&mut settings);
+        settings.write(dir)?;
+        Ok(settings)
     }
 
     pub fn author(&self) -> Author {
@@ -86,12 +120,48 @@ mod tests {
     #[test]
     fn settings_survive_a_restart_and_keep_one_identity() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut s = Settings::load(tmp.path());
-        assert!(s.display_name.is_empty() && !s.author_id.is_empty());
-        s.display_name = "Tamer".into();
-        s.save(tmp.path()).unwrap();
-        let again = Settings::load(tmp.path());
-        assert_eq!(again.author_id, s.author_id);
+        let first = Settings::load(tmp.path()).unwrap();
+        assert!(first.display_name.is_empty() && !first.author_id.is_empty());
+        Settings::update(tmp.path(), |s| s.display_name = "Tamer".into()).unwrap();
+        let again = Settings::load(tmp.path()).unwrap();
+        assert_eq!(again.author_id, first.author_id);
         assert_eq!(again.author().name, "Tamer");
+    }
+
+    #[test]
+    fn concurrent_readers_and_writers_never_lose_the_name_or_identity() {
+        let tmp = tempfile::tempdir().unwrap();
+        let id = Settings::update(tmp.path(), |s| s.display_name = "Tamer".into())
+            .unwrap()
+            .author_id;
+        let dir = tmp.path().to_path_buf();
+        let threads: Vec<_> = (0..8)
+            .map(|n| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..25 {
+                        if n % 2 == 0 {
+                            Settings::load(&dir).unwrap();
+                        } else {
+                            Settings::update(&dir, |s| s.editor_font_size = 12 + n).unwrap();
+                        }
+                    }
+                })
+            })
+            .collect();
+        threads.into_iter().for_each(|t| t.join().unwrap());
+        let end = Settings::load(&dir).unwrap();
+        assert_eq!((end.author_id, end.display_name.as_str()), (id, "Tamer"));
+    }
+
+    #[test]
+    fn damaged_settings_are_set_aside_rather_than_overwritten() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("settings.json"), "{ not json").unwrap();
+        assert!(Settings::load(tmp.path()).unwrap().display_name.is_empty());
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("settings.damaged.json")).unwrap(),
+            "{ not json"
+        );
     }
 }

@@ -3,3 +3,6 @@ dist/
 target/
 .emquad/
 *.log
+src-tauri/gen/
+src-tauri/sidecars/*
+!src-tauri/sidecars/README.md

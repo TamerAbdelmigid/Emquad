@@ -142,7 +142,10 @@ pub fn export(
             zip.write_all(&history.blob(blob)?)?;
         }
         if has_pdf {
-            let name = pdf.file_name().and_then(|n| n.to_str()).unwrap_or("output.pdf");
+            let name = pdf
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("output.pdf");
             zip.start_file(format!("output/{name}"), options)?;
             zip.write_all(&fs::read(&pdf)?)?;
         }
@@ -206,10 +209,13 @@ fn extract(path: &Path, dest: &Path) -> Result<()> {
         }
         // Judge the raw name ourselves rather than trusting a sanitiser to drop the bad parts.
         let name = entry.name().map_err(|_| unsafe_path())?.into_owned();
-        let parts: Vec<&str> = name.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+        let parts: Vec<&str> = name
+            .split('/')
+            .filter(|p| !p.is_empty() && *p != ".")
+            .collect();
         if name.starts_with('/')
             || name.contains(['\\', ':'])
-            || parts.iter().any(|p| *p == "..")
+            || parts.contains(&"..")
             || parts.is_empty()
         {
             return Err(unsafe_path());
@@ -327,7 +333,13 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
         .project
         .name
         .chars()
-        .map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '_' } else { c })
+        .map(|c| {
+            if "<>:\"/\\|?*".contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let folder = folder.trim().trim_matches('.');
     let dest = parent_dir.join(if folder.is_empty() { "project" } else { folder });
@@ -408,14 +420,16 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (a, ha) = new_project(&tmp.path().join("a"));
         let me = author("Tamer");
-        a.write_file("sections/intro é.tex", "crlf\r\nline\r\n").unwrap();
+        a.write_file("sections/intro é.tex", "crlf\r\nline\r\n")
+            .unwrap();
         a.write_file("empty.tex", "").unwrap();
         fs::write(a.root.join("fig.bin"), [0u8, 200, 13, 10]).unwrap();
         ha.snapshot(&a, &me, "snapshot", "Draft 1").unwrap();
         a.write_file("main.tex", "second\n").unwrap();
 
         let file = tmp.path().join("paper.emquad");
-        let manifest = export(&a, &ha, &me, &file, "Please check section 2\nthanks", false).unwrap();
+        let manifest =
+            export(&a, &ha, &me, &file, "Please check section 2\nthanks", false).unwrap();
         assert_eq!(read_manifest(&file).unwrap().head, manifest.head);
 
         let b = import_new(&file, &tmp.path().join("elsewhere")).unwrap();
@@ -423,7 +437,12 @@ mod tests {
         assert_eq!(b.info.project_id, a.info.project_id);
         let hb = History::open(&b).unwrap();
         let ids = |h: &History, p: &Project| -> Vec<String> {
-            h.list(p).unwrap().versions.into_iter().map(|v| v.id).collect()
+            h.list(p)
+                .unwrap()
+                .versions
+                .into_iter()
+                .map(|v| v.id)
+                .collect()
         };
         assert_eq!(ids(&hb, &b), ids(&ha, &a));
         assert_eq!(
@@ -456,7 +475,11 @@ mod tests {
         let m2 = import_into(&a, &ha, &reply).unwrap();
         assert_eq!(m1.bundle_id, m2.bundle_id);
         assert_eq!(ha.list(&a).unwrap().versions.len(), count);
-        assert_eq!(read_all(&a), before, "import must not touch the working copy");
+        assert_eq!(
+            read_all(&a),
+            before,
+            "import must not touch the working copy"
+        );
         let pending: Vec<_> = ha
             .list(&a)
             .unwrap()
@@ -494,7 +517,9 @@ mod tests {
             assert!(!tmp.path().join("new").join(&a.info.name).exists());
         };
 
-        tamper(&reply, &bad, |e| e.push(("../escape.tex".into(), b"x".to_vec())));
+        tamper(&reply, &bad, |e| {
+            e.push(("../escape.tex".into(), b"x".to_vec()))
+        });
         expect("bundle_unsafe_path");
         assert!(!tmp.path().join("escape.tex").exists());
 

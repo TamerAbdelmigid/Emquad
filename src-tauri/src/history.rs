@@ -418,7 +418,12 @@ impl History {
     /// the restored state is recorded as a new version.
     pub fn restore(&self, project: &Project, author: &Author, version: &str) -> Result<Oid> {
         let target = self.repo.find_commit(self.parse_id(version)?)?;
-        let label = target.summary().ok().flatten().unwrap_or("version").to_string();
+        let label = target
+            .summary()
+            .ok()
+            .flatten()
+            .unwrap_or("version")
+            .to_string();
         self.snapshot(
             project,
             author,
@@ -549,10 +554,15 @@ pub mod tests {
         let (p, h) = new_project(&dir);
         fs::create_dir_all(dir.join(".git")).unwrap();
         fs::write(dir.join(".git/config"), "theirs").unwrap();
-        let v = h.snapshot(&p, &author("Tamer"), "snapshot", "Draft 1").unwrap();
-        let files = h.files_in(h.repo.find_commit(v).unwrap().tree_id()).unwrap();
+        let v = h
+            .snapshot(&p, &author("Tamer"), "snapshot", "Draft 1")
+            .unwrap();
+        let files = h
+            .files_in(h.repo.find_commit(v).unwrap().tree_id())
+            .unwrap();
         assert_eq!(files.keys().collect::<Vec<_>>(), ["main.tex"]);
-        h.checkout(&p, h.repo.find_commit(v).unwrap().tree_id()).unwrap();
+        h.checkout(&p, h.repo.find_commit(v).unwrap().tree_id())
+            .unwrap();
         assert_eq!(fs::read(dir.join(".git/config")).unwrap(), b"theirs");
     }
 }

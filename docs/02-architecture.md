@@ -8,18 +8,21 @@
 | UI | **React + TypeScript**, built with **Vite** | Largest ecosystem for the editor and PDF components |
 | Package manager | **pnpm** | Fast, strict; one lockfile |
 | Source editor | **CodeMirror 6** | The editor Overleaf itself uses; extensible enough for change highlighting and the later visual mode |
-| LaTeX grammar | `codemirror-lang-latex` (a Lezer grammar) | Syntax highlighting and structure without writing a parser |
-| Compiler | **Tectonic**, shipped as a sidecar executable | Self-contained; downloads LaTeX packages on demand; no TeX Live install |
+| LaTeX grammar | CodeMirror's `stex` stream mode (`@codemirror/legacy-modes`) | Syntax highlighting from a package maintained with CodeMirror itself |
+| Compiler | **Tectonic**, shipped as a sidecar executable; a system `latexmk` as fallback | Tectonic is self-contained and downloads LaTeX packages on demand. When it is absent the app uses `latexmk` if one is on PATH |
 | PDF rendering | **PDF.js** (`pdfjs-dist`) | Standard, renders to canvas with a text layer, lets us handle clicks for source lookup |
 | Source ↔ PDF lookup | **SyncTeX** data produced by the compiler | The standard mechanism; see "SyncTeX" below |
-| Language intelligence | **texlab**, shipped as a sidecar, spoken to over the Language Server Protocol | Completion, diagnostics, references, document symbols |
-| History and merge | **libgit2** through the Rust `git2` crate | Snapshots, ancestry and three-way merge already solved; no system git reemquadd |
+| Completion and outline | Built in: a project index of labels and citation keys (Rust) and a completion source (TypeScript) | Covers commands, environments, `\ref` and `\cite` with no extra process. **texlab** over LSP remains the planned upgrade for references and richer diagnostics |
+| History storage | **libgit2** through the Rust `git2` crate | Versions, ancestry and the common-ancestor lookup; no system git required |
+| Comparison and merge | The Rust `similar` crate, with a three-way pass in `diff.rs` | Review needs every hunk classified and individually rejectable, which a ready-made merge does not expose |
 | Archive format | zip, through the Rust `zip` crate | A `.emquad` file is a zip; recipients can also open it with any unzip tool |
 | File watching | Rust `notify` crate | Detect external edits to project files |
 | UI state | **Zustand** | Small, no boilerplate, works well with CodeMirror's own state |
-| Styling | Plain CSS with custom properties, CSS Modules per component | The mockup's tokens port directly; no runtime styling library |
+| Styling | Plain CSS with custom properties: `tokens.css`, `base.css` (ported from the mockup), `app.css` | The mockup's rules port directly; no runtime styling library |
 | UI tests | **Vitest** + Testing Library | |
-| Backend tests | `cargo test` | |
+| Backend tests | `cargo test`, with `proptest` for the merge invariants | |
+| Types across the boundary | `ts-rs`, generated into `src/ipc/bindings/` by `cargo test` | The two sides cannot drift |
+| End-to-end | `scripts/e2e.js`, run inside the real window by a debug build | Drives compile, lookup, export, import and merge in the actual app |
 
 Pin exact versions of every dependency and of the two sidecar binaries when scaffolding. The lockfiles record library versions; record the two sidecar versions in the repository README. Do not copy version numbers from memory; resolve the current stable release at the time of implementation.
 
@@ -75,7 +78,7 @@ my-paper/                    ← the user's folder; everything outside .emquad/ 
 
 Rules:
 
-- `history.git` is a git directory kept apart from the work tree (`--git-dir` / `--work-tree` style), so a user who keeps the project in their own git repository is unaffected. `.emquad/` is always excluded from the history itself.
+- `history.git` is a bare repository. The app builds each version's tree from the folder's files itself and writes files back itself, without git's index or checkout, so file bytes are never converted and a user who keeps the project in their own git repository is unaffected. `.emquad/` and a top-level `.git/` are always excluded from the history.
 - `build/`, `incoming/` and `state.json` are disposable. Deleting them loses nothing.
 - `project.json` holds: `formatVersion`, `projectId` (a UUID created once, carried in every bundle), `name`, `mainFile`, `engine`.
 
@@ -158,7 +161,7 @@ A diagnostic is `{ severity, file, line, message }`.
 | `lsp_send(message)` | — |
 | event `lsp://message` | messages from texlab |
 
-Generate the TypeScript types for commands and payloads from the Rust definitions (for example with `tauri-specta` or `ts-rs`) so the two sides cannot drift.
+Payload types are generated from the Rust definitions with `ts-rs` into `src/ipc/bindings/`; `src/ipc/api.ts` holds the thin typed wrappers. The authoritative command list is the `handlers!` macro in `src-tauri/src/lib.rs`; the tables above describe its shape, and there are no `lsp_*` commands yet.
 
 ## Compile
 
@@ -185,14 +188,14 @@ Known limits of Tectonic to surface honestly in the UI when they bite: it is XeT
 
 The compiler writes a `.synctex.gz` file next to the PDF. The app needs two lookups from it: source position to PDF rectangle, and PDF point to source line.
 
-Preferred approach: parse the file in Rust and answer lookups from memory, reloading after each successful build. Before writing a parser, check whether a maintained Rust crate exists; if not, port the parsing logic from an existing permissively-licensed implementation (LaTeX Workshop's TypeScript parser is the usual reference) and keep its tests. Do not shell out to a `synctex` executable: Tectonic does not ship one.
+`synctex.rs` parses the file in Rust and answers both lookups. It interprets only what those need: the input-file table and the box and position records per page. It is tested against a hand-written file and, in `tests/real_compile.rs`, against the output of a real compile. Do not shell out to a `synctex` executable: Tectonic does not ship one.
 
 ## Editor integration
 
 - One CodeMirror `EditorState` per open file, kept alive while its tab is open so undo history survives tab switches.
 - Extensions: LaTeX language, diagnostics (from compile and from texlab), completion (texlab), search, and a change-highlighting extension that takes a list of hunks and renders deletions and insertions as decorations.
-- Language server: use a CodeMirror LSP client that accepts a custom transport, and bridge it to `lsp_send` / `lsp://message`. Check for the official CodeMirror LSP client package before choosing a third-party one.
-- The outline comes from texlab's document symbols, with a regular-expression fallback over sectioning commands while the server is starting.
+- Completion comes from `latex.ts` (what is being typed) and the project index (labels, citation keys). A language server is not used yet; when texlab is added, bridge a CodeMirror LSP client to it through two commands.
+- The outline is a scan of sectioning commands in the open buffer.
 - Saving: explicit save and save-on-compile. External changes reported by `project://changed` reload a file silently if the buffer is clean, and prompt if it is dirty.
 
 ## Preview integration

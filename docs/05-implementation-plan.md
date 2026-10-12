@@ -4,6 +4,20 @@ Seven milestones, in order. Each ends in something a person can run and use, and
 
 The order is chosen so that the riskiest unknowns (does the compiler work on this machine; can we map between source and PDF) are met early, and so that the data-critical work (history, bundles, merge) is built on a stable editor.
 
+## Current state
+
+| Milestone | State | What is still open |
+|---|---|---|
+| M0 Scaffold and shell | Done | A full keyboard-only pass over every control has not been done |
+| M1 Projects, files, editor | Done | |
+| M2 Compile and preview | Done, verified with `latexmk` | The Tectonic sidecar has not been downloaded or run on the development machine, so "compiles with no TeX installation" and "compiles offline after the first fetch" are unverified. `scripts/fetch-sidecars.ps1` fetches it |
+| M3 Source and PDF lookup | Done | Verified on pdfTeX output; XeTeX (Tectonic) output follows the same format but has not been run |
+| M4 Snapshots and History | Done | "Showing changes since…" is offered as **Show changes**, which opens History on the working copy with an undo on each change, rather than as marks inside the editor |
+| M5 Bundles, review, merge | Done | Opening a bundle by double-clicking it in Explorer is configured (file association, start-up argument) but only testable from an installed build |
+| M6 Language intelligence and release | Partly done | Done: completion for commands, environments, labels and citation keys; templates; settings. Not done: texlab, resizable panels, the Windows installer build, the user guide |
+
+Evidence: `pnpm verify` (unit, property and real-compile tests) and `scripts/e2e.js` (the full hand-off loop in the real window).
+
 ## Before starting
 
 1. Initialise a git repository in the project root and make a first commit containing `mockup/`, `docs/`, `README.md` and `AGENTS.md`. All later work happens on branches, per `AGENTS.md`.

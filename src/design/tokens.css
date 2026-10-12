@@ -1,0 +1,13 @@
+/* Fieldwork tokens, ported from mockup/emquad-fieldwork.html. Components use only these. */
+:root{
+  --bg:radial-gradient(120% 70% at 50% 0%,#E2E1DB,#CDCCC6);
+  --mod-bg:linear-gradient(180deg,#F0EFEA,#E9E8E3);--mod-sh:inset 0 1px 0 #fff,0 0 0 1px #C6C5BF,0 2px 0 #B7B6AF,0 8px 20px rgba(60,58,50,.09);--r:14px;
+  --tx:#141414;--mu:#5C5B56;--ui:'Hanken Grotesk',system-ui,sans-serif;--mono:'Geist Mono','DM Mono',ui-monospace,monospace;
+  --labf:500 10px/1 'DM Mono',ui-monospace,monospace;--lab-ls:.14em;
+  --lcd-bg:linear-gradient(180deg,#1C1E1B,#121411);--lcd-sh:inset 0 2px 8px #000,inset 0 0 0 1px #000,0 1px 0 #fff;--lcd-tx:#F3F1E8;--lcd-mu:#8D9285;--lcd-div:#2E312B;--ok:#3EDC81;
+  --scr-bg:#121315;--scr-sh:inset 0 0 0 1px #000,inset 0 0 0 6px #202226,inset 0 0 0 7px #2D3035,0 0 0 1px #C6C5BF,0 2px 0 #B7B6AF,0 8px 20px rgba(60,58,50,.09);
+  --scr-tx:#ECEAE3;--scr-dim:#9A9CA2;--scr-num:#5C5F66;--scr-line:#26282C;--scr-cur:#1B1D21;--scr-seg:#202226;--k:#A9BCFF;--m:#EBC66E;--ts:#93ADFF;--ts-ink:#0D1330;
+  --acc:#FF4D00;--acc-tx:#C23A00;--go-bg:linear-gradient(180deg,#FF5A14,#F74700);--go-sh:0 0 0 1px #C93B00,0 3px 0 #B03400;
+  --theirs:#2450F0;--theirs-bg:#DCE4FF;--mine:#C23A00;--mine-bg:#FFE0D0;
+  --btn-bg:linear-gradient(180deg,#FBFAF7,#F3F2EE);--btn-sh:0 0 0 1px #BDBCB6,0 3px 0 #ADACA6;
+  --hover:#DFDED8;--line:#D2D1CB;--card:#F8F7F3;--card-sh:0 0 0 1px #C6C5BF,0 2px 0 #C6C5BF}
