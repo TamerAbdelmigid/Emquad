@@ -438,6 +438,17 @@ describe("the text around a table", () => {
       `We call \\lstinline[language=C]!printf! here. \\fbox{\\parbox{6cm}{Results:\n\n${tabular}\n\n}}`,
       `We call \\lstinline[language=C]{x} here. \\fbox{\\parbox{6cm}{Results:\n\n${tabular}\n\n}}`,
       `An unclosed \\verb|oops\n\n${tabular}\n\n`,
+      `\\begin{table}[h]\n\\centering\n${tabular}\n% source\n\\\\[1ex] {\\small Source: x}\n\\end{table}`,
+      `\\begin{table}\n${tabular}%\n%\n\\\\[1ex] Source: x\n\\end{table}`,
+      `Text.\n\n${tabular}\n% note follows\n\\\\[1ex] {\\small Source: x}\n\nMore.`,
+      `\\begin{table}\n${tabular}\\label{t}\\\\[1ex]\n{\\small Source: x}\n\\end{table}`,
+      `\\begin{table}\n${tabular}\n\\label{t}\n\\\\[1ex] Source\n\\end{table}`,
+      `\\begin{table}\n${tabular}\\label{t}\\newline Source: x\n\\end{table}`,
+      `\\iffalse\n\\begin{table}\n\\fi\n\n${tabular}\n\n\\iffalse\n\\end{table}\n\\fi`,
+      `\\csname begin\\endcsname{minipage}{5cm}\n\n${tabular}\n\n\\csname end\\endcsname{minipage}`,
+      `Text\\vadjust{\\iffalse}\\fi\n\n${tabular}\n\n\\iffalse{\\fi}`,
+      `\\twocolumn\n[\n\n${tabular}\n\n]`,
+      `See \\url{http://example.org/a%20b}: \\parbox{6cm}{\\textbf{Source\ndata}\n\n${tabular}\n\n}`,
     ]) {
       const text = `${DOC0}${body}`;
       const result = where(text);
@@ -460,6 +471,10 @@ describe("the text around a table", () => {
       "\\newrobustcmd{\\bmp}{\\begin{minipage}{5cm}}",
       "\\AtBeginDocument{\\begin{minipage}{5cm}}\\AtEndDocument{\\end{minipage}}",
       "\\newenvironment{note}{\\begin{quote}}{\\end{quote}}",
+      "\\let\\b\\begin \\let\\e\\end",
+      "\\usepackage{shortvrb}\\MakeShortVerb{\\|}",
+      "\\usepackage{listings}\\lstMakeShortInline|",
+      "\\def\\b{\\csname begin\\endcsname}",
     ]) {
       expect(where(`\\documentclass{article}\n${preamble}\n\\begin{document}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("no");
     }
@@ -470,6 +485,16 @@ describe("the text around a table", () => {
     for (const rest of ["\n", "\n\\label{t}\n", "\n\n\\footnotesize Source: X.\n"]) {
       expect(where(`${DOC0}\\begin{table}\n\\centering\n${tabular}${rest}\\end{table}`).place.kind).toBe("float");
     }
+    // A short form with brackets of its own is still the float's one caption.
+    const short = `${DOC0}\\begin{table}\n${tabular}\n\\par\\caption[Short {[1]}]{Long}\n\\end{table}`;
+    const at2 = short.indexOf(tabular);
+    expect(captionOf(short, at2, at2 + tabular.length)).toBe("Long");
+    expect(apply(short, setCaption(short, at2, at2 + tabular.length, "New"))).toBe(short.replace("Long", "New"));
+    // \captionsetup is not a caption.
+    expect(where(`${DOC0}\\begin{table}\n\\captionsetup{font=small}\n${tabular}\n\\end{table}`).place).toMatchObject({ kind: "float" });
+    expect(captionOf(`${DOC0}\\begin{table}\n\\captionsetup{font=small}\n${tabular}\n\\end{table}`, `${DOC0}\\begin{table}\n\\captionsetup{font=small}\n`.length, `${DOC0}\\begin{table}\n\\captionsetup{font=small}\n`.length + tabular.length)).toBeNull();
+    // A percent sign in a web address is not a comment, so what follows it is still seen.
+    expect(where(`${DOC0}See \\url{http://example.org/a%20b}.\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("bare");
     // Ordinary definitions, in the preamble or the body, do not stand in the way.
     expect(where(`\\documentclass{article}\n\\newcommand{\\R}{\\mathbb{R}}\n\\begin{document}\n\\def\\x{y}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("bare");
     // A comment or verbatim text that mentions verbatim must not hide what follows it.
@@ -723,6 +748,13 @@ describe("text typed into a box that already held text", () => {
     const now = `New ${had.replace("2020", "2021")}`;
     expect(escapeInserted(had, now)).toBe(now);
     expect(escapeInserted(had, `R&D: ${had.replace("2020", "50%")}`)).toBe(`R\\&D: ${had.replace("2020", "50\\%")}`);
+  });
+
+  it("never leaves bare a character that was escaped, when the text around it is retyped", () => {
+    expect(escapeInserted("Profit \\& loss", "Research & development")).toBe("Research \\& development");
+    expect(escapeInserted("A \\& B", "C & D")).toBe("C \\& D");
+    expect(escapeInserted("50\\% of X", "100% of X")).toBe("100\\% of X");
+    expect(escapeInserted("Sales \\& marketing, 2023", "Sales & marketing, 2024")).toBe("Sales \\& marketing, 2024");
   });
 
   it("knows mathematics and a waiting backslash from what stands before", () => {

@@ -621,7 +621,33 @@ const FLOATS = new Set(["table", "table*", "sidewaystable", "figure", "figure*",
 const PLAIN = new Set(["center", "flushleft", "flushright"]);
 /** Document classes known to have an ordinary `table` float. */
 const CLASSES = /^(?:article|report|book|scrartcl|scrreprt|scrbook|memoir|amsart|amsbook|amsproc|IEEEtran|llncs|acmart|elsarticle|revtex4(?:-[12])?|extarticle|extreport|extbook|ctexart|ctexrep|ctexbook)$/;
-const CAPTION = /\\caption\*?[ \t\r\n]*(?:\[[^\]]*\])?[ \t\r\n]*\{/g;
+/**
+ * Every `\caption` in `clean`: where the command starts and where its opening brace is. The
+ * short form in square brackets is stepped over with its own brackets and braces counted.
+ */
+function captionsIn(clean: string): { index: number; brace: number }[] {
+  const out: { index: number; brace: number }[] = [];
+  for (const m of clean.matchAll(/\\caption\*?(?![a-zA-Z@])/g)) {
+    let at = m.index + m[0].length;
+    const skip = () => {
+      while (/[ \t\r\n]/.test(clean[at] ?? "")) at++;
+    };
+    skip();
+    if (clean[at] === "[") {
+      let depth = 0;
+      for (; at < clean.length; at++) {
+        if (clean[at] === "\\") at++;
+        else if (clean[at] === "[" || clean[at] === "{") depth++;
+        else if ((clean[at] === "]" || clean[at] === "}") && --depth === 0) break;
+      }
+      at++;
+      skip();
+    }
+    if (clean[at] === "{") out.push({ index: m.index, brace: at });
+    else out.push({ index: m.index, brace: -1 });
+  }
+  return out;
+}
 
 /**
  * The text with everything that only looks like LaTeX blanked out, each character still where
@@ -645,7 +671,13 @@ function uncommented(text: string): { clean: string; sure: boolean } {
       const rest = text.slice(i, i + 40);
       const env = /^\\begin\{(verbatim\*?|Verbatim|lstlisting|minted|comment|filecontents\*?)\}/.exec(rest);
       const inline = /^\\(?:verb|lstinline|mintinline|Verb|path|nolinkurl)\*?(?![a-zA-Z@])/.exec(rest);
-      if (env) {
+      const address = /^\\(?:url|href|hyperref|nolinkurl|path)[ \t]*\{/.exec(rest);
+      if (address) {
+        // A web address in braces is taken whole and kept: a percent sign in it is part of it.
+        const stop = closing(text, i + address[0].length - 1);
+        if (stop < 0) sure = false;
+        i = stop < 0 ? i + address[0].length : stop;
+      } else if (env) {
         const close = `\\end{${env[1]}}`;
         const found = text.indexOf(close, i);
         if (found < 0) sure = false;
@@ -708,7 +740,7 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   if (body < 0 || body > from) return refuse("This file is included by another, so the table's surroundings cannot be seen from here.");
   // 3. A preamble that itself begins or ends anything, by whatever command, may have the
   // document start or end inside it.
-  const HIDDEN = /\\(?:begin|end)[ \t]*\{|\\(?:bgroup|egroup|begingroup|endgroup|table|endtable|figure|endfigure|minipage|endminipage|AtBeginDocument|AtEndDocument|everypar|catcode)(?![a-zA-Z@])/;
+  const HIDDEN = /\\(?:begin|end|bgroup|egroup|begingroup|endgroup|table|endtable|figure|endfigure|minipage|endminipage|AtBeginDocument|AtEndDocument|AddToHook|everypar|catcode|csname|@nameuse|MakeShortVerb|DefineShortVerb|lstMakeShortInline)(?![a-zA-Z@])/;
   if (HIDDEN.test(clean.slice(0, body))) return refuse("This document's preamble makes commands or hooks that begin or end environments.");
   // Anything that can open or close an environment or a group out of sight makes the
   // surroundings unknowable: home-made commands that do, and the plain TeX forms.
@@ -721,7 +753,13 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
       return refuse("This document makes its own commands that begin or end environments.");
     }
   }
-  if (/\\(?:begin|end)[ \t]+\{/.test(clean.slice(0, to))) return refuse("An environment here is written with a space after \\begin.");
+  const text0 = clean.slice(body);
+  if (/\\(?:begin|end)(?![a-zA-Z@{])/.test(text0)) return refuse("An environment here is begun or ended in a way that cannot be followed.");
+  // Conditions, and commands built or passed around by name, can make the text mean something
+  // other than it shows.
+  if (/\\(?:if[a-zA-Z@]*|else|fi|csname|@nameuse|expandafter|futurelet|let|vadjust|noexpand)(?![a-zA-Z@])/.test(text0)) {
+    return refuse("This document uses conditions or commands built by name in its body.");
+  }
   // The environments open at the table, outermost first.
   const open: { name: string; at: number }[] = [];
   for (const m of clean.slice(body, from).matchAll(/\\(begin|end)\{([^}]*)\}/g)) {
@@ -742,7 +780,7 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   // Inside the braces of a box such as \resizebox a caption or a float would not compile.
   if (braceDepth(clean, since, from) !== 0) return refuse("This table is inside the braces of another command, where a caption cannot go.");
   // Nor inside the square brackets of a command, however far back they opened.
-  for (const m of around.matchAll(/\\[a-zA-Z@]+\*?[ \t]*\[/g)) {
+  for (const m of around.matchAll(/\\[a-zA-Z@]+\*?[ \t]*(?:\r?\n[ \t]*)?\[/g)) {
     let depth = 0;
     let at = since + m.index + m[0].length - 1;
     for (; at < clean.length; at++) {
@@ -778,9 +816,10 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
     if (open.length > 1) return refuse(`This table is inside a ${open[open.length - 1].name} environment and not yet in a float.`);
     const lineStart = clean.lastIndexOf("\n", from - 1) + 1;
     const lineEnd = clean.indexOf("\n", to) < 0 ? clean.length : clean.indexOf("\n", to);
-    const before = clean.slice(clean.lastIndexOf("\n", lineStart - 2) + 1, from);
-    const after = clean.slice(to, clean.indexOf("\n", lineEnd + 1) < 0 ? clean.length : clean.indexOf("\n", lineEnd + 1));
-    const own = (trimSpaces(before) === "" || trimSpaces(before) === "\\begin{document}") && (trimSpaces(after) === "" || /^[ \t]*\n[ \t]*\\end\{document\}/.test(clean.slice(to)));
+    // Judged on the text as written: a line holding only a comment is not a blank line.
+    const before = text.slice(text.lastIndexOf("\n", lineStart - 2) + 1, from);
+    const after = text.slice(to, text.indexOf("\n", lineEnd + 1) < 0 ? text.length : text.indexOf("\n", lineEnd + 1));
+    const own = (trimSpaces(before) === "" || trimSpaces(before) === "\\begin{document}") && (trimSpaces(after) === "" || /^[ \t]*\r?\n[ \t]*\\end\{document\}/.test(text.slice(to)));
     if (!own) return refuse("This table is not a paragraph of its own: put a blank line before and after it first.");
     if (clean.slice(body).includes("\\captionof")) return refuse("A caption is given in this document with \\captionof.");
     return { kind: "bare" };
@@ -792,21 +831,28 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   if (/\\begin\{(?:table|figure|sidewaystable)\*?\}/.test(clean.slice(to, end))) return refuse("The environment this table is in is not finished.");
   if ((inside.match(/\\begin\{tabular[x*]?\}/g) ?? []).length > 1) return refuse("This table shares its float with another, so it is not clear whose caption is whose.");
   if (inside.includes("\\captionof")) return refuse("A caption is given here with \\captionof.");
-  const found = [...inside.matchAll(CAPTION)];
+  const found = captionsIn(inside);
   if (found.length > 1) return refuse("This table's float has more than one caption.");
+  if (found.some((c) => c.brace < 0)) return refuse("The caption in this float is written in a way that cannot be followed.");
   const labelled = inside.includes("\\label");
   if (found.length === 0) {
     // The new caption goes straight after the table, which must be the float's own level.
     if (braceDepth(clean, to, end) !== 0) return refuse("This table is inside the braces of another command, where a caption cannot go.");
     // A line break, a note or anything else written straight after the table would be cut
     // off from it by a caption put in between.
-    if (!/^[ \t]*(?:\r?\n[ \t]*)*(?:\\end\{|\\label(?![a-zA-Z@])|\\par(?![a-zA-Z@])|$)/.test(clean.slice(to, end)) && !/^[ \t]*\r?\n[ \t]*\r?\n/.test(clean.slice(to, end))) {
-      return refuse("Something is written straight after this table in its float.");
-    }
+    // Judged on the text as written, where a comment is not a blank line.
+    const quiet = (rest: string): boolean => {
+      if (/^[ \t]*\r?\n[ \t]*\r?\n/.test(rest)) return true;
+      const next = rest.replace(/^[ \t\r\n]+/, "");
+      if (next === "" || /^\\end\{/.test(next) || /^\\par(?![a-zA-Z@])/.test(next)) return true;
+      const label = /^\\label\{[^{}]*\}/.exec(next);
+      return label ? quiet(next.slice(label[0].length)) : false;
+    };
+    if (!quiet(text.slice(to, end))) return refuse("Something is written straight after this table in its float.");
     return { kind: "float", from: float.at, to: end, labelled };
   }
   const start = float.at + found[0].index;
-  const brace = start + found[0][0].length - 1;
+  const brace = float.at + found[0].brace;
   const close = closing(clean, brace);
   if (close < 0 || close > end) return refuse("The caption this table has is not finished.");
   // The caption must be the float's own: not inside a box, nor in a part of the float with
@@ -915,6 +961,9 @@ export function escapeInserted(before: string, after: string): string {
   const [n, m] = [before.length, after.length];
   // Which characters of `after` were already in `before`: the longest run of them in order.
   const kept = new Uint8Array(m);
+  /** For a kept character, whether it stood after a backslash in `before`. */
+  const wasEscaped = new Uint8Array(m);
+  const escapedAt = (i: number) => /\\*$/.exec(before.slice(0, i))![0].length % 2 === 1;
   if (n * m <= 4_000_000) {
     const width = m + 1;
     const table = new Uint16Array((n + 1) * width);
@@ -926,6 +975,7 @@ export function escapeInserted(before: string, after: string): string {
     for (let i = 0, j = 0; i < n && j < m; ) {
       if (before[i] === after[j]) {
         kept[j] = 1;
+        if ((after[j] === "&" || after[j] === "%") && escapedAt(i)) wasEscaped[j] = 1;
         i++;
         j++;
       } else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) i++;
@@ -949,7 +999,9 @@ export function escapeInserted(before: string, after: string): string {
     if (escaped && (ch === "(" || ch === "[")) math = true;
     if (escaped && (ch === ")" || ch === "]")) math = false;
     if (ch === "$" && !escaped) math = !math;
-    const bare = !kept[j] && !escaped && (ch === "%" || (ch === "&" && !math));
+    // A character that was there before is left alone, unless it was escaped and the
+    // backslash before it has since been deleted: it must not become a bare one.
+    const bare = !escaped && (kept[j] ? wasEscaped[j] === 1 : ch === "%" || (ch === "&" && !math));
     out += bare ? `\\${ch}` : ch;
   }
   return out;
