@@ -56,7 +56,7 @@ Every action changes your `.tex` file at once, and **Code** shows exactly what w
 
 **Paste from Word or Excel.** Copy a table there and paste it into the editor. Emquad asks whether to paste it as a table; merged cells are kept and characters LaTeX treats specially are escaped. Cancel pastes the plain text.
 
-**Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly is drawn with a note saying why and an **Edit source** link. Examples: a `p{3cm}` column, a table inside a table, a comment, `erb`, a rule with a thickness such as `\midrule[2pt]`, a rule drawn straight through a merged cell, or `tabularx`. Emquad never rewrites such a table. Before accepting any table it checks that writing it out and reading it again gives the same table, and it makes the same check before every change.
+**Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly is drawn with a note saying why and an **Edit source** link. Examples: a `p{3cm}` column, a table inside a table, a comment, `\verb`, a rule with a thickness such as `\midrule[2pt]`, a rule drawn straight through a merged cell, or `tabularx`. Emquad never rewrites such a table. Before accepting any table it checks that writing it out and reading it again gives the same table, and it makes the same check before every change.
 
 When you edit a table you wrote by hand, Emquad lays its source out its own way, one row to a line. The cells, merges and rules are kept as they were.
 
