@@ -103,9 +103,9 @@ pub fn run() {
             Ok(())
         })
         .on_page_load(e2e::on_page_load);
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "e2e"))]
     let builder = builder.invoke_handler(handlers!(e2e::e2e_log, e2e::e2e_exit));
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(any(debug_assertions, feature = "e2e")))]
     let builder = builder.invoke_handler(handlers!());
     builder
         .run(tauri::generate_context!())

@@ -1,24 +1,23 @@
-//! Development-only harness for end-to-end checks of the real window (see scripts/e2e.js).
+//! Test harness for checking the real window from the inside (see scripts/e2e.js and
+//! scripts/smoke-release.js).
 //!
-//! When `EMQUAD_E2E` names a script, a debug build runs it in the page once the page has
-//! loaded. The script reports through `e2e_log` and ends the app with `e2e_exit`. None of this
-//! exists in release builds.
+//! When `EMQUAD_E2E` names a script, the app runs it in the page each time the page finishes
+//! loading. The script reports through `e2e_log` and ends the app with `e2e_exit`.
+//!
+//! The harness exists in debug builds, and in release builds only when compiled with the `e2e`
+//! feature, which is how the packaged frontend is smoke-tested. The installer is built without
+//! that feature, so none of this is in what users install.
 
 use tauri::{Runtime, Webview, webview::PageLoadPayload};
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "e2e"))]
 pub fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadPayload<'_>) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static STARTED: AtomicBool = AtomicBool::new(false);
     if payload.event() != tauri::webview::PageLoadEvent::Finished {
         return;
     }
     let Ok(script_path) = std::env::var("EMQUAD_E2E") else {
         return;
     };
-    if STARTED.swap(true, Ordering::SeqCst) {
-        return;
-    }
     let Ok(script) = std::fs::read_to_string(&script_path) else {
         return;
     };
@@ -29,10 +28,10 @@ pub fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadPayload<
     ));
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(not(any(debug_assertions, feature = "e2e")))]
 pub fn on_page_load<R: Runtime>(_: &Webview<R>, _: &PageLoadPayload<'_>) {}
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "e2e"))]
 #[tauri::command]
 pub fn e2e_log(line: String) {
     use std::io::Write;
@@ -47,15 +46,15 @@ pub fn e2e_log(line: String) {
     }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "e2e"))]
 #[tauri::command]
 pub fn e2e_exit(app: tauri::AppHandle, code: i32) {
     app.exit(code);
 }
 
-/// During an end-to-end run, settings live in the run's own folder, not the user's.
+/// During a harness run, settings live in the run's own folder, not the user's.
 pub fn config_dir() -> Option<std::path::PathBuf> {
-    if !cfg!(debug_assertions) || std::env::var_os("EMQUAD_E2E").is_none() {
+    if !cfg!(any(debug_assertions, feature = "e2e")) || std::env::var_os("EMQUAD_E2E").is_none() {
         return None;
     }
     std::env::var_os("EMQUAD_E2E_WORK").map(|work| std::path::PathBuf::from(work).join("config"))

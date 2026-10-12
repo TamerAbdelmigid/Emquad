@@ -116,3 +116,11 @@ dialog input[type=radio]{width:17px;height:17px;accent-color:var(--acc)}
 .recent .ic{grid-row:span 2;color:var(--mu)}
 .recent b{font-weight:600}
 .recent span{font:400 11.5px var(--mono);color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* resizable panels: the gaps between panels are the handles */
+.work{column-gap:0}
+.splitter{position:relative;cursor:col-resize;touch-action:none;border-radius:4px}
+.splitter::after{content:"";position:absolute;left:3px;top:calc(50% - 22px);width:2px;height:44px;border-radius:2px;background:#A5A49E;opacity:0;transition:opacity .12s}
+.splitter:hover::after,.splitter:focus-visible::after,.splitter:active::after{opacity:1}
+.splitter:active::after{background:var(--acc)}
+.sync{left:-24px}

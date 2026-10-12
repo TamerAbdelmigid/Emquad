@@ -13,8 +13,8 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 | M2 Compile and preview | Done, verified with Tectonic 0.17.0 and with `latexmk` | The development machine also has TeX installed, so "a machine with no TeX installation" has been shown only in the sense that Tectonic did the compiling. "Compiles offline after the first fetch" has not been tried with the network off |
 | M3 Source and PDF lookup | Done | Verified on both pdfTeX and XeTeX (Tectonic) output |
 | M4 Snapshots and History | Done | "Showing changes since…" is offered as **Show changes**, which opens History on the working copy with an undo on each change, rather than as marks inside the editor |
-| M5 Bundles, review, merge | Done | Opening a bundle by double-clicking it in Explorer is configured (file association, start-up argument) but only testable from an installed build |
-| M6 Language intelligence and release | Partly done | Done: completion for commands, environments, labels and citation keys; templates; settings. Not done: texlab, resizable panels, the Windows installer build, the user guide |
+| M5 Bundles, review, merge | Done | Starting the app with a bundle as its argument is verified in a release build. The Explorer double-click itself relies on the installer's file association |
+| M6 Language intelligence and release | Done except texlab | Done: completion for commands, environments, labels and citation keys; templates; settings; resizable panels; the Windows installer with Tectonic inside; the user guide (`docs/user-guide.md`). Not done: texlab, which stays the planned upgrade for references and richer diagnostics |
 
 Known limitations, none of which lose data:
 
@@ -23,7 +23,7 @@ Known limitations, none of which lose data:
 - A bundle made on Linux that holds two folders differing only in capital letters is rejected on Windows with a message about its files not matching its history, rather than one that names the real cause.
 - On macOS, file names with invisible Unicode characters have not been examined for the aliasing that the file-name rule guards against on Windows.
 
-Evidence: `pnpm verify` (unit, property and real-compile tests) and `scripts/e2e.js` (the full hand-off loop in the real window).
+Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js` (the full hand-off loop in the real window), and `scripts/smoke-release.js` (the packaged frontend, fonts, PDF viewer and bundled compiler in a release build).
 
 ## Before starting
 

@@ -63,7 +63,7 @@ Bundle the font files with the app. The mockup loads them from Google Fonts, whi
 - The app fills the window exactly. **The window never scrolls.** Each panel scrolls internally when its content is longer.
 - 8px padding around the app and 8px gaps between panels. Panels are separate rounded modules, not flush panes.
 - Minimum supported window is about 1280 × 720. Below 1280px wide the mockup stacks panels and lets the window scroll; the real app should instead enforce a minimum window size and let the user collapse panels.
-- Panel widths between files, source and PDF are user-resizable by dragging the gaps. The mockup does not implement this; the 8px gap is the drag target.
+- Panel widths between files, source and PDF are user-resizable by dragging the gaps; the 8px gap is the drag target. The mockup does not show this.
 
 ### Top bar (about 43px tall)
 
@@ -158,7 +158,7 @@ Deliberate differences, so nobody "fixes" them back:
 - **File tree rows** have a "···" menu for rename, delete, and set as main file; the main file carries a "Main" tag.
 - **History** has no "Files in this version" list of everything, only the files that changed, each tagged Added, Edited or Removed.
 - **A start screen** (new project, open folder, open bundle, recent projects) and a first-run prompt for the user's name exist in the app and not in the mockup.
-- **Panels are not resizable yet.** The file panel can be hidden and the layout switched between source and PDF, source only, and PDF only.
+- **Panels resize** by dragging the gaps between the file panel, the source and the PDF (or with the arrow keys when a gap has focus). The widths are remembered per project.
 
 ## What the mockup fakes
 

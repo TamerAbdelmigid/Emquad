@@ -11,6 +11,8 @@
 // Native file dialogs cannot be driven from a page, so those steps call the backend directly.
 // Lines starting "SHOT" mark moments worth a screenshot; the script pauses briefly after each.
 (async () => {
+  if (window.__E2E_RUNNING) return;
+  window.__E2E_RUNNING = true;
   const invoke = (command, args = {}) => window.__TAURI_INTERNALS__.invoke(command, args);
   const log = (line) => invoke("e2e_log", { line });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -65,6 +67,23 @@
     await ok(text(".file-row.on").includes("main.tex"), "the file tree marks the open file");
     await until("the outline", () => text(".flist.outline").includes("Introduction"));
     await ok(true, "the outline lists the section");
+
+    // --- panels resize: by dragging the gap, and with the arrow keys
+    const [filesGap, panesGap] = $$(".splitter");
+    const panel = () => $(".files").getBoundingClientRect().width;
+    const widthBefore = panel();
+    const at = filesGap.getBoundingClientRect();
+    const pointer = (type, x) =>
+      filesGap.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 7, clientX: x, clientY: at.top + 40 }));
+    pointer("pointerdown", at.left + 4);
+    pointer("pointermove", at.left + 64);
+    pointer("pointerup", at.left + 64);
+    await until("the file panel to widen", () => panel() > widthBefore + 40);
+    await ok(true, "dragging the gap widens the file panel");
+    const sourceBefore = $(".screen").getBoundingClientRect().width;
+    panesGap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    await until("the source pane to narrow", () => $(".screen").getBoundingClientRect().width < sourceBefore - 5);
+    await ok(true, "the arrow keys move the gap between source and PDF");
 
     // --- compile
     await click("Recompile");

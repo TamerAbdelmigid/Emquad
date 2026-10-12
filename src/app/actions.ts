@@ -15,10 +15,14 @@ export async function guard<T>(work: () => Promise<T>): Promise<T | undefined> {
   }
 }
 
-function persistUi() {
+export const clampFiles = (px: number) => Math.round(Math.min(480, Math.max(170, px)));
+export const clampSplit = (share: number) => Math.min(0.8, Math.max(0.2, share));
+
+export function persistUi() {
   const s = store();
   if (!s.root) return;
-  void api.uiStateSave(JSON.stringify({ tabs: s.tabs.map((t) => t.path), active: s.active })).catch(() => {});
+  const state = { tabs: s.tabs.map((t) => t.path), active: s.active, filesWidth: s.filesWidth, split: s.split };
+  void api.uiStateSave(JSON.stringify(state)).catch(() => {});
 }
 
 async function enter(opened: OpenedProject) {
@@ -37,12 +41,14 @@ async function enter(opened: OpenedProject) {
     focusBundle: null,
     settings: await api.settingsGet(),
   });
-  let remembered: { tabs?: string[]; active?: string | null } = {};
+  let remembered: { tabs?: string[]; active?: string | null; filesWidth?: number; split?: number } = {};
   try {
     remembered = JSON.parse(opened.uiState ?? "{}");
   } catch {
     // A damaged state file only costs the remembered tabs.
   }
+  if (typeof remembered.filesWidth === "number") store().set({ filesWidth: clampFiles(remembered.filesWidth) });
+  if (typeof remembered.split === "number") store().set({ split: clampSplit(remembered.split) });
   const wanted = remembered.tabs?.length ? remembered.tabs : [opened.info.mainFile];
   for (const path of wanted.filter(Boolean)) await openFile(path, undefined, true);
   const active = remembered.active && buffers.has(remembered.active) ? remembered.active : store().tabs[0]?.path;

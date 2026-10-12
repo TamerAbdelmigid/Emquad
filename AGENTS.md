@@ -34,6 +34,8 @@ It runs, in order: TypeScript type-check, lint, `vitest run`, `cargo fmt --check
 
 For a change to anything the user sees or to compile, bundles or review, also run the end-to-end script against the real window. The instructions are at the top of `scripts/e2e.js`; the app exits with code 0 when every check passes.
 
+Before handing over an installer, run `scripts/smoke-release.js` against a release build made with `--features e2e`, then build the installer **without** that feature. The harness must never be in what users install.
+
 Status command:
 
 ```bash

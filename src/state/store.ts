@@ -35,6 +35,10 @@ interface State {
   view: View;
   layout: Layout;
   filesOpen: boolean;
+  /** Width of the file panel in pixels. */
+  filesWidth: number;
+  /** Share of the remaining width given to the source pane, from 0 to 1. */
+  split: number;
   root: string | null;
   info: ProjectInfo | null;
   tree: TreeNode[];
@@ -64,6 +68,8 @@ export const useStore = create<State>((set) => ({
   view: "start",
   layout: "split",
   filesOpen: true,
+  filesWidth: 244,
+  split: 0.52,
   root: null,
   info: null,
   tree: [],

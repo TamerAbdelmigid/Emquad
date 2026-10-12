@@ -2,7 +2,7 @@ import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { listen } from "@tauri-apps/api/event";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Mark, Menu } from "../design/ui";
 import { EditorPane } from "../features/editor/EditorPane";
 import { buffers, setHandlers } from "../features/editor/buffers";
@@ -31,13 +31,14 @@ export function App() {
   const { set, notify } = s;
   const [outlineText, setOutlineText] = useState("");
   const [focusFile, setFocusFile] = useState<string | null>(null);
+  /** A bundle the app was started with, waiting to be opened. */
+  const [startupBundle, setStartupBundle] = useState<string | null>(null);
 
   // First load: settings, a bundle the app was started with, and backend events.
   useEffect(() => {
     void act.guard(async () => {
       set({ settings: await api.settingsGet() });
-      const startup = await api.startupFile();
-      if (startup) await act.importBundle(startup);
+      setStartupBundle(await api.startupFile());
     });
     setHandlers({ save: () => void act.saveAndMaybeCompile(), compile: () => void act.compile() });
     const off = [
@@ -49,6 +50,15 @@ export function App() {
     ];
     return () => off.forEach((p) => void p.then((stop) => stop()));
   }, [set]);
+
+  // A bundle the app was started with opens once the user has a name: on a first run the
+  // welcome prompt comes first, and the bundle's own question follows it.
+  const named = !!s.settings?.displayName.trim();
+  useEffect(() => {
+    if (!startupBundle || !named) return;
+    setStartupBundle(null);
+    void act.importBundle(startupBundle);
+  }, [startupBundle, named]);
 
   // The outline follows the active buffer; reading it on a timer keeps typing cheap.
   useEffect(() => {
@@ -132,12 +142,22 @@ export function App() {
     if (dest) await act.guard(() => api.pdfSave(dest));
   };
 
+  // Columns: rail, gap, [files, handle], [source], [handle], [pdf]. The handles are the gaps.
+  const bothPanes = s.layout === "split";
   const cols = [
     "50px",
-    s.filesOpen ? "244px" : null,
-    s.layout !== "pdf" ? "minmax(0,1.08fr)" : null,
-    s.layout !== "editor" ? "minmax(0,1fr)" : null,
-  ].filter(Boolean);
+    "8px",
+    ...(s.filesOpen ? [`${s.filesWidth}px`, "8px"] : []),
+    ...(s.layout !== "pdf" ? [`minmax(0,${bothPanes ? s.split : 1}fr)`] : []),
+    ...(bothPanes ? ["8px"] : []),
+    ...(s.layout !== "editor" ? [`minmax(0,${bothPanes ? 1 - s.split : 1}fr)`] : []),
+  ];
+  /** Left edge and width of the area the source and PDF panes share, in window pixels. */
+  const paneArea = (work: HTMLElement) => {
+    const box = work.getBoundingClientRect();
+    const left = box.left + 58 + (s.filesOpen ? s.filesWidth + 8 : 0);
+    return { left, width: box.right - left - 8 };
+  };
 
   const layoutItem = (label: string, layout: Layout) => ({ label: `${s.layout === layout ? "● " : ""}${label}`, run: () => set({ layout }) });
 
@@ -295,6 +315,7 @@ export function App() {
             </button>
           </nav>
 
+          <span />
           {s.filesOpen && (
             <Files
               tree={s.tree}
@@ -312,6 +333,16 @@ export function App() {
               onClose={() => set({ filesOpen: false })}
             />
           )}
+          {s.filesOpen && (
+            <Splitter
+              label="Resize the file panel"
+              value={s.filesWidth}
+              step={16}
+              onDrag={(x, work) => set({ filesWidth: act.clampFiles(x - work.getBoundingClientRect().left - 58) })}
+              onStep={(by) => set({ filesWidth: act.clampFiles(s.filesWidth + by) })}
+              onDone={act.persistUi}
+            />
+          )}
 
           {s.layout !== "pdf" && (
             <EditorPane
@@ -323,6 +354,20 @@ export function App() {
               onSelect={(path) => set({ active: path })}
               onClose={(path) => void act.closeTab(path)}
               onShowChanges={() => openHistory(s.active)}
+            />
+          )}
+
+          {bothPanes && (
+            <Splitter
+              label="Resize the source and PDF panes"
+              value={Math.round(s.split * 100)}
+              step={0.03}
+              onDrag={(x, work) => {
+                const area = paneArea(work);
+                set({ split: act.clampSplit((x - area.left) / area.width) });
+              }}
+              onStep={(by) => set({ split: act.clampSplit(s.split + by) })}
+              onDone={act.persistUi}
             />
           )}
 
@@ -368,6 +413,57 @@ export function App() {
       {needsName && <SettingsDialog firstRun onClose={() => {}} />}
       <Toast />
     </div>
+  );
+}
+
+/** A draggable gap between two panels. Arrow keys move it too. */
+function Splitter(p: {
+  label: string;
+  value: number;
+  step: number;
+  onDrag: (clientX: number, work: HTMLElement) => void;
+  onStep: (by: number) => void;
+  onDone: () => void;
+}) {
+  const dragging = useRef(false);
+  const finish = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    p.onDone();
+  };
+  return (
+    <div
+      className="splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={p.label}
+      aria-valuenow={p.value}
+      tabIndex={0}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        dragging.current = true;
+        // Capture keeps the drag alive when the pointer leaves the narrow handle. It can be
+        // refused (the pointer is already gone), and the drag still works while over the handle.
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Nothing to do.
+        }
+      }}
+      onPointerMove={(e) => {
+        const work = e.currentTarget.parentElement;
+        if (work && dragging.current) p.onDrag(e.clientX, work);
+      }}
+      onPointerUp={finish}
+      onPointerCancel={finish}
+      onKeyDown={(e) => {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        p.onStep(e.key === "ArrowLeft" ? -p.step : p.step);
+        p.onDone();
+      }}
+    />
   );
 }
 

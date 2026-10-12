@@ -28,6 +28,16 @@ pwsh scripts/fetch-sidecars.ps1
 
 The script takes the latest release; the app was last verified with Tectonic 0.17.0. The first compile of a document downloads the LaTeX packages it uses, so it needs internet once.
 
+## Build the installer
+
+With Tectonic fetched into `src-tauri/sidecars/`:
+
+```bash
+pnpm tauri build
+```
+
+The installer is written to `src-tauri/target/release/bundle/nsis/`. It installs for the current user, includes Tectonic, and registers `.emquad` files so they open in Emquad. `docs/user-guide.md` is the guide for people using the app.
+
 ## Check it
 
 ```bash
@@ -36,7 +46,7 @@ pnpm verify
 
 runs type-check, lint, the TypeScript unit tests, `cargo fmt --check`, `cargo clippy` and the Rust tests. One Rust test compiles a real document and is skipped on a machine with no LaTeX engine.
 
-`scripts/e2e.js` drives the real app window through compile, source/PDF lookup, export, import and a merge with a conflict. How to run it is at the top of that file.
+`scripts/e2e.js` drives the real app window through compile, source/PDF lookup, export, import and a merge with a conflict. `scripts/smoke-release.js` checks a release build: the packaged frontend, fonts, PDF viewer and bundled compiler. How to run each is at the top of the file.
 
 ## Read in this order
 
