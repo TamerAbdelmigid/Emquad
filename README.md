@@ -7,7 +7,6 @@ The name comes from the em quad, the square blank a typesetter sets between word
 ## Status
 
 Version 1 is implemented and runs: projects and files, the editor, compile with errors shown inline, PDF preview, jumping between source and PDF, snapshots and History, bundles, and review with merge. `docs/05-implementation-plan.md` has the exact state of each milestone, including what is not done yet.
-| [docs/06-open-items.md](docs/06-open-items.md) | What remains to do, decisions waiting for the owner, and review notes not yet dealt with |
 
 ## Run it
 
@@ -58,6 +57,7 @@ runs type-check, lint, the TypeScript unit tests, `cargo fmt --check`, `cargo cl
 | [docs/03-bundles-and-history.md](docs/03-bundles-and-history.md) | Snapshots, the `.emquad` file format, import, conflict detection, and merge |
 | [docs/04-design-system.md](docs/04-design-system.md) | The Fieldwork visual design, layout rules, and component inventory |
 | [docs/05-implementation-plan.md](docs/05-implementation-plan.md) | Milestones in build order, each with acceptance criteria and current state |
+| [docs/06-open-items.md](docs/06-open-items.md) | What remains to do, decisions waiting for the owner, and review notes not yet dealt with |
 | [AGENTS.md](AGENTS.md) | Working rules for anyone (human or agent) changing this repository |
 
 ## Layout
