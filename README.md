@@ -7,6 +7,7 @@ The name comes from the em quad, the square blank a typesetter sets between word
 ## Status
 
 Version 1 is implemented and runs: projects and files, the editor, compile with errors shown inline, PDF preview, jumping between source and PDF, snapshots and History, bundles, and review with merge. `docs/05-implementation-plan.md` has the exact state of each milestone, including what is not done yet.
+| [docs/06-open-items.md](docs/06-open-items.md) | What remains to do, decisions waiting for the owner, and review notes not yet dealt with |
 
 ## Run it
 
