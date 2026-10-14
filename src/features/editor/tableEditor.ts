@@ -29,6 +29,7 @@ import {
   ensureMultirow,
   ensurePackage,
   escapeInserted,
+  floatLabels,
   escapeTex,
   expandRect,
   hasEdge,
@@ -849,13 +850,17 @@ class Controller {
     if (caption === null || !again || again.from !== at.from || again.text !== at.text) return;
     if (trimSpaces(caption) === (had ?? "")) return;
     const wanted = trimSpaces(escapeInserted(had ?? "", caption));
-    if (!wanted && where.kind === "float" && where.labelled) {
-      return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
+    // A caption taken away takes its label with it, unless something refers to the label.
+    const labels = !wanted ? floatLabels(at.text, where) : [];
+    const used = labels.find((l) => l.used);
+    if (used) {
+      return store().notify(`The caption's label “${used.key}” is referred to elsewhere in the document, so the caption was not removed. Remove both in the source, with what refers to it.`, true);
     }
     const why = cellProblem(wanted);
     if (why) return store().notify(`That caption cannot be written as LaTeX as it stands, so it was not changed. ${why}`, true);
     this.moneyCheck(wanted);
-    const changes = setCaption(at.text, at.from, to, wanted);
+    const changes = setCaption(at.text, at.from, to, wanted, labels.length > 0);
+    if (changes.length && labels.length) store().notify(`The caption's label ${labels.map((l) => `“${l.key}”`).join(" and ")} went with it, since nothing referred to it.`);
     if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });
   }
 

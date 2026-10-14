@@ -19,6 +19,7 @@ import {
   escapeTex,
   escapeTyped,
   expandRect,
+  floatLabels,
   hasEdge,
   insertColumn,
   insertRow,
@@ -726,6 +727,57 @@ describe("the text around a table", () => {
     expect(apply(had, setCaption(had, at, at + tabular.length, "New"))).toBe(`${DOC0}\\begin{table}\n\\caption[Short]{New}\n${tabular}\n\\end{table}`);
   });
 
+  it("puts a caption at the end of a float with a note under the table, and before its label", () => {
+    const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
+    const put = (body: string) => {
+      const text = `${DOC0}${body}\n\\end{document}\n`;
+      const from = text.indexOf(tabular);
+      return apply(text, setCaption(text, from, from + tabular.length, "New"));
+    };
+    expect(put(`\\begin{table}\n\\centering\n${tabular}\\\\[1ex]\n\\footnotesize Source: X.\n\\end{table}`)).toContain("\\footnotesize Source: X.\n\\caption{New}\n\\end{table}");
+    expect(put(`\\begin{table}\n${tabular}\n\\vspace{2pt}\n\\label{t}\n\\end{table}`)).toContain("\\vspace{2pt}\n\\caption{New}\n\\label{t}");
+    expect(put(`\\begin{table}[h]\n\\centering\n${tabular}\n% source\n\\\\[1ex] {\\small Source: x}\n\\end{table}`)).toContain("{\\small Source: x}\n\\caption{New}\n\\end{table}");
+    // A label with more after it could not be kept naming the caption: left to the source.
+    const tangled = `${DOC0}\\begin{table}\n${tabular}\n\\label{t}\n\\\\[1ex] Source\n\\end{table}\n\\end{document}`;
+    expect(captionPlace(tangled, tangled.indexOf(tabular), tangled.indexOf(tabular) + tabular.length).kind).toBe("no");
+    // A figure with a picture as well: whose caption it has is not clear.
+    const both = `${DOC0}\\begin{figure}\n\\includegraphics{x}\n${tabular}\n\\caption{Picture}\n\\end{figure}\n\\end{document}`;
+    expect(captionPlace(both, both.indexOf(tabular), both.indexOf(tabular) + tabular.length).kind).toBe("no");
+  });
+
+  it("puts a float around a table in center, or after a line that sets how it looks", () => {
+    const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
+    const put = (body: string) => {
+      const text = `${DOC0}${body}\n\nMore.\n\\end{document}\n`;
+      const from = text.indexOf(tabular);
+      return apply(text, setCaption(text, from, from + tabular.length, "New"));
+    };
+    expect(put(`Text.\n\n\\begin{center}\n${tabular}\n\\end{center}`)).toContain(`\\begin{table}[h]\n\\begin{center}\n${tabular}\n\\end{center}\n\\caption{New}\n\\end{table}`);
+    expect(put(`Text.\n\n\\centering\n${tabular}`)).toContain(`\\begin{table}[h]\n\\centering\n${tabular}\n\\caption{New}\n\\end{table}`);
+    expect(put(`Text.\n\n\\noindent\n${tabular}`)).toContain(`\\begin{table}[h]\n\\centering\n\\noindent\n${tabular}`);
+  });
+
+  it("keeps a file's own line ends", () => {
+    const tabular = "\\begin{tabular}{l}\r\na \\\\\r\n\\end{tabular}";
+    const text = `\\documentclass{article}\r\n\\begin{document}\r\n\r\n${tabular}\r\n\r\n\\end{document}\r\n`;
+    const from = text.indexOf(tabular);
+    const out = apply(text, setCaption(text, from, from + tabular.length, "New"));
+    expect(out.replace(/\r\n/g, "")).not.toContain("\n");
+    expect(ensurePackage(text, "booktabs")).toMatchObject({ insert: "\\usepackage{booktabs}\r\n" });
+  });
+
+  it("takes a caption's label with it when nothing refers to the label", () => {
+    const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
+    const body = `\\begin{table}\n${tabular}\n\\caption{Old}\\label{tab:a}\n\\end{table}\n`;
+    const text = `${DOC0}${body}\\end{document}\n`;
+    const from = text.indexOf(tabular);
+    const place = captionPlace(text, from, from + tabular.length);
+    expect(floatLabels(text, place)).toEqual([{ key: "tab:a", used: false }]);
+    expect(apply(text, setCaption(text, from, from + tabular.length, "", true))).toBe(`${DOC0}\\begin{table}\n${tabular}\n\\end{table}\n\\end{document}\n`);
+    const cited = text.replace("\\end{document}", "See Table~\\ref{tab:a}.\n\\end{document}");
+    expect(floatLabels(cited, captionPlace(cited, from, from + tabular.length))).toEqual([{ key: "tab:a", used: true }]);
+  });
+
   it("refuses a caption where one cannot go, and never touches another table's", () => {
     const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
     const where = (text: string) => {
@@ -760,15 +812,9 @@ describe("the text around a table", () => {
       `\\begin{figure}\n\\parbox{4cm}{x\\caption{Left}}\n${tabular}\n\\end{figure}`,
       `Some words ${tabular} in a sentence.`,
       `Text straight above\n${tabular}`,
-      `\\begin{center}\n${tabular}\n\\end{center}`,
-      `\\begin{table}\n\\centering\n${tabular}\\\\[1ex]\n\\footnotesize Source: X.\n\\end{table}`,
-      `\\begin{table}\n${tabular}\n\\\\ Source: X.\n\\end{table}`,
-      `\\begin{table}\n${tabular}\n\\footnotesize Source: X.\n\\end{table}`,
       `We call \\lstinline[language=C]!printf! here. \\fbox{\\parbox{6cm}{Results:\n\n${tabular}\n\n}}`,
       `We call \\lstinline[language=C]{x} here. \\fbox{\\parbox{6cm}{Results:\n\n${tabular}\n\n}}`,
       `An unclosed \\verb|oops\n\n${tabular}\n\n`,
-      `\\begin{table}[h]\n\\centering\n${tabular}\n% source\n\\\\[1ex] {\\small Source: x}\n\\end{table}`,
-      `\\begin{table}\n${tabular}%\n%\n\\\\[1ex] Source: x\n\\end{table}`,
       `Text.\n\n${tabular}\n% note follows\n\\\\[1ex] {\\small Source: x}\n\nMore.`,
       `\\begin{table}\n${tabular}\\label{t}\\\\[1ex]\n{\\small Source: x}\n\\end{table}`,
       `\\begin{table}\n${tabular}\n\\label{t}\n\\\\[1ex] Source\n\\end{table}`,
@@ -785,27 +831,42 @@ describe("the text around a table", () => {
       // Either refused, or at the least not mistaken for a caption that belongs elsewhere.
       if (!refused) expect(apply(text, result.changes)).not.toMatch(/\\caption\{New\}\\end\{table\}/);
       if (body.includes("\\verb") || body.includes("\\iffalse")) continue;
-      expect(refused).toBe(true);
+      expect(refused, body).toBe(true);
       expect(result.changes).toEqual([]);
     }
     // In a file that another includes, the surroundings cannot be seen, so nothing is done.
     expect(where(tabular).place.kind).toBe("no");
     expect(where(`\\newcommand{\\bt}{\\begin{table}}\n${DOC0}\\bt\n${tabular}\n\\end{table}`).place.kind).toBe("no");
     // Commands that open or close something out of sight, however they are written.
-    for (const preamble of [
-      "\\newcommand{\\bmp}[1]{\\begin{minipage}{#1}}\n\\newcommand{\\emp}{\\end{minipage}}",
-      "\\newcommand{\\bt}{%\n  \\begin{table}[h]\\centering}",
-      "\\def\\bt{\\bgroup}",
-      "\\DeclareDocumentCommand{\\bmp}{}{\\begin{minipage}{5cm}}",
-      "\\newrobustcmd{\\bmp}{\\begin{minipage}{5cm}}",
-      "\\AtBeginDocument{\\begin{minipage}{5cm}}\\AtEndDocument{\\end{minipage}}",
-      "\\newenvironment{note}{\\begin{quote}}{\\end{quote}}",
-      "\\let\\b\\begin \\let\\e\\end",
-      "\\usepackage{shortvrb}\\MakeShortVerb{\\|}",
-      "\\usepackage{listings}\\lstMakeShortInline|",
-      "\\def\\b{\\csname begin\\endcsname}",
+    // ... where the document uses them, before the table or around it.
+    for (const [preamble, before, after] of [
+      ["\\newcommand{\\bmp}[1]{\\begin{minipage}{#1}}\n\\newcommand{\\emp}{\\end{minipage}}", "\\bmp{5cm}", "\\emp"],
+      ["\\newcommand{\\bt}{%\n  \\begin{table}[h]\\centering}", "\\bt", "\\end{table}"],
+      ["\\def\\bt{\\bgroup}", "\\bt", "\\egroup"],
+      ["\\DeclareDocumentCommand{\\bmp}{}{\\begin{minipage}{5cm}}", "\\bmp", "\\end{minipage}"],
+      ["\\newrobustcmd{\\bmp}{\\begin{minipage}{5cm}}", "\\bmp", "\\end{minipage}"],
+      ["\\AtBeginDocument{\\begin{minipage}{5cm}}\\AtEndDocument{\\end{minipage}}", "", ""],
+      ["\\newenvironment{note}{\\begin{quote}}{\\end{quote}}", "\\begin{note}", "\\end{note}"],
+      ["\\let\\b\\begin \\let\\e\\end", "\\b{minipage}{5cm}", "\\e{minipage}"],
+      ["\\usepackage{shortvrb}\\MakeShortVerb{\\|}", "", ""],
+      ["\\usepackage{listings}\\lstMakeShortInline|", "", ""],
+      ["\\def\\b{\\csname begin\\endcsname}", "\\b{minipage}{5cm}", "\\end{minipage}"],
+      ["\\def\\b{\\csname begin\\endcsname}\n\\newcommand{\\c}{\\b{minipage}{5cm}}", "\\c", "\\end{minipage}"],
+      ["\\long\\def\\boxit#1\\endboxit{\\fbox{#1}}", "\\boxit", "\\endboxit"],
+      ["\\renewenvironment{table}{\\begin{minipage}{5cm}}{\\end{minipage}}", "", ""],
+      ["\\input{mymacros}", "", ""],
     ]) {
-      expect(where(`\\documentclass{article}\n${preamble}\n\\begin{document}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("no");
+      expect(where(`\\documentclass{article}\n${preamble}\n\\begin{document}\n${before}\n\n${tabular}\n\n${after}\n\\end{document}`).place.kind).toBe("no");
+    }
+    // Made but not used, they do no harm.
+    for (const preamble of [
+      "\\newcommand{\\be}{\\begin{equation}}\n\\newcommand{\\ee}{\\end{equation}}",
+      "\\newenvironment{note}{\\begin{quote}}{\\end{quote}}",
+      "\\AtBeginDocument{\\renewcommand{\\tablename}{Tab.}}",
+      "\\makeatletter\n\\expandafter\\def\\csname tabular@note\\endcsname{x}\n\\makeatother",
+      "\\input{glyphtounicode}",
+    ]) {
+      expect(where(`\\documentclass{article}\n${preamble}\n\\begin{document}\n\n${tabular}\n\n\\end{document}`).place.kind).toBe("bare");
     }
     // The same commands made in the body, starred or with parameters marked off their own way.
     for (const made of [

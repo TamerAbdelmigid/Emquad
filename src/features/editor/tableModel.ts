@@ -1298,7 +1298,8 @@ export function ensurePackage(text: string, name: string): PackageNeed {
   // is never inside a condition or a group.
   const at = text.lastIndexOf("\n", begin) + 1;
   const lead = text.slice(at, begin);
-  return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: `\\usepackage{${name}}\n` } : { from: begin, to: begin, insert: `\n\\usepackage{${name}}\n` };
+  const nl = /\r\n/.test(text) ? "\r\n" : "\n";
+  return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: `\\usepackage{${name}}${nl}` } : { from: begin, to: begin, insert: `${nl}\\usepackage{${name}}${nl}` };
 }
 
 /** What to tell the user when a package could not be added for them, or null when it could. */
@@ -1405,14 +1406,70 @@ function uncommented(text: string): { clean: string; sure: boolean } {
 }
 
 export type CaptionPlace =
-  /** In a float: where the float's body is, and its caption's braces if it has one. */
-  | { kind: "float"; from: number; to: number; open?: number; close?: number; start?: number; labelled: boolean }
-  /** On the page with nothing around it: a float can be put around it. */
-  | { kind: "bare" }
+  /**
+   * In a float: where the float's body is, its caption's braces if it has one, and if it has
+   * none, where a new one goes (`at`).
+   */
+  | { kind: "float"; from: number; to: number; open?: number; close?: number; start?: number; at?: number; labelled: boolean }
+  /** On the page with nothing around it: a float can be put around it, from `from` to `to`. */
+  | { kind: "bare"; from: number; to: number }
   /** Somewhere a caption cannot be put, or changed, with certainty that the document still compiles. */
   | { kind: "no"; reason: string };
 
 const SOURCE = "Add or change it in the source.";
+
+/** A command that defines something, as found in a document: what it is, its name, and how far it runs. */
+interface Definition {
+  command: string;
+  name: string;
+  at: number;
+  stop: number;
+  /** Its parameters are marked off by something other than #1, #2 and so on. */
+  delimited: boolean;
+}
+
+const DEFINING = /\\(?:[gex]?def|let|(?:re)?newcommand|providecommand|(?:New|Renew|Provide|Declare)(?:Expandable)?Document(?:Command|Environment)|DeclareRobustCommand|(?:re)?newenvironment|(?:re)?newrobustcmd|providerobustcmd|catcode|AtEndDocument)(?![a-zA-Z@])/g;
+
+/** Every definition in `clean` from `from` to `to`. */
+function definitions(clean: string, from: number, to: number): Definition[] {
+  const out: Definition[] = [];
+  for (const m of clean.slice(from, to).matchAll(DEFINING)) {
+    const at = from + m.index;
+    // The definition runs to the end of the last of the arguments that follow the command.
+    let stop = at + m[0].length;
+    if (clean[stop] === "*") stop++;
+    let name = "";
+    let delimited = false;
+    for (let groups = 0, i = stop; groups < 8 && i < clean.length; ) {
+      while (/[ \t\r\n]/.test(clean[i] ?? "") && !/^\r?\n[ \t]*\r?\n/.test(clean.slice(i))) i++;
+      // The parameters of a \def, whatever marks them off, stand between its name and its
+      // body: step over them to the brace that opens the body, on this line or the next.
+      if (groups === 1 && /def$/.test(m[0]) && clean[i] !== "{") {
+        const brace = clean.indexOf("{", i);
+        const far = clean.indexOf("\n", clean.indexOf("\n", i) + 1);
+        if (brace >= 0 && (far < 0 || brace < far)) {
+          delimited = !/^(?:#\d)*$/.test(clean.slice(i, brace).replace(/\s+/g, ""));
+          i = brace;
+        }
+      }
+      const next = clean[i];
+      // Only the first thing after the command can be the bare name of what is defined.
+      const bare = next === "\\" && groups === 0 ? /^[a-zA-Z@]+/.exec(clean.slice(i + 1))?.[0] : undefined;
+      const end = next === "{" ? closing(clean, i) : next === "[" ? clean.indexOf("]", i) + 1 : bare !== undefined ? i + 1 + bare.length : -1;
+      // An argument that never closes cannot be followed: take in everything to the next blank line.
+      if ((next === "{" || next === "[") && end <= 0) {
+        stop = clean.indexOf("\n\n", i) < 0 ? clean.length : clean.indexOf("\n\n", i);
+        break;
+      }
+      if (end <= 0) break;
+      if (groups === 0) name = bare ?? clean.slice(i + 1, end - 1).replace(/^\\/, "").trim();
+      stop = i = end;
+      groups++;
+    }
+    out.push({ command: m[0].slice(1), name, at, stop, delimited });
+  }
+  return out;
+}
 
 /** How deep in braces `to` is, counted from `from`. Escaped braces do not count. */
 function braceDepth(clean: string, from: number, to: number): number {
@@ -1443,39 +1500,73 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   // 3. A preamble that itself begins or ends anything, by whatever command, may have the
   // document start or end inside it.
   const HIDDEN = /\\(?:begin|end|bgroup|egroup|begingroup|endgroup|table|endtable|figure|endfigure|minipage|endminipage|AtBeginDocument|AtEndDocument|AddToHook|everypar|catcode|csname|@nameuse|MakeShortVerb|DefineShortVerb|lstMakeShortInline)(?![a-zA-Z@])/;
-  if (HIDDEN.test(clean.slice(0, body))) return refuse("This document's preamble makes commands or hooks that begin or end environments.");
+  // 3. The preamble. What it defines is looked at: an environment of its own built on others
+  // is fine, since the environments open at the table are checked below; a command that
+  // begins or ends something out of sight, or whose arguments are marked off by other text,
+  // is a danger only where the body uses it.
+  const risky: string[] = [];
+  const rest = clean.slice(0, body).split("");
+  const blank = (a: number, b: number) => {
+    for (let i = a; i < b; i++) if (rest[i] !== "\n") rest[i] = " ";
+  };
+  for (const d of definitions(clean, 0, body)) {
+    const content = clean.slice(d.at, d.stop);
+    if (d.command === "catcode") return refuse("This document's preamble changes what characters mean.");
+    if (/environment$|Environment$/.test(d.command) && (FLOATS.has(d.name) || PLAIN.has(d.name) || /^tabular|^document$/.test(d.name))) {
+      return refuse(`This document's preamble redefines the ${d.name} environment.`);
+    }
+    if (d.command === "AtEndDocument" && HIDDEN.test(content.slice(d.command.length + 1))) return refuse("This document's preamble begins or ends something when the document ends.");
+    const environment = /environment$|Environment$/.test(d.command);
+    if (d.name && (d.delimited || (!environment && HIDDEN.test(content.slice(d.command.length + 1))))) risky.push(d.name);
+    blank(d.at, d.stop);
+  }
+  const plain = rest.join("");
+  // Hooks run at the start of the document: harmless unless they begin or end something.
+  for (const m of plain.matchAll(/\\(?:AtBeginDocument|AddToHook\{[^{}]*\}(?:\[[^\]]*\])?)\s*\{/g)) {
+    const open = m.index + m[0].length - 1;
+    const end = closing(clean, open);
+    if (end < 0 || HIDDEN.test(clean.slice(open, end))) return refuse("This document's preamble begins or ends something when the document starts.");
+    blank(m.index, end);
+  }
+  // A name built with \csname is harmless when it is not that of anything that begins or ends.
+  for (const m of rest.join("").matchAll(/\\(?:csname\s*([a-zA-Z@ ]*)\\endcsname|@nameuse\{([^{}]*)\})/g)) {
+    const built = (m[1] ?? m[2]).trim();
+    if (/^(?:begin|end|bgroup|egroup|table|endtable|figure|endfigure|minipage|endminipage)$/.test(built)) return refuse("This document's preamble builds commands that begin or end environments.");
+    blank(m.index, m.index + m[0].length);
+  }
+  if (HIDDEN.test(rest.join(""))) return refuse("This document's preamble makes commands or hooks that begin or end environments.");
+  // A preamble that reads another file may define anything there.
+  if (/\\(?:input|include|import|subimport|InputIfFileExists)(?![a-zA-Z@])/.test(clean.slice(0, body).replace(/\\input\s*(?:\{\s*glyphtounicode(?:\.tex)?\s*\}|\s+glyphtounicode(?:\.tex)?(?![\w.-]))/g, ""))) {
+    return refuse("This document's preamble reads another file, which may change how tables are set.");
+  }
+  // A command that uses a risky one is risky too.
+  const uses = (content: string, name: string) => new RegExp(`\\\\${name}(?![a-zA-Z@])`).test(content);
+  const preambleDefs = definitions(clean, 0, body);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const d of preambleDefs) {
+      if (!d.name || risky.includes(d.name)) continue;
+      const content = clean.slice(d.at, d.stop);
+      if (risky.some((name) => uses(content.slice(d.command.length + 1 + d.name.length), name))) {
+        risky.push(d.name);
+        grew = true;
+      }
+    }
+  }
+  for (const d of definitions(clean, body, clean.length)) {
+    if (risky.some((name) => uses(clean.slice(d.at, d.stop), name))) return refuse("This document makes its own commands that begin or end environments.");
+  }
+  for (const name of risky) {
+    if (uses(clean.slice(body), name)) {
+      return refuse(`This document uses \\${name}, a command of its own that begins or ends environments or reads ahead.`);
+    }
+  }
   // Anything that can open or close an environment or a group out of sight makes the
   // surroundings unknowable: home-made commands that do, and the plain TeX forms.
   // The same for anything defined in the body, by any of the commands that define.
-  for (const m of clean.slice(body).matchAll(/\\(?:[gex]?def|let|(?:re)?newcommand|providecommand|(?:New|Renew|Provide|Declare)(?:Expandable)?Document(?:Command|Environment)|DeclareRobustCommand|(?:re)?newenvironment|(?:re)?newrobustcmd|providerobustcmd|catcode|AtEndDocument)(?![a-zA-Z@])/g)) {
-    const at = body + m.index;
-    // The definition runs to the end of the last of the arguments that follow the command.
-    let stop = at + m[0].length;
-    if (clean[stop] === "*") stop++;
-    for (let groups = 0, i = stop; groups < 8 && i < clean.length; ) {
-      while (/[ \t\r\n]/.test(clean[i] ?? "") && !/^\r?\n[ \t]*\r?\n/.test(clean.slice(i))) i++;
-      // The parameters of a \def, whatever marks them off, stand between its name and its
-      // body: step over them to the brace that opens the body, on this line or the next.
-      if (groups === 1 && /def$/.test(m[0]) && clean[i] !== "{") {
-        const brace = clean.indexOf("{", i);
-        const far = clean.indexOf("\n", clean.indexOf("\n", i) + 1);
-        if (brace >= 0 && (far < 0 || brace < far)) i = brace;
-      }
-      const next = clean[i];
-      // Only the first thing after the command can be the bare name of what is defined.
-      const name = next === "\\" && groups === 0 ? i + 1 + (/^[a-zA-Z@]+/.exec(clean.slice(i + 1))?.[0].length ?? 1) : -1;
-      const end = next === "{" ? closing(clean, i) : next === "[" ? clean.indexOf("]", i) + 1 : name;
-      // An argument that never closes cannot be followed: take in everything to the next blank line.
-      if ((next === "{" || next === "[") && end <= 0) {
-        stop = clean.indexOf("\n\n", i) < 0 ? clean.length : clean.indexOf("\n\n", i);
-        break;
-      }
-      if (end <= 0) break;
-      stop = i = end;
-      groups++;
-    }
-    const defined = clean.slice(at, stop);
-    if (m[0] === "\\catcode" || m[0] === "\\AtEndDocument" || HIDDEN.test(defined.slice(m[0].length))) {
+  for (const d of definitions(clean, body, clean.length)) {
+    const defined = clean.slice(d.at, d.stop);
+    if (d.command === "catcode" || d.command === "AtEndDocument" || d.delimited || HIDDEN.test(defined.slice(d.command.length + 1))) {
       return refuse("This document makes its own commands that begin or end environments.");
     }
   }
@@ -1536,19 +1627,38 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
 
   if (floatAt === 0) {
     // On the page itself. A float can be put around the table only when it is a paragraph
-    // of its own, directly in the body of a document whose class has ordinary floats.
+    // of its own, directly in the body of a document whose class has ordinary floats. A
+    // `center` holding just the table, and settings on the lines just before it, go into the
+    // float with it.
     const klass = /\\documentclass[ \t\r\n]*(?:\[[^\]]*\])?[ \t\r\n]*\{([^}]*)\}/.exec(clean.slice(0, body));
     if (!klass || !CLASSES.test(klass[1].trim())) return refuse("This kind of document may not have ordinary table floats.");
-    if (open.length > 1) return refuse(`This table is inside a ${open[open.length - 1].name} environment and not yet in a float.`);
-    const lineStart = clean.lastIndexOf("\n", from - 1) + 1;
-    const lineEnd = clean.indexOf("\n", to) < 0 ? clean.length : clean.indexOf("\n", to);
+    let [wrapFrom, wrapTo] = [from, to];
+    if (open.length === 2 && PLAIN.has(open[1].name)) {
+      const close = `\\end{${open[1].name}}`;
+      const shut = clean.indexOf(close, to);
+      const head = clean.slice(open[1].at + open[1].name.length + 8, from);
+      if (shut < 0 || trimSpaces(clean.slice(to, shut)) !== "" || !/^(?:\s|\\(?:centering|small|footnotesize|scriptsize)(?![a-zA-Z@]))*$/.test(head)) {
+        return refuse(`This table shares its ${open[1].name} environment with something else.`);
+      }
+      [wrapFrom, wrapTo] = [open[1].at, shut + close.length];
+    } else if (open.length > 1) return refuse(`This table is inside a ${open[open.length - 1].name} environment and not yet in a float.`);
+    // Lines straight before it that only set how it looks go with it.
+    for (;;) {
+      const lineStart = text.lastIndexOf("\n", wrapFrom - 1) + 1;
+      if (trimSpaces(text.slice(lineStart, wrapFrom)) !== "") break;
+      const prev = text.lastIndexOf("\n", lineStart - 2) + 1;
+      if (lineStart === 0 || !/^[ \t]*\\(?:centering|noindent|small|footnotesize|scriptsize)(?![a-zA-Z@])[ \t]*\r?$/.test(text.slice(prev, lineStart - 1))) break;
+      wrapFrom = prev + /^[ \t]*/.exec(text.slice(prev))![0].length;
+    }
+    const lineStart = text.lastIndexOf("\n", wrapFrom - 1) + 1;
+    const lineEnd = text.indexOf("\n", wrapTo) < 0 ? text.length : text.indexOf("\n", wrapTo);
     // Judged on the text as written: a line holding only a comment is not a blank line.
-    const before = text.slice(text.lastIndexOf("\n", lineStart - 2) + 1, from);
-    const after = text.slice(to, text.indexOf("\n", lineEnd + 1) < 0 ? text.length : text.indexOf("\n", lineEnd + 1));
-    const own = (trimSpaces(before) === "" || trimSpaces(before) === "\\begin{document}") && (trimSpaces(after) === "" || /^[ \t]*\r?\n[ \t]*\\end\{document\}/.test(text.slice(to)));
+    const before = text.slice(text.lastIndexOf("\n", lineStart - 2) + 1, wrapFrom);
+    const after = text.slice(wrapTo, text.indexOf("\n", lineEnd + 1) < 0 ? text.length : text.indexOf("\n", lineEnd + 1));
+    const own = (trimSpaces(before) === "" || trimSpaces(before) === "\\begin{document}") && (trimSpaces(after) === "" || /^[ \t]*\r?\n[ \t]*\\end\{document\}/.test(text.slice(wrapTo)));
     if (!own) return refuse("This table is not a paragraph of its own: put a blank line before and after it first.");
     if (clean.slice(body).includes("\\captionof")) return refuse("A caption is given in this document with \\captionof.");
-    return { kind: "bare" };
+    return { kind: "bare", from: wrapFrom, to: wrapTo };
   }
   const float = open[floatAt];
   const end = clean.indexOf(`\\end{${float.name}}`, to);
@@ -1557,25 +1667,28 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
   if (/\\begin\{(?:table|figure|sidewaystable)\*?\}/.test(clean.slice(to, end))) return refuse("The environment this table is in is not finished.");
   if ((inside.match(/\\begin\{tabular[x*]?\}/g) ?? []).length > 1) return refuse("This table shares its float with another, so it is not clear whose caption is whose.");
   if (inside.includes("\\captionof")) return refuse("A caption is given here with \\captionof.");
+  if (/\\includegraphics|\\begin\{(?:subfigure|subtable|minipage)\}/.test(inside.slice(`\\begin{${float.name}}`.length))) return refuse("This float holds a picture or a part of its own as well as the table, so it is not clear whose caption is whose.");
   const found = captionsIn(inside);
   if (found.length > 1) return refuse("This table's float has more than one caption.");
   if (found.some((c) => c.brace < 0)) return refuse("The caption in this float is written in a way that cannot be followed.");
   const labelled = inside.includes("\\label");
   if (found.length === 0) {
-    // The new caption goes straight after the table, which must be the float's own level.
+    // The new caption goes at the end of the float, after any note or space below the table,
+    // and before the float's label so that the label names it.
     if (braceDepth(clean, to, end) !== 0) return refuse("This table is inside the braces of another command, where a caption cannot go.");
-    // A line break, a note or anything else written straight after the table would be cut
-    // off from it by a caption put in between.
-    // Judged on the text as written, where a comment is not a blank line.
-    const quiet = (rest: string): boolean => {
-      if (/^[ \t]*\r?\n[ \t]*\r?\n/.test(rest)) return true;
-      const next = rest.replace(/^[ \t\r\n]+/, "");
-      if (next === "" || /^\\end\{/.test(next) || /^\\par(?![a-zA-Z@])/.test(next)) return true;
-      const label = /^\\label\{[^{}]*\}/.exec(next);
-      return label ? quiet(next.slice(label[0].length)) : false;
-    };
-    if (!quiet(text.slice(to, end))) return refuse("Something is written straight after this table in its float.");
-    return { kind: "float", from: float.at, to: end, labelled };
+    const label = /\\label\{/.exec(clean.slice(to, end));
+    // The label must be the last thing in the float, or the caption could not go before it.
+    if (label && trimSpaces(clean.slice(to + label.index, end).replace(/\\label\{[^{}]*\}/g, "")) !== "") {
+      return refuse("This float's label has more written after it, so a caption put before it would leave that between them.");
+    }
+    let at = label ? to + label.index : end;
+    while (at > to && /[ \t\r\n]/.test(text[at - 1])) at--;
+    // A label sitting at the start of its own line takes the caption on the line before it.
+    const tail = clean.slice(to, at);
+    if (braceDepth(clean, to, at) !== 0 || (tail.match(/\\begin\{/g) ?? []).length !== (tail.match(/\\end\{/g) ?? []).length) {
+      return refuse("What follows this table in its float is not finished where the caption would go.");
+    }
+    return { kind: "float", from: float.at, to: end, at, labelled };
   }
   const start = float.at + found[0].index;
   const brace = float.at + found[0].brace;
@@ -1605,28 +1718,58 @@ export function captionOf(text: string, from: number, to: number): string | null
  * take it away. A tabular that stands alone is put in a `table` environment to carry it.
  * Nothing is changed where a caption cannot go.
  */
-export function setCaption(text: string, from: number, to: number, caption: string): Change[] {
+export function setCaption(text: string, from: number, to: number, caption: string, dropLabels = false): Change[] {
   const place = captionPlace(text, from, to);
   if (place.kind === "no") return [];
+  // Lines end the way the file's lines already end.
+  const nl = /\r\n/.test(text) ? "\r\n" : "\n";
   const lineStart = text.lastIndexOf("\n", from - 1) + 1;
   const indent = /^[ \t]*/.exec(text.slice(lineStart, from))![0];
   if (place.kind === "bare") {
     if (!caption) return [];
+    const centred = /\\centering(?![a-zA-Z@])|\\begin\{center\}/.test(text.slice(place.from, place.to));
     return [
-      { from, to: from, insert: `\\begin{table}[h]\n${indent}\\centering\n${indent}` },
-      { from: to, to, insert: `\n${indent}\\caption{${caption}}\n${indent}\\end{table}` },
+      { from: place.from, to: place.from, insert: `\\begin{table}[h]${nl}${indent}${centred ? "" : `\\centering${nl}${indent}`}` },
+      { from: place.to, to: place.to, insert: `${nl}${indent}\\caption{${caption}}${nl}${indent}\\end{table}` },
     ];
   }
   if (place.open === undefined || place.close === undefined || place.start === undefined) {
-    return caption ? [{ from: to, to, insert: `\n${indent}\\caption{${caption}}` }] : [];
+    const at = place.at ?? to;
+    return caption ? [{ from: at, to: at, insert: `${nl}${indent}\\caption{${caption}}` }] : [];
   }
   if (caption) return [{ from: place.open, to: place.close, insert: caption }];
-  // Take the caption's whole line with it when nothing else is on that line.
-  const [start, end] = [place.start, place.close + 1];
-  const before = text.lastIndexOf("\n", start - 1);
-  const after = text.indexOf("\n", end);
-  const alone = trimSpaces(text.slice(before + 1, start)) === "" && trimSpaces(text.slice(end, after < 0 ? text.length : after)) === "";
-  return [alone && before >= 0 ? { from: before, to: after < 0 ? text.length : after, insert: "" } : { from: start, to: end, insert: "" }];
+  // Take the caption's whole line with it when nothing else is on that line, and its labels
+  // too when asked.
+  let removals: [number, number][] = [[place.start, place.close + 1]];
+  if (dropLabels) for (const m of text.slice(place.from, place.to).matchAll(/\\label\{[^{}]*\}/g)) removals.push([place.from + m.index, place.from + m.index + m[0].length]);
+  // Pieces with only spaces between them go as one, so a caption and its label on one line take the line.
+  removals = removals
+    .sort((a, b) => a[0] - b[0])
+    .reduce<[number, number][]>((out, r) => {
+      const last = out[out.length - 1];
+      if (last && /^[ \t]*$/.test(text.slice(last[1], r[0]))) last[1] = Math.max(last[1], r[1]);
+      else out.push([...r]);
+      return out;
+    }, []);
+  return removals
+    .map(([start, end]) => {
+      const before = text.lastIndexOf("\n", start - 1);
+      const after = text.indexOf("\n", end);
+      const alone = trimSpaces(text.slice(before + 1, start)) === "" && trimSpaces(text.slice(end, after < 0 ? text.length : after)) === "";
+      return alone && before >= 0 ? { from: before, to: after < 0 ? text.length : after, insert: "" } : { from: start, to: end, insert: "" };
+    })
+    .filter((ch, i, all) => i === 0 || ch.from >= all[i - 1].to);
+}
+
+/** The labels of the float at a caption place, and for each whether the document refers to it. */
+export function floatLabels(text: string, place: CaptionPlace): { key: string; used: boolean }[] {
+  if (place.kind !== "float") return [];
+  const { clean } = uncommented(text);
+  return [...clean.slice(place.from, place.to).matchAll(/\\label\{([^{}]*)\}/g)].map((m) => {
+    const key = m[1];
+    const quoted = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return { key, used: new RegExp(`\\\\(?:[a-zA-Z]*ref|cref|Cref|autoref|nameref|vref)\\*?\\{[^{}]*(?<![^,{\\s])${quoted}(?![^,}\\s])`).test(clean) };
+  });
 }
 
 /** The smallest single change that turns `before` into `after`. */
