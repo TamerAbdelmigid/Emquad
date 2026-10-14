@@ -269,18 +269,31 @@ class Controller {
       return;
     }
     if (target?.controller === this) target = null;
-    this.stopEditing(false);
+    this.endEdit();
   }
 
   /** The tools are done with this table: end the edit of a cell unless the keyboard is back in it. */
   release() {
-    if (!this.dom.contains(document.activeElement)) this.stopEditing(false);
+    if (!this.dom.contains(document.activeElement)) this.endEdit();
+  }
+
+  /**
+   * The keyboard has gone elsewhere: end the edit of the cell, unless what is typed there is not
+   * yet complete. Then the box stays open, marked, so that nothing typed is lost; Esc in it, or
+   * starting on another cell, gives it up.
+   */
+  private endEdit() {
+    if (this.input?.classList.contains("bad")) return;
+    this.stopEditing(false);
   }
 
   /** The widget is going: so are its menu and any hold the tools have on it. */
   dispose() {
     this.closeMenu();
     if (target?.controller === this) target = null;
+    if (this.input?.classList.contains("bad")) {
+      store().notify(`“${this.input.value}” was not complete, so it was not put in the table. ${this.problem(this.input.value)}`, true);
+    }
   }
 
   /** The source changed under the table: by one of its own actions, by undo, or from outside. */
@@ -596,7 +609,6 @@ class Controller {
   private problem(text: string): string {
     const why = cellProblem(text);
     if (why) return why;
-    if (/\\begin\{/.test(text)) return "An environment such as a matrix cannot go in a table cell here; use Edit source.";
     if (/\\\\/.test(text)) return "A line break (\\\\) would end the row.";
     return "It would not read back as this one cell; use Edit source for it.";
   }
@@ -1192,6 +1204,9 @@ class Controller {
       const [top, left] = [scroller.scrollTop, scroller.scrollLeft];
       if (lower === "y" || e.shiftKey) redo(this.view);
       else undo(this.view);
+      // The text cursor goes to the table, so that what the status line shows is where the work is.
+      const at = this.place();
+      if (at) this.view.dispatch({ selection: { anchor: at.from } });
       const stay = () => scroller.scrollTo(left, top);
       stay();
       this.view.requestMeasure({ read: () => null, write: stay });
