@@ -101,6 +101,9 @@ describe("the table widget", () => {
     click(td(1, 0));
     type(box()!, "[2] Jones");
     expect(doc()).toContain("\\\\\n{}[2] Jones & d \\\\");
+    // Taking the [ away again takes the {} with it.
+    type(box()!, "{}");
+    expect(box()!.value).toBe("");
   });
 
   it("moves between cells with Tab, and adds a row after the last", () => {

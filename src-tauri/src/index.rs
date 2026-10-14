@@ -216,10 +216,9 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
     // A .bib file the document names but that is kept outside the project, such as a shared
     // bibliography: read for its references only, never written.
     let base = project
-        .root
-        .join(&project.info.main_file)
-        .parent()
-        .map(|p| p.to_path_buf())
+        .resolve(&project.info.main_file)
+        .ok()
+        .and_then(|main| main.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| project.root.clone());
     for name in named_bibs {
         if names_another_computer(&name) {
@@ -343,6 +342,15 @@ mod tests {
         p.write_file("main.tex", "\\bibliography{//host.invalid/share/refs}\n")
             .unwrap();
         assert!(build(&p).unwrap().cite_keys.is_empty());
+        // Nor through a main file named on another computer, which the names are read from.
+        p.write_file("main.tex", "\\bibliography{refs}\n").unwrap();
+        let mut odd = p.clone();
+        odd.info.main_file = "//host.invalid/share/main.tex".into();
+        odd.save_info().unwrap();
+        let opened = Project::open(&p.root).unwrap();
+        assert_eq!(opened.info.main_file, "main.tex");
+        odd.info.main_file = "//host.invalid/share/main.tex".into();
+        assert!(build(&odd).unwrap().cite_keys.is_empty());
     }
 
     #[test]

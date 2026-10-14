@@ -1914,7 +1914,11 @@ export function setCaption(text: string, from: number, to: number, caption: stri
 }
 
 /** The labels of the float at a caption place, and for each whether the document refers to it. */
-export function floatLabels(text: string, place: CaptionPlace): { key: string; used: boolean }[] {
+/**
+ * The labels in a caption's float, and whether each is referred to: `used` when a reference to
+ * it is seen, or when the document reads other files, which may refer to it (`perhaps`).
+ */
+export function floatLabels(text: string, place: CaptionPlace): { key: string; used: boolean; perhaps?: boolean }[] {
   if (place.kind !== "float") return [];
   const { clean } = uncommented(text);
   // Another file may refer to it, out of sight from here.
@@ -1924,7 +1928,8 @@ export function floatLabels(text: string, place: CaptionPlace): { key: string; u
     const quoted = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const inBraces = new RegExp(`\\\\[a-zA-Z]*ref\\*?(?:\\s*\\[[^\\]]*\\])*\\s*\\{[^{}]*(?<![^,{\\s])${quoted}(?![^,}\\s])`);
     const inBrackets = new RegExp(`\\\\hyperref\\s*\\[\\s*${quoted}\\s*\\]`);
-    return { key, used: elsewhere || inBraces.test(clean) || inBrackets.test(clean) };
+    const seen = inBraces.test(clean) || inBrackets.test(clean);
+    return { key, used: seen || elsewhere, ...(!seen && elsewhere ? { perhaps: true } : {}) };
   });
 }
 
@@ -2186,7 +2191,7 @@ function mathAt(text: string): Uint8Array {
  * have no character on its own that LaTeX would act on: a bare % anywhere, an & outside an
  * environment, or a #, _ or ^ written in prose outside mathematics.
  */
-export function cellProblem(written: string): string | null {
+export function cellProblem(written: string, before = ""): string | null {
   let depth = 0;
   let dollars = 0;
   let envs = 0;
@@ -2194,8 +2199,6 @@ export function cellProblem(written: string): string | null {
   const text = withoutLiterals(written, literalAt(written));
   const math = mathAt(text);
   const prose = proseAt(text);
-  // The command each open group belongs to.
-  const groups: string[] = [];
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === "\\") {
@@ -2203,19 +2206,9 @@ export function cellProblem(written: string): string | null {
       if (i + 1 >= text.length) return "It ends in a backslash on its own; write a backslash as \\textbackslash{}.";
       if (text.startsWith("\\begin{", i)) envs++;
       if (text.startsWith("\\end{", i)) envs--;
-      // A line break ends the row, whatever braces it is in, unless a command made for lines
-      // or an environment holds it.
-      if (text[i + 1] === "\\" && envs <= 0 && !groups.some((name) => BREAKS.has(name))) {
-        return "A line break \\\\ cannot stand here; for more than one line in a cell, write \\makecell{…\\\\…}.";
-      }
       i++;
-    } else if (ch === "{") {
-      depth++;
-      groups.push(ownerOf(text, i)?.name ?? "");
-    } else if (ch === "}") {
-      if (--depth < 0) return "A closing brace } has no opening brace { to match it.";
-      groups.pop();
-    }
+    } else if (ch === "{") depth++;
+    else if (ch === "}" && --depth < 0) return "A closing brace } has no opening brace { to match it.";
     else if (ch === "%") return "A % on its own would start a comment; write it as \\%.";
     else if (ch === "$") dollars++;
     else if (ch === "&" && envs <= 0) return "An & on its own would end the cell; write it as \\&.";
@@ -2229,6 +2222,11 @@ export function cellProblem(written: string): string | null {
     }
   }
   if (depth > 0) return "An opening brace { is not closed with }.";
+  // A line break that was there before is the user's own: a command of the document's may
+  // hold it, or a \multirow with a width.
+  if (looseBreaks(written) > looseBreaks(before)) {
+    return "A line break \\\\ cannot stand here; for more than one line in a cell, write \\makecell{…\\\\…}.";
+  }
   if (math.includes(2)) return "A display formula ($$…$$ or \\[…\\]) cannot go in a table cell or a caption; write it in the line, as $…$.";
   // Mathematics left open would swallow whatever comes after.
   if (math[text.length] !== 0 || dollars % 2 !== 0) return "A $ starts a formula that is not closed; write a dollar sign as \\$.";
@@ -2237,6 +2235,28 @@ export function cellProblem(written: string): string | null {
 
 /** Commands whose argument may hold line breaks. */
 const BREAKS = new Set(["makecell", "thead", "shortstack", "Shortstack", "Longstack", "parbox", "pbox", "multirowcell", "substack", "tabularcell"]);
+
+/**
+ * How many line breaks in `written` would end the row whatever braces they are in: those
+ * that neither a command made for lines nor an environment holds.
+ */
+function looseBreaks(written: string): number {
+  const text = withoutLiterals(written, literalAt(written));
+  const groups: string[] = [];
+  let envs = 0;
+  let count = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\\") {
+      if (text.startsWith("\\begin{", i)) envs++;
+      if (text.startsWith("\\end{", i)) envs--;
+      if (text[i + 1] === "\\" && envs <= 0 && !groups.some((name) => BREAKS.has(name))) count++;
+      i++;
+    } else if (ch === "{") groups.push(ownerOf(text, i)?.name ?? "");
+    else if (ch === "}") groups.pop();
+  }
+  return count;
+}
 
 /** Whether text can be a caption, or a cell, as it stands (see `cellProblem`). */
 export function soundCaption(caption: string): boolean {

@@ -51,7 +51,7 @@ export function pathFromUri(projectRoot: string, uri: string, known: readonly st
   const rest = target.slice(base.length);
   if (rest.some((part) => part === "" || part === "." || part === "..")) return null;
   const rel = rest.join("/");
-  return known.find((path) => path.toUpperCase() === rel.toUpperCase()) ?? rel;
+  return known.find((path) => path === rel) ?? known.find((path) => path.toUpperCase() === rel.toUpperCase()) ?? rel;
 }
 
 /**

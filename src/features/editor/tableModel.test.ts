@@ -1473,6 +1473,8 @@ describe("cases the review of the open-items work found", () => {
     expect(used("See \\hyperref[tab:x]{the table}.")).toBe(true);
     expect(used("See \\vpageref[above]{tab:x}.")).toBe(true);
     expect(used("\\input{chapter2}")).toBe(true);
+    const text = doc("", `${body}\\input{chapter2}`);
+    expect(floatLabels(text, placeIn(text))[0].perhaps).toBe(true);
   });
 
   it("keeps the spaces inside a \\multicolumn description", () => {
@@ -1515,6 +1517,11 @@ describe("cases the review of the open-items work found", () => {
     expect(cellProblem("\\makecell{a \\\\ b}")).toBeNull();
     expect(cellProblem("\\makecell[l]{a \\\\ b}")).toBeNull();
     expect(cellProblem("\\begin{tabular}{l}a \\\\ b\\end{tabular}")).toBeNull();
+    // A break that was there before is the user's own, held by a command of theirs or a
+    // \multirow with a width: such a cell can still be edited, but not given another.
+    expect(cellProblem("\\specialcell{x \\\\ yz}", "\\specialcell{x \\\\ y}")).toBeNull();
+    expect(cellProblem("a\\\\b", "a\\\\b")).toBeNull();
+    expect(cellProblem("\\specialcell{x \\\\ y \\\\ z}", "\\specialcell{x \\\\ y}")).toMatch(/line break/);
   });
 
   it("leaves addresses and \\verb as they are typed", () => {

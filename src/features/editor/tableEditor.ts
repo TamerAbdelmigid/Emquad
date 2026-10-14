@@ -54,7 +54,6 @@ import {
   setCaption,
   setCell,
   smallestChange,
-  soundCaption,
   cellProblem,
   looksLikeMoney,
   splitIntoColumns,
@@ -607,9 +606,14 @@ class Controller {
     this.view.requestMeasure();
   }
 
+  /** What the cell being typed in says in the table now. */
+  private cellText(): string {
+    return this.head ? (this.table.rows[this.head.r]?.[this.head.c]?.tex ?? "") : "";
+  }
+
   /** What is wrong with text that cannot go into a cell, in a sentence. */
   private problem(text: string): string {
-    const why = cellProblem(text);
+    const why = cellProblem(text, this.cellText());
     if (why) return why;
     if (/\\\\/.test(text)) return "A line break (\\\\) would end the row.";
     return "It would not read back as this one cell; use Edit source for it.";
@@ -630,7 +634,9 @@ class Controller {
     let escaped = escapeInserted(this.typed, input.value);
     // A row's first cell that starts with [ would be read by LaTeX as an option of what comes
     // before it (a line end, a row colour, a rule), so typing one there puts {} in front.
-    if (at.c === 0 && /^\s*\[/.test(escaped) && !/^\s*\[/.test(this.typed)) escaped = escaped.replace(/^(\s*)\[/, "$1{}[");
+    if (at.c === 0 && /^\s*\[/.test(escaped) && !/^\s*(?:\{\})?\[/.test(this.typed)) escaped = escaped.replace(/^(\s*)\[/, "$1{}[");
+    // ... and when that [ goes again, so does the {} put in front of it.
+    else if (/^\s*\{\}\[/.test(this.typed) && /^\s*\{\}(?!\[)/.test(escaped)) escaped = escaped.replace(/^(\s*)\{\}/, "$1");
     this.typed = escaped;
     if (escaped !== input.value) {
       const caret = (input.selectionStart ?? 0) + (escaped.length - input.value.length);
@@ -641,7 +647,7 @@ class Controller {
     const next = setCell(this.table, at.r, at.c, trimSpaces(input.value));
     // What is typed must read back as this one cell, or it would break the table apart.
     const back = parseTable(writeTable(next));
-    const sound = back.ok && same(back.table, next) && soundCaption(next.rows[at.r][at.c].tex);
+    const sound = back.ok && same(back.table, next) && cellProblem(next.rows[at.r][at.c].tex, this.cellText()) === null;
     input.classList.toggle("bad", !sound);
     input.title = sound ? "" : `This cannot go into the table yet. ${this.problem(input.value)}`;
     if (sound && this.commit(next, false)) this.moneyCheck(next.rows[at.r][at.c].tex);
@@ -870,10 +876,13 @@ class Controller {
     // A caption taken away takes its label with it, unless something refers to the label.
     const labels = !wanted ? floatLabels(at.text, where) : [];
     const used = labels.find((l) => l.used);
+    if (used?.perhaps) {
+      return store().notify(`This document reads other files, which may refer to the caption's label “${used.key}”, so the caption was not removed. Remove it in the source, with any reference to the label.`, true);
+    }
     if (used) {
       return store().notify(`The caption's label “${used.key}” is referred to elsewhere in the document, so the caption was not removed. Remove both in the source, with what refers to it.`, true);
     }
-    const why = cellProblem(wanted);
+    const why = cellProblem(wanted, had ?? "");
     if (why) return store().notify(`That caption cannot be written as LaTeX as it stands, so it was not changed. ${why}`, true);
     this.moneyCheck(wanted);
     const changes = setCaption(at.text, at.from, to, wanted, labels.length > 0);

@@ -28,17 +28,22 @@ pub struct AppState {
     pub startup_file: Mutex<Option<String>>,
     /// What each window has open, by the window's label.
     pub sessions: Mutex<HashMap<String, Arc<Session>>>,
-    /// The project each window has open, or is opening, by the window's label. Taken in one
-    /// step with the check that no other window has it, so two windows can never both open it.
-    claims: Mutex<HashMap<String, Claim>>,
+    /// The folders each window has open, or is opening, with the window's label. Each is taken
+    /// in one step with the check that no other window has it, so two windows can never both
+    /// open one; a window opening another project holds its old one until the new one is open.
+    claims: Mutex<Vec<(String, Claim)>>,
+    /// Numbers the claims, so each can be let go of on its own.
+    next_claim: std::sync::atomic::AtomicU64,
 }
 
-/// A window's hold on a project.
+/// A window's hold on a folder.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Claim {
-    /// The project's folder, as the file system names it.
+    /// The folder, as the file system names it.
     pub root: PathBuf,
+    /// The identity of the project in it; empty while it is still being made.
     pub project_id: String,
+    ticket: u64,
 }
 
 /// What one window has open: its project, and what runs for it.
@@ -65,7 +70,8 @@ impl AppState {
             sidecar_dirs,
             startup_file: Mutex::new(startup_file),
             sessions: Mutex::new(HashMap::new()),
-            claims: Mutex::new(HashMap::new()),
+            claims: Mutex::new(Vec::new()),
+            next_claim: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -82,10 +88,7 @@ impl AppState {
     /// The window is gone, or its page has started again: so is what it had open, its compile,
     /// language server and watcher with it.
     pub fn end_session(&self, label: &str) {
-        self.claims
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(label);
+        self.release_all(label);
         let gone = self
             .sessions
             .lock()
@@ -113,43 +116,57 @@ impl AppState {
         }
     }
 
-    /// Claim the project in `root` for the window `label`. Refused, with the label of the
-    /// window that has it, when another window has the same folder open, or one inside or
-    /// around it, since the two would then write the same files. On success, returns the
-    /// window's previous claim, for [`AppState::restore_claim`] if opening then fails.
+    /// Claim the folder `root` for the window `label`, alongside what it holds already.
+    /// Refused, with the label of the window that has it, when another window has the same
+    /// folder, or one inside or around it, since the two would then write the same files.
     pub fn claim(
         &self,
         label: &str,
         root: &Path,
         project_id: &str,
-    ) -> std::result::Result<Option<Claim>, String> {
+    ) -> std::result::Result<Claim, String> {
         // Resolved before the lock is taken: a slow folder must not hold up other windows.
         let root = resolved(root);
         let mut claims = self.claims.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(other) = claims
-            .iter()
-            .find(|(other, held)| {
-                other.as_str() != label
-                    && (held.root.starts_with(&root) || root.starts_with(&held.root))
-            })
-            .map(|(other, _)| other.clone())
-        {
-            return Err(other);
+        if let Some((other, _)) = claims.iter().find(|(other, held)| {
+            other.as_str() != label
+                && (held.root.starts_with(&root) || root.starts_with(&held.root))
+        }) {
+            return Err(other.clone());
         }
         let claim = Claim {
             root,
             project_id: project_id.to_string(),
+            ticket: self
+                .next_claim
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         };
-        Ok(claims.insert(label.to_string(), claim))
+        claims.push((label.to_string(), claim.clone()));
+        Ok(claim)
     }
 
-    /// Put back the claim a window had before a project that then failed to open.
-    pub fn restore_claim(&self, label: &str, previous: Option<Claim>) {
-        let mut claims = self.claims.lock().unwrap_or_else(|e| e.into_inner());
-        match previous {
-            Some(claim) => claims.insert(label.to_string(), claim),
-            None => claims.remove(label),
-        };
+    /// The window has opened what `claim` holds: everything else it held is let go.
+    pub fn settle(&self, label: &str, claim: &Claim) {
+        self.claims
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(other, held)| other != label || held == claim);
+    }
+
+    /// Let go of one claim, such as that of a project that failed to open.
+    pub fn release(&self, label: &str, claim: &Claim) {
+        self.claims
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(other, held)| other != label || held != claim);
+    }
+
+    /// Let go of everything the window holds.
+    pub fn release_all(&self, label: &str) {
+        self.claims
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(other, _)| other != label);
     }
 
     /// The label of a window other than `label` that has the project with this identity open.
@@ -161,6 +178,33 @@ impl AppState {
             .find(|(other, held)| other.as_str() != label && held.project_id == project_id)
             .map(|(other, _)| other.clone())
     }
+
+    /// Whether `session` is still the session of the window `label`: it is not once the
+    /// window has closed or its page has loaded again.
+    fn is_current(&self, label: &str, session: &Session) -> bool {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(label)
+            .is_some_and(|s| std::ptr::eq(s.as_ref(), session))
+    }
+}
+
+/// Claim a folder for the window, or bring forward the window that has it and say so.
+fn claim_for(
+    app: &AppHandle,
+    state: &AppState,
+    label: &str,
+    root: &Path,
+    project_id: &str,
+) -> Result<Claim> {
+    state.claim(label, root, project_id).map_err(|other| {
+        show_window(app, &other);
+        Error::app(
+            "open_elsewhere",
+            "This project, or a folder inside or around it, is open in another Emquad window, which is now in front.",
+        )
+    })
 }
 
 /// A folder as the file system names it, so that two ways of writing it compare equal. For one
@@ -231,21 +275,23 @@ fn activate(
     project: Project,
 ) -> Result<OpenedProject> {
     // One project in one window: opening it in a second would let two windows write it.
-    let previous = match state.claim(window.label(), &project.root, &project.info.project_id) {
-        Ok(previous) => previous,
-        Err(other) => {
-            show_window(app, &other);
-            return Err(Error::app(
-                "open_elsewhere",
-                "This project, or a folder inside or around it, is open in another Emquad window, which is now in front.",
-            ));
-        }
-    };
+    let label = window.label();
+    let claim = claim_for(app, state, label, &project.root, &project.info.project_id)?;
     let opened = start_project(app, window, state, session, project);
-    if opened.is_err() {
-        state.restore_claim(window.label(), previous);
+    match opened {
+        Ok(opened) if state.is_current(label, session) => {
+            state.settle(label, &claim);
+            Ok(opened)
+        }
+        Ok(_) => {
+            state.release(label, &claim);
+            Err(Error::app("window_gone", "The window has closed"))
+        }
+        Err(e) => {
+            state.release(label, &claim);
+            Err(e)
+        }
     }
-    opened
 }
 
 /// Everything that runs for an open project, started once the window has claimed it.
@@ -279,9 +325,9 @@ fn start_project(
     watcher
         .watch(&project.root, RecursiveMode::Recursive)
         .map_err(|e| Error::app("watch_failed", e.to_string()))?;
-    *session.watcher.lock().unwrap() = Some(watcher);
 
-    // One language server per open project; the previous project's is stopped by replacing it.
+    // One language server per open project; the previous project's is stopped by replacing it,
+    // once the new project is known to open.
     let server = crate::lsp::find(&state.sidecar_dirs).and_then(|exe| {
         let (messages, closed) = (app.clone(), app.clone());
         let (to_messages, to_closed) = (label.clone(), label.clone());
@@ -298,7 +344,6 @@ fn start_project(
         .ok()
     });
     let language_server = server.is_some();
-    *session.language_server.lock().unwrap() = server;
 
     let opened = OpenedProject {
         root: project.root.to_string_lossy().into_owned(),
@@ -307,6 +352,10 @@ fn start_project(
         ui_state: fs::read_to_string(project.data_dir().join("state.json")).ok(),
         language_server,
     };
+    // Nothing of the new project is put in place until all of it has been made: if any part
+    // fails, the window keeps the project it had, with its watcher and language server.
+    *session.watcher.lock().unwrap() = Some(watcher);
+    *session.language_server.lock().unwrap() = server;
     *session.project.lock().unwrap() = Some(project);
     Ok(opened)
 }
@@ -409,8 +458,16 @@ pub fn project_create(
             "Choose a name without special characters",
         ));
     }
-    let project = Project::create(&Path::new(&parent_dir).join(name), name, &template)?;
-    activate(&app, &window, &state, &session, project)
+    // The new folder is claimed before anything is written, so it is never made inside a
+    // project another window has open.
+    let dest = Path::new(&parent_dir).join(name);
+    let held = claim_for(&app, &state, window.label(), &dest, "")?;
+    let opened = Project::create(&dest, name, &template)
+        .and_then(|project| activate(&app, &window, &state, &session, project));
+    if opened.is_err() {
+        state.release(window.label(), &held);
+    }
+    opened
 }
 
 #[tauri::command(async)]
@@ -436,7 +493,7 @@ pub fn project_close(window: tauri::Window, state: State<AppState>) {
     *session.watcher.lock().unwrap() = None;
     *session.language_server.lock().unwrap() = None;
     *session.project.lock().unwrap() = None;
-    state.restore_claim(window.label(), None);
+    state.release_all(window.label());
 }
 
 #[tauri::command(async)]
@@ -980,9 +1037,16 @@ pub fn bundle_import_new(
     parent_dir: String,
 ) -> Result<OpenedProject> {
     let session = state.session(window.label());
-    let project = bundle::import_new(Path::new(&path), Path::new(&parent_dir))?;
-    top_up_packages(&state, &project);
-    activate(&app, &window, &state, &session, project)
+    let dest = bundle::destination(Path::new(&path), Path::new(&parent_dir))?;
+    let held = claim_for(&app, &state, window.label(), &dest, "")?;
+    let opened = bundle::import_new(Path::new(&path), Path::new(&parent_dir)).and_then(|project| {
+        top_up_packages(&state, &project);
+        activate(&app, &window, &state, &session, project)
+    });
+    if opened.is_err() {
+        state.release(window.label(), &held);
+    }
+    opened
 }
 
 #[tauri::command(async)]
@@ -1138,8 +1202,9 @@ mod tests {
         let id = |p: &Project| p.info.project_id.clone();
         *state.session("main").project.lock().unwrap() = Some(a.clone());
         *state.session("w-1").project.lock().unwrap() = Some(b.clone());
-        assert_eq!(state.claim("main", &a.root, &id(&a)), Ok(None));
-        assert_eq!(state.claim("w-1", &b.root, &id(&b)), Ok(None));
+        let held_a = state.claim("main", &a.root, &id(&a)).unwrap();
+        state.settle("main", &held_a);
+        state.claim("w-1", &b.root, &id(&b)).unwrap();
         // Each window sees its own project.
         assert_eq!(current(&state.session("main")).unwrap().root, a.root);
         assert_eq!(current(&state.session("w-1")).unwrap().root, b.root);
@@ -1162,21 +1227,29 @@ mod tests {
         assert_eq!(state.claim("w-2", tmp.path(), "x"), Err("main".to_string()));
         assert_eq!(state.window_with("w-2", &id(&a)), Some("main".to_string()));
         assert_eq!(state.window_with("main", &id(&a)), None);
-        // The window that has it may open it again; a failed switch puts the old claim back.
-        let held = state.claim("main", &a.root, &id(&a)).unwrap();
-        assert_eq!(held.as_ref().map(|c| c.project_id.clone()), Some(id(&a)));
-        let c = Project::create(&tmp.path().join("c"), "c", "article").unwrap();
-        let before = state.claim("main", &c.root, &id(&c)).unwrap();
-        state.restore_claim("main", before);
+        // A window opening another project keeps the one it has until the new one is open: a
+        // failed switch leaves it holding the old one, and no other window can take it meanwhile.
+        let c = tmp.path().join("c");
+        let opening = state.claim("main", &c, "c").unwrap();
         assert_eq!(
             state.claim("w-2", &a.root, &id(&a)),
             Err("main".to_string())
         );
-        assert_eq!(state.claim("w-2", &c.root, &id(&c)), Ok(None));
-        state.restore_claim("w-2", None);
+        state.release("main", &opening);
+        assert_eq!(state.claim("w-2", &c, "c").map(|_| ()), Ok(()));
+        assert_eq!(
+            state.claim("w-2", &a.root, &id(&a)),
+            Err("main".to_string())
+        );
+        state.release_all("w-2");
+        // A switch that succeeds lets the old one go.
+        let opened = state.claim("main", &c, "c").unwrap();
+        state.settle("main", &opened);
+        assert_eq!(state.claim("w-2", &a.root, &id(&a)).map(|_| ()), Ok(()));
+        state.release_all("w-2");
         // A closed window takes its project with it.
         state.end_session("main");
-        assert_eq!(state.claim("w-2", &a.root, &id(&a)), Ok(None));
+        assert_eq!(state.claim("w-2", &c, "c").map(|_| ()), Ok(()));
         assert!(current(&state.session("main")).is_err());
     }
 

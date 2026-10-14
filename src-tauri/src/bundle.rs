@@ -10,7 +10,7 @@ use git2::{Oid, Repository};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use ts_rs::TS;
 use zip::write::SimpleFileOptions;
 
@@ -404,9 +404,12 @@ fn take_extras(project: &Project, dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Create a new project folder from a bundle, with the bundle's full history.
-pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
-    let manifest = read_manifest(path)?;
+/// The folder in `parent_dir` that [`import_new`] makes the bundle's project in.
+pub fn destination(path: &Path, parent_dir: &Path) -> Result<PathBuf> {
+    Ok(folder_for(&read_manifest(path)?, parent_dir))
+}
+
+fn folder_for(manifest: &Manifest, parent_dir: &Path) -> PathBuf {
     let folder: String = manifest
         .project
         .name
@@ -420,7 +423,13 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
         })
         .collect();
     let folder = folder.trim().trim_matches('.');
-    let dest = parent_dir.join(if folder.is_empty() { "project" } else { folder });
+    parent_dir.join(if folder.is_empty() { "project" } else { folder })
+}
+
+/// Create a new project folder from a bundle, with the bundle's full history.
+pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
+    let manifest = read_manifest(path)?;
+    let dest = folder_for(&manifest, parent_dir);
     let not_empty = || {
         Error::app(
             "not_empty",

@@ -351,10 +351,16 @@ impl Project {
                     "This project was made by a newer version of Emquad",
                 ));
             }
-            return Ok(Project {
+            let mut project = Project {
                 root: dir.to_path_buf(),
                 info,
-            });
+            };
+            // A main file named outside the project, as a folder someone sent could name one,
+            // is never followed: looking up a network path can contact another computer.
+            if clean_rel(&project.info.main_file).is_err() {
+                project.info.main_file = project.guess_main()?;
+            }
+            return Ok(project);
         }
         let name = dir
             .file_name()
@@ -377,7 +383,10 @@ impl Project {
                 spellcheck: String::new(),
             }),
         };
-        if project.info.main_file.is_empty() || !project.root.join(&project.info.main_file).exists()
+        if project.info.main_file.is_empty()
+            || !project
+                .resolve(&project.info.main_file)
+                .is_ok_and(|main| main.exists())
         {
             project.info.main_file = project.guess_main()?;
         }

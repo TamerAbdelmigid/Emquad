@@ -31,6 +31,8 @@ describe("pathFromUri", () => {
     const known = ["main.tex", "chapters/Intro.tex"];
     expect(pathFromUri("E:\\thesis", "file:///E:/Thesis/Chapters/intro.tex", known)).toBe("chapters/Intro.tex");
     expect(pathFromUri("E:\\thesis", "file:///E:/thesis/chapters/new.tex", known)).toBe("chapters/new.tex");
+    // Where two differ only in case, as they can elsewhere than on Windows, the exact one.
+    expect(pathFromUri("E:\\thesis", "file:///E:/thesis/fig.tex", ["Fig.tex", "fig.tex"])).toBe("fig.tex");
   });
   it("is not thrown off by letters that change length when their case changes", () => {
     expect(pathFromUri("C:\\İstanbul", "file:///C:/%C4%B0stanbul/ch.tex")).toBe("ch.tex");
