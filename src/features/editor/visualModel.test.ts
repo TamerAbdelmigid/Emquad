@@ -105,6 +105,13 @@ describe("tables, figures and citations", () => {
     expect(of(visualPieces("\\begin{tabular}{ll}\n a & b \\\\\n", []), "table")).toHaveLength(0);
   });
 
+  it("draws a table with another inside it as one table, to its own end", () => {
+    const nested = "\\begin{tabular}{ll}\n a & \\begin{tabular}{c} x \\\\ y \\end{tabular} \\\\\n b & c \\\\\n\\end{tabular}";
+    const text = `${nested}\nafter`;
+    const tables = of(visualPieces(text, [{ from: text.length, to: text.length }]), "table");
+    expect(tables.map((p) => slice(text, p))).toEqual([nested]);
+  });
+
   it("draws a picture command as its picture, unless it is being edited", () => {
     const text = "x \\includegraphics[width=\\linewidth]{figs/plot} y";
     const away = visualPieces(text, [{ from: 0, to: 0 }]);

@@ -4,6 +4,7 @@ import {
   bordersStyle,
   captionOf,
   cellProblem,
+  cellRanges,
   cellsOf,
   cellsStyled,
   clearCells,
@@ -14,6 +15,7 @@ import {
   ensureMultirow,
   ensurePackage,
   escapeInserted,
+  oneLine,
   escapeTex,
   escapeTyped,
   expandRect,
@@ -22,6 +24,7 @@ import {
   insertRow,
   looksLikeMoney,
   merge,
+  needsArray,
   needsBooktabs,
   needsMultirow,
   newTable,
@@ -110,25 +113,118 @@ describe("reading a table", () => {
 
   it("refuses what it could not write back exactly, saying why", () => {
     const wrap = (spec: string, body: string) => `\\begin{tabular}{${spec}}\n${body}\n\\end{tabular}`;
-    expect(reason(wrap("lp{3cm}", "a & b \\\\"))).toMatch(/column type/);
-    expect(reason(wrap("l@{}l", "a & b \\\\"))).toMatch(/column type/);
+    expect(reason(wrap("lS", "a & b \\\\"))).toMatch(/column type/);
+    expect(reason(wrap("*{2}{l}", "a & b \\\\"))).toMatch(/column type/);
     expect(reason(wrap("l||l", "a & b \\\\"))).toMatch(/double/);
-    expect(reason(wrap("ll", "a & \\begin{tabular}{l} x \\end{tabular} \\\\"))).toMatch(/another environment/);
-    expect(reason(wrap("ll", "a & b \\\\ % a note\nc & d \\\\"))).toMatch(/comment/);
-    expect(reason(wrap("ll", "a & b \\\\[2pt]\nc & d \\\\"))).toMatch(/space after a row/);
-    expect(reason(wrap("ll", "\\rowcolor{gray} a & b \\\\"))).toMatch(/rowcolor/);
+    expect(reason(wrap("ll", "a % a note\n & b \\\\"))).toMatch(/comment inside a cell/);
+    expect(reason(wrap("ll", "a & b \\\\*\nc & d \\\\"))).toMatch(/together/);
+    expect(reason(wrap("ll", "a & \\rowcolor{gray} b \\\\"))).toMatch(/row colour/);
+    expect(reason(wrap("ll", "a & \\begin{verbatim}x\\end{verbatim} \\\\"))).toMatch(/verbatim/);
     expect(reason(wrap("ll", "a & b \\\\ \\hline\\hline c & d \\\\"))).toMatch(/more than one rule/);
-    expect(reason(wrap("ll", "a & b \\\\ \\cmidrule{1-2} c & d \\\\"))).toMatch(/cmidrule/);
+    expect(reason(wrap("ll", "a & b \\\\ \\cmidrule{1-2} \\cmidrule{2-2} c & d \\\\"))).toMatch(/overlap/);
     expect(reason(wrap("ll", "a & b & c \\\\"))).toMatch(/every column/);
     expect(reason(wrap("ll", "a \\\\"))).toMatch(/every column/);
     expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\ oops & d \\\\"))).toMatch(/not empty/);
     expect(reason(wrap("ll", "\\multirow{3}{*}{a} & b \\\\ & d \\\\"))).toMatch(/more rows/);
-    expect(reason(wrap("ll", "\\multirow{2}{2cm}{a} & b \\\\ & d \\\\"))).toMatch(/cannot be edited/);
-    expect(reason(wrap("ll", "\\multicolumn{2}{p{2cm}}{a} \\\\"))).toMatch(/column type/);
+    expect(reason(wrap("ll", "\\multicolumn{2}{lc}{a} \\\\"))).toMatch(/cannot be edited/);
     expect(reason(wrap("ll", "a & b \\hline \\\\"))).toMatch(/middle of a row/);
     expect(reason(wrap("ll", "a & {b \\\\"))).toMatch(/braces/);
-    expect(reason("\\begin{tabularx}{\\textwidth}{lX}\na & b \\\\\n\\end{tabularx}")).toMatch(/plain tabular/);
+    expect(reason("\\begin{tabulary}{\\textwidth}{lL}\na & b \\\\\n\\end{tabulary}")).toMatch(/can be edited here/);
     expect(reason("\\begin{tabular}{ll}\na & b \\\\\n")).toMatch(/not finished/);
+  });
+});
+
+describe("tables written in other ways", () => {
+  /** Read, check it writes back as itself, and give the table. */
+  const kept = (source: string): Table => {
+    const t = read(source);
+    expect(read(writeTable(t))).toEqual(t);
+    return t;
+  };
+
+  it("reads columns with a width, and others described in full, and keeps them", () => {
+    const t = kept("\\begin{tabular}{|l|p{3cm}|>{\\centering\\arraybackslash}m{2cm}<{\\,}|@{}r@{}|}\na & b & c & d \\\\\n\\end{tabular}");
+    expect(t.aligns).toEqual(["l", "l", "c", "r"]);
+    expect(t.kinds).toEqual(["l", "p{3cm}", ">{\\centering\\arraybackslash}m{2cm}<{\\,}", "r"]);
+    expect(writeTable(t).split("\n")[0]).toBe("\\begin{tabular}{|l|p{3cm}|>{\\centering\\arraybackslash}m{2cm}<{\\,}|@{}r|@{}}");
+    expect(needsArray(t)).toBe(true);
+    expect(needsArray(read("\\begin{tabular}{lp{1cm}}\na & b \\\\\n\\end{tabular}"))).toBe(false);
+  });
+
+  it("aligns a column with a width by what is written before it", () => {
+    const t = kept("\\begin{tabular}{lp{3cm}}\na & b \\\\\n\\end{tabular}");
+    const right = setAlign(t, { top: 0, left: 1, bottom: 0, right: 1 }, "r");
+    expect(right.kinds![1]).toBe(">{\\raggedleft\\arraybackslash}p{3cm}");
+    expect(right.aligns[1]).toBe("r");
+    const centred = setAlign(right, { top: 0, left: 1, bottom: 0, right: 1 }, "c");
+    expect(centred.kinds![1]).toBe(">{\\centering\\arraybackslash}p{3cm}");
+    expect(setAlign(centred, { top: 0, left: 1, bottom: 0, right: 1 }, "l").kinds).toEqual(["l", "p{3cm}"]);
+    expect(read(writeTable(right))).toEqual(right);
+  });
+
+  it("keeps a column's description when columns are added and taken away beside it", () => {
+    const t = kept("\\begin{tabular}{lp{3cm}}\na & b \\\\\n\\end{tabular}");
+    expect(insertColumn(t, 2).kinds).toEqual(["l", "p{3cm}", "p{3cm}"]);
+    expect(deleteColumn(t, 1).kinds).toBeUndefined();
+    expect(splitIntoColumns(t, 0, 1).kinds).toEqual(["l", "p{3cm}", "p{3cm}"]);
+  });
+
+  it("reads tabular*, tabularx and longtable, with their widths and positions", () => {
+    const star = kept("\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}}ll}\na & b \\\\\n\\end{tabular*}");
+    expect(star.env).toEqual({ name: "tabular*", width: "\\textwidth" });
+    expect(writeTable(star).split("\n")[0]).toBe("\\begin{tabular*}{\\textwidth}{@{\\extracolsep{\\fill}}ll}");
+    const x = kept("\\begin{tabularx}{0.9\\linewidth}[t]{lX}\na & b \\\\\n\\end{tabularx}");
+    expect(x.env).toEqual({ name: "tabularx", width: "0.9\\linewidth" });
+    expect(x.pos).toBe("t");
+    expect(writeTable(x).split("\n").pop()).toBe("\\end{tabularx}");
+    const long = kept("\\begin{longtable}[c]{ll}\na & b \\\\\n\\end{longtable}");
+    expect(long.env).toEqual({ name: "longtable" });
+    // A longtable's head and foot are not modelled.
+    expect(reason("\\begin{longtable}{ll}\nH & I \\\\\n\\endhead\na & b \\\\\n\\end{longtable}")).toMatch(/endhead/);
+  });
+
+  it("reads \\cmidrule pieces with their trims and thicknesses", () => {
+    const t = kept("\\begin{tabular}{lll}\n\\toprule\nA & B & C \\\\\n\\cmidrule(lr){1-2} \\cmidrule[0.5pt]{3-3}\na & b & c \\\\\n\\bottomrule\n\\end{tabular}");
+    expect(t.hrules[1]).toEqual({ kind: "cmidrule", segs: [{ a: 0, b: 1, trim: "lr" }, { a: 2, b: 2, width: "0.5pt" }] });
+    expect(writeTable(t)).toContain("\\cmidrule(lr){1-2} \\cmidrule[0.5pt]{3-3}");
+  });
+
+  it("keeps the space between rows, row colours, row gaps and comments between rows", () => {
+    const t = kept(
+      "\\begin{tabular}{ll}\n% the head\n\\toprule\n\\rowcolor{gray!20} A & B \\\\ % first\n\\midrule\n\\addlinespace[2pt]\na & b \\\\[3pt]\nc & d \\\\\n\\bottomrule\n\\end{tabular}",
+    );
+    expect(t.hrules[0]).toEqual({ kind: "toprule", notes: [" the head"] });
+    expect(t.hrules[1]).toEqual({ kind: "midrule", space: "2pt" });
+    expect(t.rowInfo).toEqual([{ color: "\\rowcolor{gray!20}", note: " first" }, { gap: "3pt" }, {}]);
+    expect(writeTable(t)).toContain("\\rowcolor{gray!20} A & B \\\\ % first");
+    expect(writeTable(t)).toContain("a & b \\\\[3pt]");
+    // Rows added and taken away carry their own.
+    expect(insertRow(t, 1).rowInfo).toEqual([{ color: "\\rowcolor{gray!20}", note: " first" }, {}, { gap: "3pt" }, {}]);
+    expect(deleteRow(t, 0).rowInfo).toEqual([{ gap: "3pt" }, {}]);
+  });
+
+  it("reads \\multirow with a width and a position", () => {
+    const t = kept("\\begin{tabular}{ll}\n\\multirow[t]{2}{3cm}{a} & b \\\\\n& d \\\\\n\\end{tabular}");
+    expect(t.rows[0][0]).toMatchObject({ rowSpan: 2, rowWidth: "3cm", rowPos: "t", tex: "a" });
+    expect(writeTable(t)).toContain("\\multirow[t]{2}{3cm}{a}");
+  });
+
+  it("takes an environment inside a cell whole, a table inside a table included", () => {
+    const t = kept("\\begin{tabular}{ll}\na & $\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}$ \\\\\nb & \\begin{tabular}{c} x \\\\ y \\end{tabular} \\\\\n\\end{tabular}");
+    expect(tex(t)).toEqual([
+      ["a", "$\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}$"],
+      ["b", "\\begin{tabular}{c} x \\\\ y \\end{tabular}"],
+    ]);
+  });
+
+  it("knows where each cell's text is, so that one cell can be changed where it stands", () => {
+    const source = "\\begin{tabular}{ll}\n  \\hline\n  Name   &   \\multicolumn{1}{c}{ Value } \\\\\n  $x$ &\n     two \\\\\n\\end{tabular}";
+    const ranges = cellRanges(source)!;
+    const at = (r: number, c: number) => source.slice(ranges[r][c]!.from, ranges[r][c]!.to);
+    expect(at(0, 0)).toBe("Name");
+    expect(at(0, 1)).toBe("Value");
+    expect(at(1, 0)).toBe("$x$");
+    expect(at(1, 1)).toBe("two");
   });
 });
 
@@ -293,10 +389,10 @@ describe("borders", () => {
     expect(bordersStyle(toggleEdge(t, { top: 0, left: 0, bottom: 0, right: 0 }, "bottom"))).toBe(null);
   });
 
-  it("draw around a merged cell in every look, and the book look turns into ordinary rules there", () => {
+  it("draw around a merged cell in every look, and the book look with \\cmidrule there", () => {
     const merged = merge(grid(3, 2), { top: 0, left: 0, bottom: 1, right: 0 });
     const book = setBorders(merged, "book");
-    expect(writeTable(book)).toContain("\\cline{2-2}");
+    expect(writeTable(book)).toContain("\\cmidrule{2-2}");
     expect(read(writeTable(book))).toEqual(book);
   });
 
@@ -872,20 +968,27 @@ describe("hand-written tables that must not be touched", () => {
     expect(parseTable(written).ok).toBe(true);
   });
 
-  it("refuses verbatim text, whose & and \\\\ are not what they look like", () => {
-    expect(reason(wrap("ll", "\\verb|a&b| \\\\"))).toMatch(/verb/);
-    expect(reason(wrap("l", "\\verb|a\\\\b| \\\\"))).toMatch(/verb/);
-    expect(reason(wrap("ll", "\\lstinline|x| & b \\\\"))).toMatch(/lstinline/);
+  it("takes verbatim text whole, its & and \\\\ included, and refuses it where it cannot be followed", () => {
+    const t = read(wrap("ll", "\\verb|a&b| & c \\\\"));
+    expect(tex(t)).toEqual([["\\verb|a&b|", "c"]]);
+    expect(tex(read(wrap("l", "\\verb|a\\\\b| \\\\")))).toEqual([["\\verb|a\\\\b|"]]);
+    expect(tex(read(wrap("ll", "\\lstinline|x| & b \\\\")))).toEqual([["\\lstinline|x|", "b"]]);
+    expect(reason(wrap("ll", "\\verb|a & b \\\\"))).toMatch(/verb/);
   });
 
-  it("refuses a rule with a thickness, and text that would be taken for one", () => {
-    expect(reason(wrap("ll", "a & b \\\\\n\\midrule[2pt]\nc & d \\\\"))).toMatch(/thickness/);
-    expect(reason(wrap("ll", "\\toprule\n[1] & b \\\\"))).toMatch(/thickness/);
-    // ... so typing "[1]" into the first cell after such a rule is held back, not written.
+  it("keeps a rule's thickness, and holds back text that would be taken for one", () => {
+    const thick = read(wrap("ll", "a & b \\\\\n\\midrule[2pt]\nc & d \\\\"));
+    expect(thick.hrules[1]).toEqual({ kind: "midrule", width: "2pt" });
+    expect(writeTable(thick)).toContain("\\midrule[2pt]");
+    // As LaTeX reads it, brackets straight after a booktabs rule are its thickness.
+    expect(read(wrap("ll", "\\toprule\n[1] & b \\\\")).hrules[0]).toEqual({ kind: "toprule", width: "1" });
+    // ... and after a line end, the space after the row. So "[1]" typed at the start of a row
+    // would not read back as typed, and is held back; anywhere else it is text.
     const t = read(wrap("ll", "\\toprule\na & b \\\\\nc & d \\\\"));
-    expect(parseTable(writeTable(setCell(t, 0, 0, "[1]"))).ok).toBe(false);
-    expect(parseTable(writeTable(setCell(t, 1, 0, "[1]"))).ok).toBe(false);
-    expect(parseTable(writeTable(setCell(t, 0, 1, "[1]"))).ok).toBe(true);
+    const kept = (x: Table) => parseTable(writeTable(x)).ok && JSON.stringify(read(writeTable(x))) === JSON.stringify(x);
+    expect(kept(setCell(t, 0, 0, "[1]"))).toBe(false);
+    expect(kept(setCell(t, 1, 0, "[1]"))).toBe(false);
+    expect(kept(setCell(t, 0, 1, "[1]"))).toBe(true);
   });
 
   it("refuses rules of kinds it does not know, but not a rule drawn inside a cell", () => {
@@ -895,9 +998,12 @@ describe("hand-written tables that must not be touched", () => {
     expect(reason(wrap("ll", "a & \\rule{1cm}{1pt} \\\\"))).toBe("editable");
   });
 
-  it("refuses empty cells under a merged cell that are described differently from it", () => {
-    expect(reason(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\multicolumn{1}{l|}{} & d \\\\"))).toMatch(/described differently/);
-    expect(reason(wrap("lll", "\\multicolumn{2}{c|}{\\multirow{2}{*}{a}} & b \\\\\n\\multicolumn{2}{c}{} & d \\\\"))).toMatch(/described differently/);
+  it("keeps empty cells under a merged cell that are described in their own way", () => {
+    const one = read(wrap("ll", "\\multirow{2}{*}{a} & b \\\\\n\\multicolumn{1}{l|}{} & d \\\\"));
+    expect(one.rows[1][0]).toMatchObject({ hidden: true, fill: "l|" });
+    expect(writeTable(one)).toContain("\\multicolumn{1}{l|}{} & d \\\\");
+    const wide = read(wrap("lll", "\\multicolumn{2}{c|}{\\multirow{2}{*}{a}} & b \\\\\n\\multicolumn{2}{c}{} & d \\\\"));
+    expect(writeTable(wide)).toContain("\\multicolumn{2}{c}{} & d \\\\");
     expect(reason(wrap("lll", "\\multicolumn{2}{c|}{\\multirow{2}{*}{a}} & b \\\\\n\\multicolumn{2}{c|}{} & d \\\\"))).toBe("editable");
   });
 
@@ -956,10 +1062,12 @@ describe("what a rewrite must leave alone", () => {
 });
 
 describe("cells written over several lines", () => {
-  it("read as one line, with a space where the line ended", () => {
+  it("keep their lines, and show as one line with a space where each line ended", () => {
     const t = read("\\begin{tabular}{ll}\nName & A long description that\n   continues here \\\\\n\\multicolumn{2}{c}{two\nlines} \\\\\n\\end{tabular}");
-    expect(t.rows[0][1].tex).toBe("A long description that continues here");
-    expect(t.rows[1][0].tex).toBe("two lines");
+    expect(t.rows[0][1].tex).toBe("A long description that\n   continues here");
+    expect(oneLine(t.rows[0][1].tex)).toBe("A long description that continues here");
+    expect(t.rows[1][0].tex).toBe("two\nlines");
+    expect(read(writeTable(t))).toEqual(t);
     expect(reason("\\begin{tabular}{ll}\nName & a\n\nb \\\\\n\\end{tabular}")).toMatch(/blank line/);
   });
 
@@ -996,8 +1104,10 @@ describe("rules and merged cells", () => {
   it("merging across a booktabs rule turns it into one that can go around the cell", () => {
     const t = read("\\begin{tabular}{ll}\n\\toprule\na & b \\\\\n\\midrule\nc & d \\\\\n\\bottomrule\n\\end{tabular}");
     const merged = merge(t, { top: 0, left: 0, bottom: 1, right: 0 });
-    expect(writeTable(merged).split("\n")).toEqual(["\\begin{tabular}{ll}", "\\toprule", "\\multirow{2}{*}{a c} & b \\\\", "\\cline{2-2}", "& d \\\\", "\\bottomrule", "\\end{tabular}"]);
+    expect(writeTable(merged).split("\n")).toEqual(["\\begin{tabular}{ll}", "\\toprule", "\\multirow{2}{*}{a c} & b \\\\", "\\cmidrule{2-2}", "& d \\\\", "\\bottomrule", "\\end{tabular}"]);
     expect(read(writeTable(merged))).toEqual(merged);
+    // Split again, the rule is the whole \midrule it was.
+    expect(splitMerged(merged, 0, 0).hrules[1]).toEqual({ kind: "midrule" });
   });
 
   it("holds through a long run of varied actions", () => {

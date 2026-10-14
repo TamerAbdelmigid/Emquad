@@ -139,7 +139,20 @@ export function visualPieces(text: string, selection: Range[]): Piece[] {
       if (at < 0) break;
     }
     const close = `\\end{${m[1]}}`;
-    const end = at < 0 ? -1 : text.indexOf(close, at);
+    // The end that matches, past any table of the same kind inside this one.
+    let end = -1;
+    for (let depth = 1, i = at; at >= 0 && i >= 0 && i < text.length; ) {
+      const open = text.indexOf(m[0], i);
+      const shut = text.indexOf(close, i);
+      if (shut < 0) break;
+      if (open >= 0 && open < shut) {
+        depth++;
+        i = open + m[0].length;
+      } else if (--depth === 0) {
+        end = shut;
+        break;
+      } else i = shut + close.length;
+    }
     // A comment inside a table is part of it; a table that is itself commented out is not one.
     if (end < 0 || !free(from, from + 1)) continue;
     const to = end + close.length;

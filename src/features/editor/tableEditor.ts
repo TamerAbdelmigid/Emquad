@@ -37,8 +37,13 @@ import {
   isMerged,
   merge,
   needsBooktabs,
+  needsArray,
   needsMultirow,
   newTable,
+  oneLine,
+  cellRanges,
+  ruleUnder,
+  specAlign,
   packageNotice,
   parseTable,
   pasteCells,
@@ -159,6 +164,7 @@ const WHY: Record<string, string> = {
   booktabs: "The book style of rules needs it.",
   amssymb: "The symbol you chose needs it.",
   amsmath: "What you chose needs it.",
+  array: "A column described with >{…}, m{…} or b{…} needs it.",
 };
 /** Cells copied from a table here, kept as LaTeX so that pasting them back loses nothing. */
 const CELLS_TYPE = "application/x-emquad-cells";
@@ -296,7 +302,7 @@ class Controller {
           if (td) this.draw(td, cell.tex);
         }),
       );
-      const now = this.table.rows[at.r][at.c].tex;
+      const now = oneLine(this.table.rows[at.r][at.c].tex);
       if (trimSpaces(this.input.value) !== now) {
         this.input.value = now;
         this.typed = now;
@@ -371,7 +377,8 @@ class Controller {
     const many = Boolean(rect && !this.single());
     const merged = Boolean(cur && isMerged(t, cur.r, cur.c));
     const none = !cur || !rect;
-    const align = cur ? ((t.rows[cur.r][cur.c].spec && /[lcr]/.exec(t.rows[cur.r][cur.c].spec!)?.[0]) || t.aligns[cur.c]) : null;
+    const spec = cur ? t.rows[cur.r][cur.c].spec : undefined;
+    const align = cur ? ((spec && specAlign(spec)) || t.aligns[cur.c]) : null;
     const style = bordersStyle(t);
     const off: Partial<Record<Action, boolean>> = {
       merge: !many,
@@ -429,10 +436,7 @@ class Controller {
   private render() {
     const t = this.table;
     this.grid.replaceChildren();
-    const lineUnder = (b: number, c: number) => {
-      const rule = t.hrules[b];
-      return rule.kind === "cline" ? Boolean(rule.cols?.[c]) : rule.kind !== "none";
-    };
+    const lineUnder = (b: number, c: number) => ruleUnder(t, b, c);
     // Handles above the columns and before the rows, as in a word processor: click one to
     // choose a whole column or row, drag along them to choose several.
     const heads = this.grid.appendChild(document.createElement("tr"));
@@ -463,7 +467,7 @@ class Controller {
         td.dataset.c = String(c);
         if (cell.colSpan > 1) td.colSpan = cell.colSpan;
         if (cell.rowSpan > 1) td.rowSpan = cell.rowSpan;
-        const align = (cell.spec && /[lcr]/.exec(cell.spec)?.[0]) || t.aligns[c];
+        const align = (cell.spec && specAlign(cell.spec)) || t.aligns[c];
         td.className = `al-${align}`;
         const ruleClass = (b: number) => (t.hrules[b].kind === "toprule" || t.hrules[b].kind === "bottomrule" ? "heavy" : "");
         if (lineUnder(r, c)) td.classList.add("rule-top", ...(ruleClass(r) ? [`${ruleClass(r)}-top`] : []));
@@ -551,7 +555,8 @@ class Controller {
     input.type = "text";
     input.className = "cm-v-tcell";
     input.spellcheck = false;
-    input.value = this.table.rows[cell.r][cell.c].tex;
+    // A cell written over several lines is typed in as one line, as TeX reads it.
+    input.value = oneLine(this.table.rows[cell.r][cell.c].tex);
     input.setAttribute("aria-label", `Row ${cell.r + 1}, column ${cell.c + 1}`);
     input.addEventListener("input", () => this.onType());
     td.replaceChildren(input);
@@ -680,6 +685,33 @@ class Controller {
     return { from, indent: /^[ \t]*$/.test(lead) ? lead : "", text: doc.toString() };
   }
 
+  /**
+   * The changes that write `next` when it differs from the table now only in what cells say:
+   * each such cell's text replaced where it stands. Null when that is not so, or when the
+   * result would not read back as `next`.
+   */
+  private cellChanges(next: Table, offset: number): ChangeSpec[] | null {
+    const t = this.table;
+    if (!sameShape(t, next)) return null;
+    const ranges = cellRanges(this.source);
+    if (!ranges) return null;
+    const changed: { from: number; to: number; insert: string }[] = [];
+    for (let r = 0; r < t.rows.length; r++) {
+      for (let c = 0; c < t.rows[r].length; c++) {
+        if (t.rows[r][c].tex === next.rows[r][c].tex) continue;
+        const range = ranges[r][c];
+        if (!range) return null;
+        changed.push({ from: range.from, to: range.to, insert: next.rows[r][c].tex });
+      }
+    }
+    if (!changed.length) return null;
+    let text = this.source;
+    for (const ch of [...changed].sort((a, b) => b.from - a.from)) text = text.slice(0, ch.from) + ch.insert + text.slice(ch.to);
+    const back = parseTable(text);
+    if (!back.ok || !same(back.table, next)) return null;
+    return changed.map((ch) => ({ from: offset + ch.from, to: offset + ch.to, insert: ch.insert }));
+  }
+
   /** Write a new version of the table to the source, as one step that undo takes back whole. */
   private commit(next: Table, structural: boolean): boolean {
     structural ||= this.byTool;
@@ -693,13 +725,20 @@ class Controller {
       store().notify("That change could not be written as LaTeX without altering the table, so it was not made. Use Edit source for this one.", true);
       return false;
     }
-    const change = smallestChange(this.source, writeTable(next, at.indent), at.from);
-    if (!change) return false;
-    changes.push(change);
+    // Cells changed in place where only their text changed, so that a table laid out by hand
+    // keeps its layout; otherwise the table is written out again.
+    const inPlace = this.cellChanges(next, at.from);
+    if (inPlace) changes.push(...inPlace);
+    else {
+      const change = smallestChange(this.source, writeTable(next, at.indent), at.from);
+      if (!change) return false;
+      changes.push(change);
+    }
     // The packages the table now needs go into the preamble with the same change.
     const wanted = new Set(this.wanted);
     if (needsMultirow(next)) wanted.add("multirow");
     if (needsBooktabs(next)) wanted.add("booktabs");
+    if (needsArray(next)) wanted.add("array");
     const added: string[] = [];
     for (const name of wanted) {
       const need = ensurePackage(at.text, name);
