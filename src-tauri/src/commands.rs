@@ -57,6 +57,9 @@ pub struct Session {
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
     /// texlab, running for the open project, when it is installed.
     pub language_server: Mutex<Option<crate::lsp::Server>>,
+    /// Held while a project is opened, created or imported in the window, so two at once
+    /// cannot each let go of the other's claim and leave the window holding none.
+    pub opening: Mutex<()>,
 }
 
 impl AppState {
@@ -460,6 +463,7 @@ pub fn project_create(
     }
     // The new folder is claimed before anything is written, so it is never made inside a
     // project another window has open.
+    let _one_at_a_time = session.opening.lock().unwrap_or_else(|e| e.into_inner());
     let dest = Path::new(&parent_dir).join(name);
     let held = claim_for(&app, &state, window.label(), &dest, "")?;
     let opened = Project::create(&dest, name, &template)
@@ -478,6 +482,7 @@ pub fn project_open(
     dir: String,
 ) -> Result<OpenedProject> {
     let session = state.session(window.label());
+    let _one_at_a_time = session.opening.lock().unwrap_or_else(|e| e.into_inner());
     activate(
         &app,
         &window,
@@ -1037,6 +1042,7 @@ pub fn bundle_import_new(
     parent_dir: String,
 ) -> Result<OpenedProject> {
     let session = state.session(window.label());
+    let _one_at_a_time = session.opening.lock().unwrap_or_else(|e| e.into_inner());
     let dest = bundle::destination(Path::new(&path), Path::new(&parent_dir))?;
     let held = claim_for(&app, &state, window.label(), &dest, "")?;
     let opened = bundle::import_new(Path::new(&path), Path::new(&parent_dir)).and_then(|project| {

@@ -2259,8 +2259,8 @@ function looseBreaks(written: string): number {
 }
 
 /** Whether text can be a caption, or a cell, as it stands (see `cellProblem`). */
-export function soundCaption(caption: string): boolean {
-  return cellProblem(caption) === null;
+export function soundCaption(caption: string, before = ""): boolean {
+  return cellProblem(caption, before) === null;
 }
 
 /**
