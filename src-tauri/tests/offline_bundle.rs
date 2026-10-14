@@ -42,9 +42,27 @@ fn a_bundle_with_its_packages_compiles_offline_from_the_projects_own_store() {
         unsafe { std::env::set_var(name, "http://127.0.0.1:9") };
     }
 
-    let checked =
-        packages::verify(&exe, &a, &carried).expect("the carried packages are enough to compile");
-    assert_eq!(checked.entries().len(), carried.len());
+    // Only what this project reads goes in: found with no network, and enough on its own.
+    let used = packages::used(&exe, &a, &carried).expect("what the project reads can be told");
+    assert!(
+        used.len() < carried.len(),
+        "{} of {}",
+        used.len(),
+        carried.len()
+    );
+    let bytes = |set: &[packages::Entry]| set.iter().map(|e| e.size).sum::<u64>();
+    eprintln!(
+        "carried {} of {} files, {} of {} bytes",
+        used.len(),
+        carried.len(),
+        bytes(&used),
+        bytes(&carried)
+    );
+    let checked = packages::verify(&exe, &a, &used)
+        .expect("the packages the project reads are enough to compile");
+    assert_eq!(checked.entries().len(), used.len());
+    // The whole store is enough too, as it always was.
+    assert!(packages::verify(&exe, &a, &carried).is_ok());
     // What will be carried is the checked copy, not the live store, which may change.
     assert!(
         checked

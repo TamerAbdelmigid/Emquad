@@ -550,7 +550,15 @@ pub fn bundle_export(
                 "LaTeX packages can be included only for a project that compiles with the built-in Tectonic and has been compiled once",
             )
         })?;
-        carried = Some(packages::verify(&tectonic, &p, &packages::list(&store)?)?);
+        // Only what this project reads, when that can be told and is shown to be enough;
+        // otherwise everything the store holds.
+        let all = packages::list(&store)?;
+        let smaller =
+            packages::used(&tectonic, &p, &all).map(|used| packages::verify(&tectonic, &p, &used));
+        carried = Some(match smaller {
+            Some(Ok(checked)) => checked,
+            _ => packages::verify(&tectonic, &p, &all)?,
+        });
     }
     let extras = bundle::Extras {
         pdf: include_pdf,

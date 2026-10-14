@@ -8,6 +8,12 @@
 //!
 //! The compiled "format" Tectonic keeps beside the store is never carried. It is a memory image
 //! read back by the engine, and is rebuilt from the package files in a second or two.
+//!
+//! A store holds every package any project on this computer has needed. A bundle carries only
+//! the files compiling its own project reads: Tectonic is shown the store as a bundle served on
+//! this computer's own address, and what it asks for is noted (`used`). That smaller set is then
+//! checked to compile with no network, like any other; if it cannot be told or does not, the
+//! whole store is carried as before.
 
 use crate::error::{Error, Result};
 use crate::project::{Project, check_component};
@@ -16,6 +22,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use ts_rs::TS;
 
 /// One file of a store. `name` is its place in the store, with forward slashes:
@@ -223,6 +230,264 @@ impl Verified {
     }
 }
 
+/// Where a served file's bytes come from: a file in the store, or (for the digest) these bytes.
+enum Bytes {
+    File(PathBuf),
+    Inline(Vec<u8>),
+}
+
+/// One file a store holds, laid out in a bundle served on this computer.
+struct Served {
+    name: String,
+    source: Bytes,
+    offset: u64,
+    len: u64,
+}
+
+/// A store shown to Tectonic as a bundle on this computer, noting each file it is asked for.
+struct Recorder {
+    port: u16,
+    asked: Arc<Mutex<BTreeSet<String>>>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Recorder {
+    /// Serve the files of one digest of a store, on a port of this computer's own address only.
+    fn start(digest: &str, files: &[(String, PathBuf, u64)]) -> Result<Recorder> {
+        let mut served = Vec::new();
+        let mut offset = 0;
+        for (name, path, len) in files {
+            served.push(Served {
+                name: name.clone(),
+                source: Bytes::File(path.clone()),
+                offset,
+                len: *len,
+            });
+            offset += len;
+        }
+        served.push(Served {
+            name: "SHA256SUM".into(),
+            source: Bytes::Inline(digest.as_bytes().to_vec()),
+            offset,
+            len: 64,
+        });
+        let total = offset + 64;
+        let index: String = served
+            .iter()
+            .map(|s| format!("{} {} {}\n", s.name, s.offset, s.len))
+            .collect();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        std::io::Write::write_all(&mut gz, index.as_bytes())?;
+        let index_gz = gz.finish()?;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
+        listener.set_nonblocking(true)?;
+        let port = listener.local_addr()?.port();
+        let asked = Arc::new(Mutex::new(BTreeSet::new()));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (seen, done) = (asked.clone(), stop.clone());
+        let thread = std::thread::spawn(move || {
+            while !done.load(std::sync::atomic::Ordering::Relaxed) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let _ = answer(stream, &served, total, &index_gz, &seen);
+                    }
+                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(5)),
+                }
+            }
+        });
+        Ok(Recorder {
+            port,
+            asked,
+            stop,
+            thread: Some(thread),
+        })
+    }
+
+    fn url(&self) -> String {
+        format!("http://127.0.0.1:{}/bundle.tar", self.port)
+    }
+
+    /// Stop serving, and give the names asked for. "" among them means a request for bytes the store does not have.
+    fn finish(mut self) -> BTreeSet<String> {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        self.asked.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// Answer one request: the index, or a range of the bundle's bytes, noting whose bytes they are.
+fn answer(
+    mut stream: std::net::TcpStream,
+    served: &[Served],
+    total: u64,
+    index_gz: &[u8],
+    asked: &Mutex<BTreeSet<String>>,
+) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
+    let mut head = Vec::new();
+    let mut byte = [0u8; 1];
+    while !head.ends_with(b"\r\n\r\n") && head.len() < 16 << 10 {
+        if stream.read(&mut byte)? == 0 {
+            break;
+        }
+        head.push(byte[0]);
+    }
+    let head = String::from_utf8_lossy(&head);
+    let mut lines = head.lines();
+    let first: Vec<&str> = lines.next().unwrap_or("").split_whitespace().collect();
+    let (method, path) = (
+        first.first().copied().unwrap_or(""),
+        first.get(1).copied().unwrap_or(""),
+    );
+    let range = lines
+        .filter_map(|l| l.split_once(':'))
+        .find(|(k, _)| k.trim().eq_ignore_ascii_case("range"))
+        .and_then(|(_, v)| v.trim().strip_prefix("bytes="))
+        .and_then(|v| v.split_once('-'))
+        .and_then(|(a, b)| {
+            Some((
+                a.trim().parse::<u64>().ok()?,
+                b.trim()
+                    .parse::<u64>()
+                    .ok()
+                    .unwrap_or(total.saturating_sub(1)),
+            ))
+        });
+    let send = |stream: &mut std::net::TcpStream,
+                status: &str,
+                extra: &str,
+                body: &[u8],
+                with_body: bool|
+     -> std::io::Result<()> {
+        write!(
+            stream,
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\n{extra}Connection: close\r\n\r\n",
+            body.len()
+        )?;
+        if with_body {
+            stream.write_all(body)?;
+        }
+        stream.flush()
+    };
+    if path.ends_with(".index.gz") {
+        return send(&mut stream, "200 OK", "", index_gz, method != "HEAD");
+    }
+    if !path.ends_with("/bundle.tar") {
+        return send(&mut stream, "404 Not Found", "", b"", false);
+    }
+    let Some((from, to)) = range.filter(|(a, b)| a <= b && *b < total) else {
+        // The whole bundle is never needed; its size is all that is asked for.
+        let length = format!("Content-Length: {total}\r\n");
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\n{length}Accept-Ranges: bytes\r\nConnection: close\r\n\r\n"
+        )?;
+        return stream.flush();
+    };
+    let mut body = Vec::with_capacity((to - from + 1) as usize);
+    for s in served
+        .iter()
+        .filter(|s| s.offset <= to && from < s.offset + s.len)
+    {
+        let bytes = match &s.source {
+            Bytes::File(path) => fs::read(path)?,
+            Bytes::Inline(bytes) => bytes.clone(),
+        };
+        if s.name != "SHA256SUM" {
+            asked
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(s.name.clone());
+        }
+        let a = from.max(s.offset) - s.offset;
+        let b = (to + 1).min(s.offset + s.len) - s.offset;
+        body.extend_from_slice(bytes.get(a as usize..b as usize).unwrap_or_default());
+    }
+    if body.len() as u64 != to - from + 1 {
+        asked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(String::new());
+    }
+    send(
+        &mut stream,
+        "206 Partial Content",
+        &format!("Content-Range: bytes {from}-{to}/{total}\r\n"),
+        &body,
+        method != "HEAD",
+    )
+}
+
+/// The part of a store that compiling the project reads, found by showing the store to Tectonic
+/// as a bundle served on this computer and noting what it asks for; the format it builds first
+/// included. Null when that cannot be told: a store with more than one source, a compile that
+/// fails, or one that asks for something the store does not have.
+pub fn used(tectonic: &Path, project: &Project, entries: &[Entry]) -> Option<Vec<Entry>> {
+    let digests: BTreeSet<String> = entries
+        .iter()
+        .filter(|e| e.name.starts_with("hashes/"))
+        .filter_map(|e| digest_in(&e.path))
+        .collect();
+    if digests.len() != 1 {
+        return None;
+    }
+    let digest = digests.into_iter().next()?;
+    let prefix = format!("data/{digest}/");
+    let files: Vec<(String, PathBuf, u64)> = entries
+        .iter()
+        .filter_map(|e| {
+            e.name
+                .strip_prefix(&prefix)
+                .map(|name| (name.to_string(), e.path.clone(), e.size))
+        })
+        .collect();
+    let recorder = Recorder::start(&digest, &files).ok()?;
+    let scratch = tempfile::tempdir().ok()?;
+    let out = scratch.path().join("out");
+    fs::create_dir_all(&out).ok()?;
+    let main = project.resolve(&project.info.main_file).ok()?;
+    let mut command = Command::new(tectonic);
+    command
+        .args(["-X", "compile", "--bundle", &recorder.url(), "--outdir"])
+        .arg(&out)
+        .arg(main.file_name().unwrap_or_default())
+        .current_dir(main.parent().unwrap_or(&project.root))
+        .env("TECTONIC_CACHE_DIR", scratch.path().join("cache"))
+        // The bundle is on this computer: no proxy stands between.
+        .env("NO_PROXY", "127.0.0.1,localhost")
+        .env("no_proxy", "127.0.0.1,localhost")
+        .env_remove("HTTP_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("ALL_PROXY")
+        .env_remove("all_proxy")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let ok = crate::compile::quiet(&mut command)
+        .status()
+        .is_ok_and(|s| s.success());
+    let asked = recorder.finish();
+    if !ok || asked.contains("") || asked.is_empty() {
+        return None;
+    }
+    let index = format!("data/{digest}.index");
+    Some(
+        entries
+            .iter()
+            .filter(|e| match e.name.strip_prefix(&prefix) {
+                Some(name) => asked.contains(name),
+                None => !e.name.starts_with("data/") || e.name == index,
+            })
+            .cloned()
+            .collect(),
+    )
+}
+
 /// Prove that the project compiles from exactly these files with no network, by doing it in a
 /// scratch folder. A bundle must not promise offline compiling it cannot deliver.
 pub fn verify(tectonic: &Path, project: &Project, entries: &[Entry]) -> Result<Verified> {
@@ -413,6 +678,46 @@ pub fn top_up(project: &Project, shared: &Path) -> Result<usize> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// Ask the recorder for something over plain HTTP, as Tectonic would.
+    fn ask(port: u16, request: &str) -> Vec<u8> {
+        use std::io::{Read, Write};
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream.write_all(request.as_bytes()).unwrap();
+        let mut out = Vec::new();
+        stream.read_to_end(&mut out).unwrap();
+        let split = out.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+        out.split_off(split)
+    }
+
+    #[test]
+    fn the_recorder_serves_a_store_as_a_bundle_and_notes_what_is_asked_for() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, b) = (tmp.path().join("a.sty"), tmp.path().join("b.sty"));
+        fs::write(&a, "AAAA").unwrap();
+        fs::write(&b, "BB").unwrap();
+        let files = vec![("a.sty".to_string(), a, 4), ("b.sty".to_string(), b, 2)];
+        let recorder = Recorder::start(DIGEST, &files).unwrap();
+        let port = recorder.port;
+        let index = ask(port, "GET /bundle.tar.index.gz HTTP/1.1\r\nHost: x\r\n\r\n");
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(&index[..]), &mut text)
+            .unwrap();
+        assert_eq!(text, "a.sty 0 4\nb.sty 4 2\nSHA256SUM 6 64\n");
+        assert_eq!(
+            ask(port, "GET /bundle.tar HTTP/1.1\r\nRange: bytes=4-5\r\n\r\n"),
+            b"BB"
+        );
+        assert_eq!(
+            ask(
+                port,
+                "GET /bundle.tar HTTP/1.1\r\nRange: bytes=6-69\r\n\r\n"
+            ),
+            DIGEST.as_bytes()
+        );
+        let asked = recorder.finish();
+        assert_eq!(asked.into_iter().collect::<Vec<_>>(), ["b.sty"]);
+    }
 
     pub const DIGEST: &str = "6ffe055852f8faf66c0acbe1a7fb27f87b869a90bad1204f3bf4d9683f597c7c";
 
