@@ -154,7 +154,9 @@ describe("tables written in other ways", () => {
   };
 
   it("reads columns with a width, and others described in full, and keeps them", () => {
-    const t = kept("\\begin{tabular}{|l|p{3cm}|>{\\centering\\arraybackslash}m{2cm}<{\\,}|@{}r@{}|}\na & b & c & d \\\\\n\\end{tabular}");
+    const t = kept("\\begin{tabular}{|l|p{3cm}|>{\\centering\\arraybackslash}m{2cm}<{\\,}|@{}r|@{}}\na & b & c & d \\\\\n\\end{tabular}");
+    // A bar written after @{…} would be moved before it, to the other side of what it holds.
+    expect(parseTable("\\begin{tabular}{l@{:}|r}\na & b \\\\\n\\end{tabular}").ok).toBe(false);
     expect(t.aligns).toEqual(["l", "l", "c", "r"]);
     expect(t.kinds).toEqual(["l", "p{3cm}", ">{\\centering\\arraybackslash}m{2cm}<{\\,}", "r"]);
     expect(writeTable(t).split("\n")[0]).toBe("\\begin{tabular}{|l|p{3cm}|>{\\centering\\arraybackslash}m{2cm}<{\\,}|@{}r|@{}}");
@@ -795,8 +797,13 @@ describe("the text around a table", () => {
       return apply(text, setCaption(text, from, from + tabular.length, "New"));
     };
     expect(put(`Text.\n\n\\begin{center}\n${tabular}\n\\end{center}`)).toContain(`\\begin{table}[h]\n\\begin{center}\n${tabular}\n\\end{center}\n\\caption{New}\n\\end{table}`);
-    expect(put(`Text.\n\n\\centering\n${tabular}`)).toContain(`\\begin{table}[h]\n\\centering\n${tabular}\n\\caption{New}\n\\end{table}`);
-    expect(put(`Text.\n\n\\noindent\n${tabular}`)).toContain(`\\begin{table}[h]\n\\centering\n\\noindent\n${tabular}`);
+    // Settings on the lines before stay, since they go on setting what follows; a size is
+    // repeated in the float, which starts from the normal size.
+    expect(put(`Text.\n\n\\centering\n${tabular}`)).toContain(`\\centering\n\\begin{table}[h]\n\\centering\n${tabular}\n\\caption{New}\n\\end{table}`);
+    expect(put(`Text.\n\n\\noindent\n${tabular}`)).toContain(`\\noindent\n\\begin{table}[h]\n\\centering\n${tabular}`);
+    expect(put(`Text.\n\n\\centering\n\\small\n${tabular}`)).toContain(
+      `\\centering\n\\small\n\\begin{table}[h]\n\\centering\n\\small\n${tabular}\n\\caption{New}\n\\end{table}\n\nMore.`,
+    );
   });
 
   it("keeps a file's own line ends", () => {
@@ -1434,5 +1441,90 @@ describe("tables from the clipboard", () => {
     ]);
     expect(t.rows[0][2].rowSpan).toBe(2);
     expect(read(writeTable(t))).toEqual(t);
+  });
+});
+
+describe("cases the review of the open-items work found", () => {
+  const wrap = (spec: string, body: string) => `\\begin{tabular}{${spec}}\n${body}\n\\end{tabular}`;
+  const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
+  const doc = (preamble: string, body: string) => `\\documentclass{article}\n${preamble}\\begin{document}\n${body}\n\\end{document}\n`;
+  const placeIn = (text: string) => {
+    const from = text.indexOf(tabular);
+    return captionPlace(text, from, from + tabular.length);
+  };
+
+  it("sees a float opened by \\let, by \\csname or in a file read before the table", () => {
+    const around = `\\ot\n\n${tabular}\n\n\\end{table}`;
+    expect(placeIn(doc("\\newcommand{\\opentab}{\\begin{table}[h]}\n\\let\\ot\\opentab\n", around)).kind).toBe("no");
+    expect(placeIn(doc("\\newcommand{\\opentab}{\\begin{table}[h]}\n\\let\\ot=\\opentab\n", around)).kind).toBe("no");
+    expect(placeIn(doc("\\expandafter\\def\\csname ot\\endcsname{\\begin{table}[h]}\n", around)).kind).toBe("no");
+    expect(placeIn(doc("", `\\input{tablestart}\n\n${tabular}\n\n\\input{tableend}`)).kind).toBe("no");
+    // Harmless ones are still fine.
+    expect(placeIn(doc("\\let\\ot\\relax\n\\expandafter\\def\\csname x\\endcsname{y}\n", `Text.\n\n${tabular}\n\nMore.`)).kind).toBe("bare");
+  });
+
+  it("keeps a label that is referred to by \\hyperref, \\vpageref or perhaps from another file", () => {
+    const body = `\\begin{table}\n${tabular}\n\\caption{Old}\\label{tab:x}\n\\end{table}\n`;
+    const used = (more: string) => {
+      const text = doc("", `${body}${more}`);
+      return floatLabels(text, placeIn(text))[0].used;
+    };
+    expect(used("")).toBe(false);
+    expect(used("See \\hyperref[tab:x]{the table}.")).toBe(true);
+    expect(used("See \\vpageref[above]{tab:x}.")).toBe(true);
+    expect(used("\\input{chapter2}")).toBe(true);
+  });
+
+  it("keeps the spaces inside a \\multicolumn description", () => {
+    const t = read(wrap("lll", "\\multicolumn{2}{l@{\\enspace or\\enspace}}{x} & c \\\\"));
+    expect(writeTable(insertRow(t, 1))).toContain("\\multicolumn{2}{l@{\\enspace or\\enspace}}{x}");
+  });
+
+  it("keeps a rule's thickness through a merge across it and a split", () => {
+    const t = read(wrap("ll", "a & b \\\\\n\\midrule[2pt]\nc & d \\\\"));
+    const merged = merge(t, { top: 0, left: 0, bottom: 1, right: 0 });
+    expect(writeTable(merged)).toContain("\\cmidrule[2pt]{2-2}");
+    expect(splitMerged(merged, 0, 0).hrules[1]).toEqual({ kind: "midrule", width: "2pt" });
+  });
+
+  it("gives a new \\multicolumn its column's own description and what is written beside it", () => {
+    const t = read(wrap(">{\\centering\\arraybackslash}p{2cm}>{\\centering\\arraybackslash}p{2cm}", "a & b \\\\"));
+    expect(writeTable(merge(t, { top: 0, left: 0, bottom: 0, right: 1 }))).toContain("\\multicolumn{2}{>{\\centering\\arraybackslash}p{2cm}}{a b}");
+    const tight = read(wrap("@{}ll@{}", "a & b \\\\\nc & d \\\\"));
+    const edged = toggleEdge(tight, { top: 0, left: 1, bottom: 0, right: 1 }, "right");
+    expect(writeTable(edged)).toContain("\\multicolumn{1}{l|@{}}{b}");
+  });
+
+  it("aligns a cell whose description holds \\arraybackslash", () => {
+    const t = read(wrap("ll", "\\multicolumn{1}{p{2cm}}{x} & b \\\\"));
+    const right = setAlign(t, { top: 0, left: 0, bottom: 0, right: 0 }, "r");
+    expect(writeTable(right)).toContain("\\multicolumn{1}{>{\\raggedleft\\arraybackslash}p{2cm}}{x}");
+    expect(parseTable(writeTable(right)).ok).toBe(true);
+  });
+
+  it("escapes an underscore in brackets after an argument and a space, which LaTeX takes as text", () => {
+    expect(escapeInserted("", "\\cellcolor{red} [note_1]")).toBe("\\cellcolor{red} [note\\_1]");
+    expect(cellProblem("\\cellcolor{red} [note_1]")).not.toBeNull();
+    // Straight after the command or an argument, brackets are its options.
+    expect(escapeInserted("", "\\mycmd[a_b]{x}")).toBe("\\mycmd[a_b]{x}");
+  });
+
+  it("refuses a line break inside braces, unless a command made for lines holds it", () => {
+    expect(cellProblem("\\textbf{x \\\\ y}")).toMatch(/line break/);
+    expect(cellProblem("{a \\\\ b}")).toMatch(/line break/);
+    expect(cellProblem("\\makecell{a \\\\ b}")).toBeNull();
+    expect(cellProblem("\\makecell[l]{a \\\\ b}")).toBeNull();
+    expect(cellProblem("\\begin{tabular}{l}a \\\\ b\\end{tabular}")).toBeNull();
+  });
+
+  it("leaves addresses and \\verb as they are typed", () => {
+    expect(escapeInserted("", "\\url{http://x.org/?a=1&b=2#top}")).toBe("\\url{http://x.org/?a=1&b=2#top}");
+    expect(escapeInserted("", "\\href{http://x.org/a_b?c&d}{A & B}")).toBe("\\href{http://x.org/a_b?c&d}{A \\& B}");
+    expect(escapeInserted("", "\\verb|a_b%c&d|")).toBe("\\verb|a_b%c&d|");
+    expect(cellProblem("\\url{http://x.org/?a=1&b=2}")).toBeNull();
+    expect(cellProblem("\\verb|a_b|")).toBeNull();
+    expect(cellProblem("\\verb|$|")).toBeNull();
+    // A % in an address is still a comment.
+    expect(escapeInserted("", "\\url{a%b}")).toBe("\\url{a\\%b}");
   });
 });

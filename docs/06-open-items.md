@@ -11,17 +11,18 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 - **The Caption tool:** kept, and widened to the ordinary cases it used to decline.
 - **macOS and Linux builds:** left for later.
 
-## Not yet reviewed
+## Reviewed
 
-- **The work on `feat/open-items`** (the commits after `6bec482`) passed `pnpm verify`, the end-to-end script and the keyboard pass, but has not yet been read by an independent reviewer. It touches the bundle and package code, the per-window sessions and the capability configuration, so it is full tier.
+- **The work on `feat/open-items`** was read by three independent reviewers on 15 October 2026 (bundles and packages; windows, the language server and the capability; tables, captions and symbols). Each reported blocking defects: a `.bib` name that made the app contact a network share, a race that let two windows open one project, and a row's first cell starting with `[` that LaTeX took as an option. These, and the should-fix and minor findings, were fixed on the same branch with a test for each, except those listed below.
 
 ## Still open
 
 ### Table editor
 
-- **What a list cannot cover.** Underscores typed in the text argument of a command are escaped only for the commands the editor knows hold prose (`PROSE` in `tableModel.ts`, with a list of commands whose arguments are names). In the argument of a command it knows nothing about, an underscore is left as typed, and the document will not compile until it is escaped by hand. Add commands as they come up.
+- **What a list cannot cover.** Underscores typed in the text argument of a command are escaped only for the commands the editor knows hold prose (`PROSE` in `tableModel.ts`, with a list of commands whose arguments are names). In the argument of a command it knows nothing about, such as one the document defines itself (`\myemph{snake_case}`), an underscore is left as typed, and the document will not compile until it is escaped by hand. Add commands as they come up.
 - **A rule a merge took away whole** comes back on splitting only in a table ruled between all its rows; the source keeps no trace of it otherwise, by design.
-- **Read-only still:** column types other than `l c r p m b X` (such as siunitx's `S`, `D`, `*{n}{…}`), double vertical rules, `\hhline`, dashed rules, `\specialrule`, a longtable's head and foot, `\\*`, a comment or a blank line inside a cell, verbatim environments in a cell.
+- **Read-only still:** column types other than `l c r p m b X` (such as siunitx's `S`, `D`, `*{n}{…}`), double vertical rules, a bar written after `@{…}` or `!{…}`, `\hhline`, dashed rules, `\specialrule`, a longtable's head and foot, `\\*`, brackets after a comment after `\\`, a comment or a blank line inside a cell, verbatim environments in a cell.
+- **A merged cell over columns with a width** takes the first column's description, width and all, so its text wraps at that width rather than at the width of all the columns it covers.
 - **Structural changes lay the table out again**, one row to a line; only typing, clearing, pasting and bold or italic keep a hand-made layout.
 
 ### Caption tool
@@ -33,6 +34,11 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 - **Languages:** English (US and UK), French, Spanish, Dutch and Russian ship. German and Italian word lists are offered only under the GPL and are not shipped. Portuguese and Polish were left out because nspell takes from 8 seconds to several minutes to load them.
 - **Loading blocks the editor** for a moment the first time a language is chosen (about three seconds for French), because nspell builds its tables on the page's own thread. Loading it in a worker would avoid that.
+
+### Language server and compiler
+
+- **Rename (F2) changes only the file on screen.** The editor shows one file at a time, and the language server's edits to other files (the `\ref`s of a renamed `\label`) are not applied. The references panel also closes after the first jump into another file.
+- **A document that names a file on another computer.** The app never looks up a `.bib` name that points at a network share, but texlab, and the compiler when the user compiles, read the files a document names wherever they are. A project from someone else that names `//host/share/…` could make them contact that computer.
 
 ### Comments
 
@@ -49,6 +55,6 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 ## Suggested order
 
-1. Have `feat/open-items` reviewed.
-2. Load the spelling dictionary in a worker.
+1. Load the spelling dictionary in a worker.
+2. Apply the language server's edits to other files, so rename works across a project.
 3. Add prose commands to `PROSE` as users meet them.

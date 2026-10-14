@@ -121,11 +121,24 @@ function closing(text: string, open: number): number {
   return -1;
 }
 
+/** `text` with `change` made to what is outside braces only: what is inside them is kept as written. */
+function outsideBraces(text: string, change: (part: string) => string): string {
+  let out = "";
+  for (let i = 0; i < text.length; ) {
+    const open = text.indexOf("{", i);
+    const end = open < 0 ? -1 : closing(text, open);
+    if (end < 0) return out + change(text.slice(i));
+    out += change(text.slice(i, open)) + text.slice(open, end);
+    i = end;
+  }
+  return out;
+}
+
 /** Commands that change how a table is built in ways the grid does not model. */
 const UNKNOWN = new Set([
   "tabularnewline", "noalign", "columncolor", "endhead", "endfirsthead", "endfoot", "endlastfoot", "specialrule", "arrayrulecolor", "hhline",
   "input", "include", "newline", "cr", "omit", "span", "multispan", "hdashline", "cdashline", "morecmidrules", "extracolsep", "vline",
-  "arraybackslash", "diagbox", "nopagebreak", "pagebreak", "captionof", "mintinline", "path", "nolinkurl", "crcr", "caption", "label",
+  "diagbox", "nopagebreak", "pagebreak", "captionof", "mintinline", "path", "nolinkurl", "crcr", "caption", "label",
 ]);
 /** Environments whose text is not LaTeX, which a cell cannot be laid out around. */
 const VERBATIM_ENVS = /^(?:verbatim\*?|Verbatim|lstlisting|minted|comment|filecontents\*?)$/;
@@ -222,6 +235,7 @@ function readSpec(spec: string): Spec | string {
     if (/[ \t\r\n]/.test(ch)) i++;
     else if (ch === "|") {
       if (pre) return "A column description has a bar after >{…}";
+      if (out.seps[last]) return "A column description has a bar after @{…} or !{…}";
       if (out.vrules[last]) return "It uses double vertical rules";
       out.vrules[last] = true;
       i++;
@@ -508,7 +522,7 @@ function readTable(source: string, withRanges = false): Parsed | Read {
         const end = open < 0 ? -1 : closing(tex, open);
         if (end !== tex.length || trimSpaces(tex.slice(specClose, open)) !== "") return no("A \\multicolumn is written in a way that cannot be edited here");
         made.colSpan = Number(multi[1]);
-        made.spec = tex.slice(multi[0].length, specClose - 1).replace(/[ \t\r\n]/g, "");
+        made.spec = outsideBraces(tex.slice(multi[0].length, specClose - 1), (part) => part.replace(/[ \t\r\n]/g, ""));
         const own = readSpec(made.spec);
         if (typeof own === "string" || own.aligns.length !== 1 || made.colSpan < 1) return no("A \\multicolumn is described in a way that cannot be edited here");
         [s, e] = [s + open + 1, s + end - 1];
@@ -626,7 +640,7 @@ export function anchorOf(t: Table, r: number, c: number): { r: number; c: number
 }
 
 function specFor(t: Table, c: number, span: number): string {
-  return (c === 0 && t.vrules[0] ? "|" : "") + t.aligns[c] + (t.vrules[c + span] ? "|" : "");
+  return plainSpec(t, c, span);
 }
 
 /** For each column, whether a cell merged downwards crosses horizontal boundary `b` there. */
@@ -734,7 +748,7 @@ function normalize(t: Table): Table {
     if (rule.kind === "hline") return { kind: "hline", ...extras };
     if (rule.kind !== "cline") {
       if (!cut.some(Boolean)) return { kind: rule.kind, ...(rule.width !== undefined ? { width: rule.width } : {}), ...extras };
-      return { kind: "cmidrule", segs: runs(cut.map((gone) => !gone)), ...extras };
+      return { kind: "cmidrule", segs: runs(cut.map((gone) => !gone)).map((seg) => (rule.width !== undefined ? { ...seg, width: rule.width } : seg)), ...extras };
     }
     const cols = cut.map((gone, c) => !gone && Boolean(rule.cols?.[c]));
     if (!cols.some(Boolean)) return { kind: "none", ...extras };
@@ -821,11 +835,13 @@ export function splitMerged(table: Table, r: number, c: number): Table {
       const on = drawnCols(rule, columns(t));
       for (let col = c; col < c + at.colSpan; col++) on[col] = true;
       const pieces = runs(on);
-      const plain = (rule.segs ?? []).every((seg) => seg.trim === undefined && seg.width === undefined);
-      // Whole again and never trimmed: the \midrule it was before the merge.
+      const widths = new Set((rule.segs ?? []).map((seg) => seg.width));
+      const plain = (rule.segs ?? []).every((seg) => seg.trim === undefined) && widths.size === 1;
+      const width = [...widths][0];
+      // Whole again, never trimmed and of one thickness: the \midrule it was before the merge.
       t.hrules[b] =
         plain && pieces.length === 1 && pieces[0].a === 0 && pieces[0].b === columns(t) - 1
-          ? { kind: "midrule", ...extrasOf(rule) }
+          ? { kind: "midrule", ...(width !== undefined ? { width } : {}), ...extrasOf(rule) }
           : { kind: "cmidrule", segs: pieces.map((p) => ({ ...((rule.segs ?? []).find((seg) => seg.a <= p.a && p.a <= seg.b) ?? {}), ...p })), ...extrasOf(rule) };
     } else if (rule.kind === "none" && ruled && t.hrules.length > 3) t.hrules[b] = { kind: "hline", ...extrasOf(rule) };
   }
@@ -993,8 +1009,17 @@ function respec(t: Table, only?: number): Table {
   t.rows.forEach((row) =>
     row.forEach((at, c) => {
       if (!at.spec) return;
-      if (only !== undefined) {
+      const read = readSpec(at.spec);
+      if (only !== undefined && typeof read !== "string" && read.kinds.length === 1) {
         // Only the bar on the boundary that changed; the rest is as the user wrote it.
+        let [left, right] = read.vrules;
+        if (c + at.colSpan === only) right = t.vrules[only];
+        if (c === 0 && only === 0) left = t.vrules[0];
+        if (c > 0 && c === only && !t.vrules[only]) left = false;
+        at.spec = (left ? "|" : "") + read.seps[0] + read.kinds[0] + (right ? "|" : "") + read.seps[1];
+        return;
+      }
+      if (only !== undefined) {
         if (c + at.colSpan === only) at.spec = at.spec.replace(/\|*$/, t.vrules[only] ? "|" : "");
         if (c === 0 && only === 0) at.spec = at.spec.replace(/^\|*/, t.vrules[0] ? "|" : "");
         // Further along, the bar on a cell's left is drawn by the column before it; one the
@@ -1002,9 +1027,9 @@ function respec(t: Table, only?: number): Table {
         if (c > 0 && c === only && !t.vrules[only]) at.spec = at.spec.replace(/^\|+/, "");
         return;
       }
-      const own = readSpec(at.spec);
-      const kind = typeof own === "string" || own.kinds.length !== 1 ? (specAlign(at.spec) ?? t.aligns[c]) : own.kinds[0];
-      at.spec = (c === 0 && t.vrules[0] ? "|" : "") + kind + (t.vrules[c + at.colSpan] ? "|" : "");
+      const kind = typeof read === "string" || read.kinds.length !== 1 ? (specAlign(at.spec) ?? t.aligns[c]) : read.kinds[0];
+      const edge = (b: number) => (t.vrules[b] ? "|" : "") + (t.seps?.[b] ?? "");
+      at.spec = (c === 0 ? edge(0) : "") + kind + edge(c + at.colSpan);
     }),
   );
   return t;
@@ -1062,9 +1087,13 @@ function drawnUnder(t: Table, b: number): boolean[] {
   return drawnCols(t.hrules[b], columns(t)).map((on, c) => on && !cut[c]);
 }
 
-/** The description of a column on its own, as a \multicolumn over it would give it. */
+/**
+ * The description of a column on its own, as a \multicolumn over it would give it: its own
+ * kind, with the bar and the space written at its right, and at its left too for the first.
+ */
 function plainSpec(t: Table, c: number, span: number): string {
-  return (c === 0 && t.vrules[0] ? "|" : "") + (t.kinds?.[c] ?? t.aligns[c]) + (t.vrules[c + span] ? "|" : "");
+  const edge = (b: number) => (t.vrules[b] ? "|" : "") + (t.seps?.[b] ?? "");
+  return (c === 0 ? edge(0) : "") + (t.kinds?.[c] ?? t.aligns[c]) + edge(c + span);
 }
 
 /** The description that sets the bars of the cell standing at row `r` from column `c`: its own, its filler's, or none. */
@@ -1504,8 +1533,11 @@ export type CaptionPlace =
    * none, where a new one goes (`at`).
    */
   | { kind: "float"; from: number; to: number; open?: number; close?: number; start?: number; at?: number; labelled: boolean }
-  /** On the page with nothing around it: a float can be put around it, from `from` to `to`. */
-  | { kind: "bare"; from: number; to: number }
+  /**
+   * On the page with nothing around it: a float can be put around it, from `from` to `to`,
+   * repeating in it the size the lines before the table set (`size`, such as `\small`).
+   */
+  | { kind: "bare"; from: number; to: number; size?: string }
   /** Somewhere a caption cannot be put, or changed, with certainty that the document still compiles. */
   | { kind: "no"; reason: string };
 
@@ -1535,6 +1567,23 @@ function definitions(clean: string, from: number, to: number): Definition[] {
     let delimited = false;
     for (let groups = 0, i = stop; groups < 8 && i < clean.length; ) {
       while (/[ \t\r\n]/.test(clean[i] ?? "") && !/^\r?\n[ \t]*\r?\n/.test(clean.slice(i))) i++;
+      // \let copies the one thing after its name, with or without an = between.
+      if (groups === 1 && m[0] === "\\let") {
+        if (clean[i] === "=") i++;
+        while (/[ \t]/.test(clean[i] ?? "")) i++;
+        const copied = /^\\(?:[a-zA-Z@]+|.)|^\S/.exec(clean.slice(i));
+        if (copied) stop = i + copied[0].length;
+        break;
+      }
+      // A name built with \csname is the name of what is defined.
+      if (groups === 0 && clean.startsWith("\\csname", i) && !/[a-zA-Z@]/.test(clean[i + 7] ?? "")) {
+        const close = clean.indexOf("\\endcsname", i);
+        if (close < 0) break;
+        name = clean.slice(i + 7, close).trim();
+        stop = i = close + "\\endcsname".length;
+        groups++;
+        continue;
+      }
       // The parameters of a \def, whatever marks them off, stand between its name and its
       // body: step over them to the brace that opens the body, on this line or the next.
       if (groups === 1 && /def$/.test(m[0]) && clean[i] !== "{") {
@@ -1735,23 +1784,33 @@ export function captionPlace(text: string, from: number, to: number): CaptionPla
       }
       [wrapFrom, wrapTo] = [open[1].at, shut + close.length];
     } else if (open.length > 1) return refuse(`This table is inside a ${open[open.length - 1].name} environment and not yet in a float.`);
-    // Lines straight before it that only set how it looks go with it.
-    for (;;) {
-      const lineStart = text.lastIndexOf("\n", wrapFrom - 1) + 1;
-      if (trimSpaces(text.slice(lineStart, wrapFrom)) !== "") break;
-      const prev = text.lastIndexOf("\n", lineStart - 2) + 1;
-      if (lineStart === 0 || !/^[ \t]*\\(?:centering|noindent|small|footnotesize|scriptsize)(?![a-zA-Z@])[ \t]*\r?$/.test(text.slice(prev, lineStart - 1))) break;
-      wrapFrom = prev + /^[ \t]*/.exec(text.slice(prev))![0].length;
+    // A file read before the table may leave something open around it.
+    if (/\\(?:input|include|import|subimport|subfile|InputIfFileExists)(?![a-zA-Z@])/.test(clean.slice(body, from))) {
+      return refuse("This document reads another file before this table, which may leave something open around it.");
     }
-    const lineStart = text.lastIndexOf("\n", wrapFrom - 1) + 1;
+    // Lines straight before it that only set how it looks stay where they are, since they go
+    // on setting what follows it; the size they set is repeated in the float, which starts
+    // from the normal size.
+    let lead = wrapFrom;
+    let size: string | undefined;
+    for (;;) {
+      const lineStart = text.lastIndexOf("\n", lead - 1) + 1;
+      if (trimSpaces(text.slice(lineStart, lead)) !== "") break;
+      const prev = text.lastIndexOf("\n", lineStart - 2) + 1;
+      const setting = /^[ \t]*\\(centering|noindent|small|footnotesize|scriptsize)(?![a-zA-Z@])[ \t]*\r?$/.exec(text.slice(prev, lineStart - 1));
+      if (lineStart === 0 || !setting) break;
+      if (!size && setting[1] !== "centering" && setting[1] !== "noindent") size = `\\${setting[1]}`;
+      lead = prev + /^[ \t]*/.exec(text.slice(prev))![0].length;
+    }
+    const lineStart = text.lastIndexOf("\n", lead - 1) + 1;
     const lineEnd = text.indexOf("\n", wrapTo) < 0 ? text.length : text.indexOf("\n", wrapTo);
     // Judged on the text as written: a line holding only a comment is not a blank line.
-    const before = text.slice(text.lastIndexOf("\n", lineStart - 2) + 1, wrapFrom);
+    const before = text.slice(text.lastIndexOf("\n", lineStart - 2) + 1, lead);
     const after = text.slice(wrapTo, text.indexOf("\n", lineEnd + 1) < 0 ? text.length : text.indexOf("\n", lineEnd + 1));
     const own = (trimSpaces(before) === "" || trimSpaces(before) === "\\begin{document}") && (trimSpaces(after) === "" || /^[ \t]*\r?\n[ \t]*\\end\{document\}/.test(text.slice(wrapTo)));
     if (!own) return refuse("This table is not a paragraph of its own: put a blank line before and after it first.");
     if (clean.slice(body).includes("\\captionof")) return refuse("A caption is given in this document with \\captionof.");
-    return { kind: "bare", from: wrapFrom, to: wrapTo };
+    return { kind: "bare", from: wrapFrom, to: wrapTo, ...(size ? { size } : {}) };
   }
   const float = open[floatAt];
   const end = clean.indexOf(`\\end{${float.name}}`, to);
@@ -1822,7 +1881,7 @@ export function setCaption(text: string, from: number, to: number, caption: stri
     if (!caption) return [];
     const centred = /\\centering(?![a-zA-Z@])|\\begin\{center\}/.test(text.slice(place.from, place.to));
     return [
-      { from: place.from, to: place.from, insert: `\\begin{table}[h]${nl}${indent}${centred ? "" : `\\centering${nl}${indent}`}` },
+      { from: place.from, to: place.from, insert: `\\begin{table}[h]${nl}${indent}${centred ? "" : `\\centering${nl}${indent}`}${place.size ? `${place.size}${nl}${indent}` : ""}` },
       { from: place.to, to: place.to, insert: `${nl}${indent}\\caption{${caption}}${nl}${indent}\\end{table}` },
     ];
   }
@@ -1858,10 +1917,14 @@ export function setCaption(text: string, from: number, to: number, caption: stri
 export function floatLabels(text: string, place: CaptionPlace): { key: string; used: boolean }[] {
   if (place.kind !== "float") return [];
   const { clean } = uncommented(text);
+  // Another file may refer to it, out of sight from here.
+  const elsewhere = /\\(?:input|include|import|subimport|subfile|InputIfFileExists)(?![a-zA-Z@])/.test(clean);
   return [...clean.slice(place.from, place.to).matchAll(/\\label\{([^{}]*)\}/g)].map((m) => {
     const key = m[1];
     const quoted = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return { key, used: new RegExp(`\\\\(?:[a-zA-Z]*ref|cref|Cref|autoref|nameref|vref)\\*?\\{[^{}]*(?<![^,{\\s])${quoted}(?![^,}\\s])`).test(clean) };
+    const inBraces = new RegExp(`\\\\[a-zA-Z]*ref\\*?(?:\\s*\\[[^\\]]*\\])*\\s*\\{[^{}]*(?<![^,{\\s])${quoted}(?![^,}\\s])`);
+    const inBrackets = new RegExp(`\\\\hyperref\\s*\\[\\s*${quoted}\\s*\\]`);
+    return { key, used: elsewhere || inBraces.test(clean) || inBrackets.test(clean) };
   });
 }
 
@@ -1936,21 +1999,26 @@ const NAMES = new Map<string, number>([
   ...["rule", "SI", "setlength", "addtolength", "setcounter", "addtocounter"].map((name): [string, number] => [name, 2]),
 ]);
 
-/** The command just before `at`, with the arguments written so far: its name and how many braced ones. */
-function ownerOf(text: string, at: number): { name: string; braced: number; args: string } | null {
-  const m = /\\([a-zA-Z@]+)\*?((?:\s*\[[^\]]*\]|\s*\{[^{}]*\})*)\s*$/.exec(text.slice(Math.max(0, at - 400), at));
-  return m ? { name: m[1], braced: (m[2].match(/\{[^{}]*\}/g) ?? []).length, args: m[2] } : null;
+/**
+ * The command just before `at`, with the arguments written so far: its name, how many braced
+ * ones, and whether there is space between them and `at`.
+ */
+function ownerOf(text: string, at: number): { name: string; braced: number; args: string; spaced: boolean } | null {
+  const m = /\\([a-zA-Z@]+)\*?((?:\s*\[[^\]]*\]|\s*\{[^{}]*\})*)(\s*)$/.exec(text.slice(Math.max(0, at - 400), at));
+  return m ? { name: m[1], braced: (m[2].match(/\{[^{}]*\}/g) ?? []).length, args: m[2], spaced: m[3] !== "" } : null;
 }
 
 /** How many braced arguments a command takes, when it is one this module knows. */
 const arity = (name: string) => PROSE.get(name) ?? NAMES.get(name) ?? (NO_ARGS.has(name) || DECLARATIONS.has(name) ? 0 : undefined);
 
 /** Whether a [ after the command and arguments before it opens its options. */
-function opensOptions(owner: { name: string; braced: number } | null): boolean {
+function opensOptions(owner: { name: string; braced: number; spaced: boolean } | null): boolean {
   if (!owner) return false;
   const most = arity(owner.name);
-  // A command this module does not know may take options anywhere.
-  return most === undefined || (most > 0 && owner.braced < most);
+  // A command this module does not know may take options straight after its name, and
+  // straight after an argument; after an argument and a space, a [ is text.
+  if (most === undefined) return owner.braced === 0 || !owner.spaced;
+  return most > 0 && owner.braced < most;
 }
 
 /** Whether a { after the command and arguments before it opens a group that holds prose. */
@@ -1987,6 +2055,45 @@ function proseAt(text: string): Uint8Array {
     }
   }
   out[text.length] = notProse === 0 ? 1 : 0;
+  return out;
+}
+
+/**
+ * For each character of `text`, 2 when it is in what \verb holds, 1 when it is in an address
+ * (the argument of \url or \nolinkurl, the first of \href), and 0 otherwise. What is in them
+ * is taken as it is written: nothing there is escaped, or read as a formula or as prose.
+ */
+function literalAt(text: string): Uint8Array {
+  const out = new Uint8Array(text.length + 1);
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "\\") continue;
+    const verb = /^\\verb\*?([^a-zA-Z\s*])/.exec(text.slice(i, i + 8));
+    if (verb) {
+      const open = i + verb[0].length;
+      const close = text.indexOf(verb[1], open);
+      const end = close < 0 ? text.length : close;
+      out.fill(2, open, end);
+      i = end;
+      continue;
+    }
+    const address = /^\\(?:url|nolinkurl|href)[ \t]*\{/.exec(text.slice(i, i + 12));
+    if (address) {
+      const open = i + address[0].length - 1;
+      const close = closing(text, open);
+      const end = close < 0 ? text.length : close - 1;
+      out.fill(1, open + 1, end);
+      i = end;
+      continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/** `text` with what `literalAt` marks blanked out, so it is read as nothing in particular. A % in an address is kept: there it is still a comment. */
+function withoutLiterals(text: string, literal: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) out += literal[i] === 2 || (literal[i] === 1 && text[i] !== "%") ? "x" : text[i];
   return out;
 }
 
@@ -2079,12 +2186,16 @@ function mathAt(text: string): Uint8Array {
  * have no character on its own that LaTeX would act on: a bare % anywhere, an & outside an
  * environment, or a #, _ or ^ written in prose outside mathematics.
  */
-export function cellProblem(text: string): string | null {
+export function cellProblem(written: string): string | null {
   let depth = 0;
   let dollars = 0;
   let envs = 0;
+  // What \verb holds and addresses are taken as written.
+  const text = withoutLiterals(written, literalAt(written));
   const math = mathAt(text);
   const prose = proseAt(text);
+  // The command each open group belongs to.
+  const groups: string[] = [];
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === "\\") {
@@ -2092,9 +2203,19 @@ export function cellProblem(text: string): string | null {
       if (i + 1 >= text.length) return "It ends in a backslash on its own; write a backslash as \\textbackslash{}.";
       if (text.startsWith("\\begin{", i)) envs++;
       if (text.startsWith("\\end{", i)) envs--;
+      // A line break ends the row, whatever braces it is in, unless a command made for lines
+      // or an environment holds it.
+      if (text[i + 1] === "\\" && envs <= 0 && !groups.some((name) => BREAKS.has(name))) {
+        return "A line break \\\\ cannot stand here; for more than one line in a cell, write \\makecell{…\\\\…}.";
+      }
       i++;
-    } else if (ch === "{") depth++;
-    else if (ch === "}" && --depth < 0) return "A closing brace } has no opening brace { to match it.";
+    } else if (ch === "{") {
+      depth++;
+      groups.push(ownerOf(text, i)?.name ?? "");
+    } else if (ch === "}") {
+      if (--depth < 0) return "A closing brace } has no opening brace { to match it.";
+      groups.pop();
+    }
     else if (ch === "%") return "A % on its own would start a comment; write it as \\%.";
     else if (ch === "$") dollars++;
     else if (ch === "&" && envs <= 0) return "An & on its own would end the cell; write it as \\&.";
@@ -2113,6 +2234,9 @@ export function cellProblem(text: string): string | null {
   if (math[text.length] !== 0 || dollars % 2 !== 0) return "A $ starts a formula that is not closed; write a dollar sign as \\$.";
   return null;
 }
+
+/** Commands whose argument may hold line breaks. */
+const BREAKS = new Set(["makecell", "thead", "shortstack", "Shortstack", "Longstack", "parbox", "pbox", "multirowcell", "substack", "tabularcell"]);
 
 /** Whether text can be a caption, or a cell, as it stands (see `cellProblem`). */
 export function soundCaption(caption: string): boolean {
@@ -2179,8 +2303,10 @@ export function escapeInserted(before: string, after: string): string {
   for (let j = m - 2; j >= 0; j--) keptAfter[j] = from[j + 1] >= 0 ? from[j + 1] : keptAfter[j + 1];
   // Where each character of the new text stands, worked out once: escaping only adds or takes
   // away backslashes before & % # _, which changes neither.
-  const mathMap = mathAt(after);
-  const proseMap = proseAt(after);
+  const literal = literalAt(after);
+  const plain = withoutLiterals(after, literal);
+  const mathMap = mathAt(plain);
+  const proseMap = proseAt(plain);
   // Where each character of `before` that was kept now is.
   const posOf = new Int32Array(n).fill(-1);
   for (let j = 0; j < m; j++) if (from[j] >= 0) posOf[from[j]] = j;
@@ -2202,7 +2328,11 @@ export function escapeInserted(before: string, after: string): string {
       continue;
     }
     const math = mathMap[j] > 0;
-    const bare = !escaped && (ch === "%" || ch === "#" || (ch === "&" && !math) || (ch === "_" && !math && proseMap[j] === 1));
+    // What \verb holds is left as typed; so is an address, but for a %, which is a comment there too.
+    const bare =
+      !escaped &&
+      literal[j] !== 2 &&
+      (ch === "%" || (literal[j] === 0 && (ch === "#" || (ch === "&" && !math) || (ch === "_" && !math && proseMap[j] === 1))));
     out += bare ? `\\${ch}` : ch;
   }
   return out;
