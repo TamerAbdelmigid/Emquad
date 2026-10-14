@@ -767,6 +767,18 @@
     await ok(true, "and compiles the project from the packages that came with it");
     await invoke("settings_update", { displayName: "Tamer" });
 
+    // Opening another project saves what is not saved yet, rather than losing it.
+    {
+      const { buffers } = await import("/src/features/editor/buffers.ts");
+      const path = store().active;
+      buffers.goToLine(1);
+      buffers.insert("% kept when another project opens\n");
+      await until("a change not yet saved", () => store().tabs.some((t) => t.path === path && t.dirty));
+      await act.openProject(store().root);
+      const saved = (await invoke("file_read", { path })).text;
+      await ok(saved.includes("% kept when another project opens"), "opening another project saves the changes not yet saved first");
+    }
+
     // Another project can be opened in a window of its own.
     await click("File");
     (await until("the New window item", () => $$(".menu-item").find((i) => i.firstChild?.textContent === "New window"))).click();
