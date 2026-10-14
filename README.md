@@ -50,7 +50,7 @@ pnpm verify
 
 runs type-check, lint, the TypeScript unit tests, `cargo fmt --check`, `cargo clippy` and the Rust tests. One Rust test compiles a real document and is skipped on a machine with no LaTeX engine.
 
-`scripts/e2e.js` drives the real app window through compile, source/PDF lookup, export, import and a merge with a conflict. `scripts/smoke-release.js` checks a release build: the packaged frontend, fonts, PDF viewer and bundled compiler. How to run each is at the top of the file.
+`scripts/e2e.js` drives the real app window through compile, source/PDF lookup, export, import and a merge with a conflict. `scripts/keyboard.mjs` uses the app with real key presses only (sent over WebView2's debugging port, so nothing reaches other windows) and checks where the keyboard goes. `scripts/smoke-release.js` checks a release build: the packaged frontend, fonts, PDF viewer and bundled compiler. `scripts/installed-test.ps1` checks the installed copy. How to run each is at the top of the file.
 
 ## Read in this order
 

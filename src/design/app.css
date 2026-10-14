@@ -231,7 +231,9 @@ dialog input[type=radio]{width:17px;height:17px;accent-color:var(--acc)}
 /* the table editor of visual mode */
 .cm-v-tnote{margin-bottom:4px;font:400 11.5px/1.4 var(--ui);color:var(--scr-dim);max-width:520px}
 .cm-v-tnote button{color:var(--acc);text-decoration:underline;text-underline-offset:2px}
-.cm-v-tedit{display:block;max-width:100%;margin:.2em 0 .4em;font-family:var(--ui);outline:none;cursor:default;container-type:inline-size}
+.cm-v-tedit{display:block;max-width:100%;margin:.2em 0 .4em;font-family:var(--ui);outline:none;cursor:default;container-type:inline-size;border-radius:6px}
+.cm-v-tedit:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+.hist:focus{outline:none}
 .cm-v-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:1px;margin:0 0 4px 14px;padding:3px;border-radius:9px;background:var(--scr-cur);box-shadow:0 0 0 1px var(--scr-line);visibility:hidden;width:fit-content;max-width:calc(100% - 14px)}
 .cm-v-tedit:hover .cm-v-tbar,.cm-v-tedit:focus-within .cm-v-tbar{visibility:visible}
 .cm-v-tbar button{display:inline-flex;align-items:center;gap:4px;height:26px;min-width:25px;justify-content:center;padding:0 5px;border-radius:6px;font:500 12px/1 var(--ui);color:var(--scr-tx);white-space:nowrap}

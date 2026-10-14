@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../design/ui";
 import {
   type Block,
@@ -59,6 +59,9 @@ function when(seconds: number) {
 
 export function History(p: Props) {
   const { backend, onError } = p;
+  // The keyboard starts here when History opens, rather than nowhere.
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => root.current?.focus({ preventScroll: true }), []);
   const [list, setList] = useState<HistoryList | null>(null);
   const [selected, setSelected] = useState<string>(WORKING);
   const [compareWorking, setCompareWorking] = useState(false);
@@ -159,7 +162,7 @@ export function History(p: Props) {
   const canRevert = shown === WORKING && against === null;
 
   return (
-    <div className={`hist${review ? "" : " plain"}`}>
+    <div className={`hist${review ? "" : " plain"}`} tabIndex={-1} aria-label="History" ref={root}>
       <aside className="mod files" aria-label="Files in this version">
         <div className="fh">
           <span className="lab">Changed files</span>

@@ -123,10 +123,16 @@ export function Dialog({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // Where the keyboard was when the dialog opened, taken before a field in it takes the focus.
+  const [back] = useState(() => document.activeElement as HTMLElement | null);
   useEffect(() => {
+    // The keyboard goes back where it came from when the dialog closes.
     const el = ref.current;
     if (el && !el.open) el.showModal();
-  }, []);
+    return () => {
+      if (back && back !== document.body && back.isConnected) back.focus();
+    };
+  }, [back]);
   return (
     <dialog
       ref={ref}

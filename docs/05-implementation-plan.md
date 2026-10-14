@@ -8,9 +8,9 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 
 | Milestone | State | What is still open |
 |---|---|---|
-| M0 Scaffold and shell | Done | The end-to-end run checks that every control is a real, focusable, named control, and that menus work from the keyboard. No one has yet used the whole app with the keyboard alone |
+| M0 Scaffold and shell | Done | The end-to-end run checks that every control is a real, focusable, named control. The keyboard pass (`scripts/keyboard.mjs`) uses the app with real key presses only: Tab reaches every part of the screen, menus, dialogs, the symbol panel, a table and History work from the keyboard, and closing a dialog or panel gives the keyboard back where it was |
 | M1 Projects, files, editor | Done | |
-| M2 Compile and preview | Done, verified with Tectonic 0.17.0 and with `latexmk` | Compiling with Tectonic's network access blocked works once a document's packages are cached. The development machine also has TeX installed, so a machine with no TeX at all has not been tried |
+| M2 Compile and preview | Done, verified with Tectonic 0.17.0 and with `latexmk` | Compiling with Tectonic's network access blocked works once a document's packages are cached. A machine with no TeX was simulated on 15 October 2026 by taking every TeX folder off the app's PATH and giving Tectonic an empty package cache: only the built-in compiler is found, the first compile fetched its packages and succeeded, source/PDF lookup works, and a project set to `latexmk` is refused with a message saying none was found. A truly clean computer has still not been tried |
 | M3 Source and PDF lookup | Done | Verified on both pdfTeX and XeTeX (Tectonic) output |
 | M4 Snapshots and History | Done | **Changes** in the editor toolbar opens History on the working copy with an undo on each change, rather than marking changes inside the editor |
 | M5 Bundles, review, merge | Done | Starting the app with a bundle as its argument is verified in a release build. The Explorer double-click itself relies on the installer's file association |

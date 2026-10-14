@@ -32,7 +32,7 @@ pnpm verify
 
 It runs, in order: `cargo fmt --check`, `cargo clippy` with warnings as errors, `cargo test`, TypeScript type-check, lint, and `vitest run`. The Rust tests come first because `cargo test` regenerates the TypeScript types in `src/ipc/bindings/` that the type-check needs; commit them when they change.
 
-For a change to anything the user sees or to compile, bundles or review, also run the end-to-end script against the real window. The instructions are at the top of `scripts/e2e.js`; the app exits with code 0 when every check passes.
+For a change to anything the user sees or to compile, bundles or review, also run the end-to-end script against the real window. The instructions are at the top of `scripts/e2e.js`; the app exits with code 0 when every check passes. For a change to what the keyboard reaches (focus, menus, dialogs, panels), also run the keyboard pass, `scripts/keyboard.mjs`, as its header says.
 
 Before handing over an installer, run `scripts/smoke-release.js` against a release build made with `--features e2e`, then build the installer **without** that feature. The harness must never be in what users install.
 
