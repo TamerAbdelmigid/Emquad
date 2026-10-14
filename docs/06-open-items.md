@@ -38,7 +38,6 @@ All in `src/features/editor/tableModel.ts` unless another file is named. None of
 
 - **A rule that merged cells cross along its whole length is forgotten.** Splitting those cells later does not bring it back. A rule crossed in part is drawn around the merged cell and returns whole.
 - **Merging across a `booktabs` rule** turns it into an ordinary `\hline`, because only that can be drawn around a merged cell with `\cline`.
-- **Borders are all or nothing.** There is no way to set one edge from the bar.
 - **A filler cell's own description is not kept.** Under a `\multirow`, a filler written `\multicolumn{1}{l|}{}` makes the table read-only rather than being preserved.
 - **A table that came from malformed HTML** (overlapping row and column spans on the clipboard) is not offered as a table. Word and Excel do not produce this.
 
@@ -59,7 +58,6 @@ All in `src/features/editor/tableModel.ts` unless another file is named. None of
 ### The widget (`src/features/editor/tableEditor.ts`)
 
 - **Leaving a cell that is marked as not yet valid** discards what was typed there and shows a notice. It could keep the box open instead.
-- **The tool bar wraps to three lines** when the source pane is narrow.
 - **Undo while typing in a cell** keeps the view where it is, but the text cursor of the document is elsewhere, so the status line shows that position.
 - **No test drives the widget except the end-to-end script.** The model is unit-tested; the controller is not.
 
@@ -88,5 +86,5 @@ All in `src/features/editor/tableModel.ts` unless another file is named. None of
 2. Review `a5f3145`.
 3. Name the failed check in the held-cell message, and refuse `$$` and `\[` in cells and captions.
 4. Let the Caption tool through the commonest ordinary cases it now declines (`center` without a float, a `\vspace` or note after the table, a preamble whose only `\begin` is inside a `\newenvironment`).
-5. Borders one edge at a time, and `p{…}` columns, in the table editor.
+5. `p{…}` columns and `\cmidrule` in the table editor.
 6. Smaller offline bundles.

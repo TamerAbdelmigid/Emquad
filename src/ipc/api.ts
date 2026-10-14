@@ -67,7 +67,7 @@ export function errorOf(e: unknown): AppError {
 
 export const api = {
   settingsGet: () => invoke<Settings>("settings_get"),
-  settingsUpdate: (patch: { displayName?: string; compileOnSave?: boolean; editorFontSize?: number; theme?: string; spellcheck?: string }) =>
+  settingsUpdate: (patch: { displayName?: string; compileOnSave?: boolean; editorFontSize?: number; theme?: string; spellcheck?: string; recentSymbols?: string[] }) =>
     invoke<Settings>("settings_update", patch),
   dictionaryAdd: (word: string) => invoke<Settings>("dictionary_add", { word }),
   startupFile: () => invoke<string | null>("startup_file"),

@@ -136,6 +136,7 @@ pub fn settings_update(
     editor_font_size: Option<u32>,
     theme: Option<String>,
     spellcheck: Option<String>,
+    recent_symbols: Option<Vec<String>>,
 ) -> Result<Settings> {
     Settings::update(&state.config_dir, |s| {
         if let Some(v) = display_name {
@@ -152,6 +153,9 @@ pub fn settings_update(
         }
         if let Some(v) = spellcheck.filter(|l| crate::settings::SPELLCHECK.contains(&l.as_str())) {
             s.spellcheck = v;
+        }
+        if let Some(v) = recent_symbols {
+            s.recent_symbols = crate::settings::clean_recent_symbols(v);
         }
     })
 }

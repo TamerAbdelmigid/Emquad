@@ -248,8 +248,11 @@ export function App() {
                   { label: "Figure", run: () => buffers.insert("\\begin{figure}[h]\n  \\centering\n  \\includegraphics[width=0.8\\linewidth]{", "}\n  \\caption{}\n  \\label{fig:}\n\\end{figure}\n") },
                   { label: "Numbered equation", run: () => buffers.insert("\\begin{equation}\n  ", "\n\\end{equation}\n") },
                   { label: "Bulleted list", run: () => buffers.insert("\\begin{itemize}\n  \\item ", "\n\\end{itemize}\n") },
-                  { label: "Citation", run: () => buffers.insert("\\cite{", "}") },
-                  { label: "Cross-reference", run: () => buffers.insert("\\ref{", "}") },
+                  { label: "Citation", run: () => buffers.insertInline(() => ({ before: "\\cite{", after: "}" })) },
+                  { label: "Cross-reference", run: () => buffers.insertInline(() => ({ before: "\\ref{", after: "}" })) },
+                  "separator",
+                  { label: "Formula in the line", run: () => buffers.insertInline((inMath) => (inMath ? { before: "", after: "" } : { before: "$", after: "$" })) },
+                  { label: "Symbol…", run: () => set({ symbols: true }) },
                 ]}
               />
               <Menu
@@ -267,10 +270,10 @@ export function App() {
               <Menu
                 label="Format"
                 items={[
-                  { label: "Bold", run: () => buffers.insert("\\textbf{", "}") },
-                  { label: "Italic", run: () => buffers.insert("\\textit{", "}") },
-                  { label: "Monospace", run: () => buffers.insert("\\texttt{", "}") },
-                  { label: "Emphasis", run: () => buffers.insert("\\emph{", "}") },
+                  { label: "Bold", run: () => buffers.format("textbf") },
+                  { label: "Italic", run: () => buffers.format("textit") },
+                  { label: "Monospace", run: () => buffers.format("texttt") },
+                  { label: "Emphasis", run: () => buffers.format("emph") },
                 ]}
               />
               <Menu
@@ -424,6 +427,10 @@ export function App() {
               onSelect={(path) => set({ active: path })}
               onClose={(path) => void act.closeTab(path)}
               onComment={act.startComment}
+              symbolsOpen={s.symbols}
+              onSymbols={(symbols) => set({ symbols })}
+              recentSymbols={s.settings?.recentSymbols ?? []}
+              onSymbolUsed={act.symbolUsed}
             onShowChanges={() => openHistory(s.active)}
             />
           )}

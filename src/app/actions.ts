@@ -439,6 +439,19 @@ export async function pickComment(comment: Comment) {
   });
 }
 
+// ---------- symbols ----------
+
+/** Remember a symbol as used lately, first in the list. */
+export function symbolUsed(id: string) {
+  const settings = store().settings;
+  if (!settings) return;
+  const recentSymbols = [id, ...settings.recentSymbols.filter((x) => x !== id)].slice(0, 20);
+  store().set({ settings: { ...settings, recentSymbols } });
+  void guard(async () => {
+    store().set({ settings: await api.settingsUpdate({ recentSymbols }) });
+  });
+}
+
 // ---------- spelling ----------
 
 /** Make the spelling checker match the settings: its language and the user's own words. */

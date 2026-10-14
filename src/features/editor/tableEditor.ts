@@ -1,34 +1,47 @@
-// The table editor of visual mode: a drawn table whose cells can be typed in, merged, split and
-// so on. Every action is worked out on the grid in tableModel.ts and written straight back to
-// the LaTeX source as one editor change, so the source stays the only truth and undo works.
+// The table editor of visual mode: a drawn table whose cells can be typed in, selected with the
+// mouse or the keyboard, merged, split, formatted and so on, much as in a word processor. Every
+// action is worked out on the grid in tableModel.ts and written straight back to the LaTeX
+// source as one editor change, so the source stays the only truth and undo works.
 import { closeCompletion } from "@codemirror/autocomplete";
 import { isolateHistory, redo, undo } from "@codemirror/commands";
 import { type ChangeSpec, type Extension } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
 import { confirm, prompt, store } from "../../state/store";
 import { renderInline } from "./inlineTex";
+import { type Insertion, mathAt } from "./symbols";
 import {
   type Align,
+  type BorderStyle,
   type Copied,
+  type Edge,
   type Rect,
   type Table,
   anchorOf,
+  bordersStyle,
   captionOf,
   captionPlace,
+  cellsOf,
+  cellsStyled,
+  clearCells,
   copiedFromPlain,
   deleteColumn,
   deleteRow,
   ensureMultirow,
+  ensurePackage,
   escapeInserted,
+  escapeTex,
   expandRect,
-  hasBorders,
+  hasEdge,
   insertColumn,
   insertRow,
   isMerged,
   merge,
+  needsBooktabs,
   needsMultirow,
   parseTable,
+  pasteCells,
   setAlign,
+  setBorders,
   setCaption,
   setCell,
   smallestChange,
@@ -37,7 +50,9 @@ import {
   splitIntoRows,
   splitMerged,
   tableFromCopied,
-  toggleBorders,
+  tableRemoval,
+  toggleEdge,
+  toggleStyle,
   trimSpaces,
   writeTable,
 } from "./tableModel";
@@ -48,27 +63,101 @@ interface At {
 }
 
 type Action =
-  | "merge" | "split" | "splitColumns" | "splitRows" | "rowAbove" | "rowBelow" | "deleteRow" | "columnLeft" | "columnRight"
-  | "deleteColumn" | "alignLeft" | "alignCentre" | "alignRight" | "borders" | "caption" | "source";
+  | "bold" | "italic" | "alignLeft" | "alignCentre" | "alignRight" | "rowAbove" | "rowBelow" | "columnLeft" | "columnRight"
+  | "deleteRow" | "deleteColumn" | "clear" | "deleteTable" | "merge" | "split" | "splitColumns" | "splitRows" | "bordersAll"
+  | "bordersOutside" | "bordersInside" | "bordersHeader" | "bordersBook" | "bordersNone" | "edgeTop" | "edgeBottom" | "edgeLeft"
+  | "edgeRight" | "selectRow" | "selectColumn" | "selectTable" | "copy" | "cut" | "caption" | "source";
 
-const ACTIONS: { id: Action; label: string; title: string; group: number }[] = [
-  { id: "merge", label: "Merge", title: "Merge the selected cells into one", group: 0 },
-  { id: "split", label: "Split", title: "Split this merged cell back into its cells", group: 0 },
-  { id: "splitColumns", label: "Split ↔", title: "Split this cell into two side by side", group: 0 },
-  { id: "splitRows", label: "Split ↕", title: "Split this cell into two, one above the other", group: 0 },
-  { id: "rowAbove", label: "Row ↑", title: "Insert a row above", group: 1 },
-  { id: "rowBelow", label: "Row ↓", title: "Insert a row below", group: 1 },
-  { id: "deleteRow", label: "Row ✕", title: "Delete the selected rows", group: 1 },
-  { id: "columnLeft", label: "Col ←", title: "Insert a column to the left", group: 2 },
-  { id: "columnRight", label: "Col →", title: "Insert a column to the right", group: 2 },
-  { id: "deleteColumn", label: "Col ✕", title: "Delete the selected columns", group: 2 },
-  { id: "alignLeft", label: "Left", title: "Align the selected columns left", group: 3 },
-  { id: "alignCentre", label: "Centre", title: "Centre the selected columns", group: 3 },
-  { id: "alignRight", label: "Right", title: "Align the selected columns right", group: 3 },
-  { id: "borders", label: "Borders", title: "Draw every border, or remove them all", group: 4 },
-  { id: "caption", label: "Caption", title: "Add or change the table's caption", group: 4 },
-  { id: "source", label: "Edit source", title: "Show this table's LaTeX and edit it directly", group: 5 },
+const ACTIONS: Record<Action, { label: string; title?: string; icon?: string; hint?: string }> = {
+  bold: { label: "Bold", title: "Bold: the selected cells, or the selected text in a cell" },
+  italic: { label: "Italic", title: "Italic: the selected cells, or the selected text in a cell" },
+  alignLeft: { label: "Align left", icon: "al-l", title: "Align the selected columns left" },
+  alignCentre: { label: "Centre", icon: "al-c", title: "Centre the selected columns" },
+  alignRight: { label: "Align right", icon: "al-r", title: "Align the selected columns right" },
+  rowAbove: { label: "Insert row above" },
+  rowBelow: { label: "Insert row below" },
+  columnLeft: { label: "Insert column to the left" },
+  columnRight: { label: "Insert column to the right" },
+  deleteRow: { label: "Delete rows", title: "Delete the selected rows" },
+  deleteColumn: { label: "Delete columns", title: "Delete the selected columns" },
+  clear: { label: "Clear cells", hint: "Del", title: "Empty the selected cells" },
+  deleteTable: { label: "Delete table", title: "Delete the whole table" },
+  merge: { label: "Merge cells", icon: "merge", title: "Merge the selected cells into one" },
+  split: { label: "Unmerge cells", title: "Split this merged cell back into its cells" },
+  splitColumns: { label: "Split into two columns", title: "Split this cell into two side by side" },
+  splitRows: { label: "Split into two rows", title: "Split this cell into two, one above the other" },
+  bordersAll: { label: "All borders" },
+  bordersOutside: { label: "Outside border only" },
+  bordersInside: { label: "Inside lines only" },
+  bordersHeader: { label: "Lines above, below and under the first row" },
+  bordersBook: { label: "Book style (booktabs)", title: "Heavier rules above and below, a lighter one under the first row, no vertical lines" },
+  bordersNone: { label: "No borders" },
+  edgeTop: { label: "Line above the selection" },
+  edgeBottom: { label: "Line below the selection" },
+  edgeLeft: { label: "Line left of the selection", title: "A vertical line always runs the whole height of a LaTeX table" },
+  edgeRight: { label: "Line right of the selection", title: "A vertical line always runs the whole height of a LaTeX table" },
+  selectRow: { label: "Select row" },
+  selectColumn: { label: "Select column" },
+  selectTable: { label: "Select table", hint: "Ctrl+A" },
+  copy: { label: "Copy", hint: "Ctrl+C" },
+  cut: { label: "Cut", hint: "Ctrl+X" },
+  caption: { label: "Caption…", icon: "caption", title: "Add or change the table's caption" },
+  source: { label: "Edit source", icon: "code", title: "Show this table's LaTeX and edit it directly" },
+};
+
+type Item = Action | "-";
+type Tool = { kind: "button"; id: Action; glyph?: string; text?: string } | { kind: "menu"; id: string; label: string; icon: string; items: Item[] } | "sep";
+
+const BAR: Tool[] = [
+  { kind: "button", id: "bold", glyph: "B" },
+  { kind: "button", id: "italic", glyph: "I" },
+  "sep",
+  { kind: "button", id: "alignLeft" },
+  { kind: "button", id: "alignCentre" },
+  { kind: "button", id: "alignRight" },
+  "sep",
+  { kind: "menu", id: "insert", label: "Insert", icon: "rows", items: ["rowAbove", "rowBelow", "-", "columnLeft", "columnRight"] },
+  { kind: "menu", id: "delete", label: "Delete", icon: "trash", items: ["deleteRow", "deleteColumn", "-", "clear", "deleteTable"] },
+  "sep",
+  { kind: "button", id: "merge", text: "Merge" },
+  { kind: "menu", id: "splitting", label: "Split", icon: "split", items: ["split", "splitColumns", "splitRows"] },
+  "sep",
+  {
+    kind: "menu",
+    id: "borders",
+    label: "Borders",
+    icon: "borders",
+    items: ["bordersAll", "bordersOutside", "bordersInside", "bordersHeader", "bordersBook", "bordersNone", "-", "edgeTop", "edgeBottom", "edgeLeft", "edgeRight"],
+  },
+  "sep",
+  { kind: "button", id: "caption", text: "Caption" },
+  { kind: "button", id: "source", text: "Source" },
 ];
+
+const CONTEXT: Item[] = [
+  "cut", "copy", "-", "bold", "italic", "-", "rowAbove", "rowBelow", "columnLeft", "columnRight", "-", "deleteRow", "deleteColumn", "clear",
+  "deleteTable", "-", "merge", "split", "splitColumns", "splitRows", "-", "alignLeft", "alignCentre", "alignRight", "-", "selectRow",
+  "selectColumn", "selectTable", "-", "caption", "source",
+];
+
+const STYLES: Partial<Record<Action, BorderStyle>> = {
+  bordersAll: "all",
+  bordersOutside: "outside",
+  bordersInside: "inside",
+  bordersHeader: "header",
+  bordersBook: "book",
+  bordersNone: "none",
+};
+const EDGES: Partial<Record<Action, Edge>> = { edgeTop: "top", edgeBottom: "bottom", edgeLeft: "left", edgeRight: "right" };
+/** Why a package was added to the preamble, said to the user. */
+const WHY: Record<string, string> = {
+  multirow: "Cells merged down a column need it.",
+  booktabs: "The book style of rules needs it.",
+  amssymb: "The symbol you chose needs it.",
+  amsmath: "What you chose needs it.",
+};
+/** Cells copied from a table here, kept as LaTeX so that pasting them back loses nothing. */
+const CELLS_TYPE = "application/x-emquad-cells";
 
 const same = (a: Table, b: Table) => JSON.stringify(a) === JSON.stringify(b);
 /** Two tables with the same cells, merges and rules, whatever the cells say. */
@@ -77,6 +166,32 @@ const sameShape = (a: Table, b: Table) => {
   return bare(a) === bare(b);
 };
 
+const SVG = "http://www.w3.org/2000/svg";
+function icon(name: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("class", "ic");
+  svg.setAttribute("aria-hidden", "true");
+  const use = svg.appendChild(document.createElementNS(SVG, "use"));
+  use.setAttribute("href", `#i-${name}`);
+  return svg;
+}
+const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
+
+/**
+ * Where the keyboard was in a table when it left it for the tool bar or a menu: Bold, Italic and
+ * symbols chosen there go into that table, not into the text around it.
+ */
+interface Target {
+  controller: Controller;
+  at: At;
+  /** The text selected in the cell being typed in, or -1 when cells were selected instead. */
+  start: number;
+  end: number;
+}
+let target: Target | null = null;
+/** A copy asked for from the table's menu, which the copy event that follows is for. */
+let copying: { controller: Controller; cut: boolean } | null = null;
+
 class Controller {
   readonly dom = document.createElement("div");
   private readonly bar = document.createElement("div");
@@ -84,17 +199,27 @@ class Controller {
   private table: Table;
   private anchor: At | null = null;
   private head: At | null = null;
-  private dragging = false;
+  /** What a mouse drag is choosing: cells, whole rows or whole columns. */
+  private dragging: false | "cells" | "rows" | "cols" = false;
+  /** The cell a press in the box being typed in started in, until the mouse is let go. */
+  private pressFrom: At | null = null;
   private input: HTMLInputElement | null = null;
   /** What the box being typed in held before the last keystroke. */
   private typed = "";
   private menu: HTMLElement | null = null;
-  private warned = false;
+  /** The control that opened the menu, which gets the keyboard back when it closes. */
+  private menuFrom: HTMLElement | null = null;
+  /** Packages that what was put in the cell being typed in needs. */
+  private readonly wanted = new Set<string>();
+  private readonly warned = new Set<string>();
+  /** The next change is one a tool made, and is a step of its own for undo. */
+  private byTool = false;
 
   constructor(
     private view: EditorView,
     private source: string,
   ) {
+    listenOnce();
     const parsed = parseTable(source);
     this.table = parsed.ok ? parsed.table : { aligns: ["l"], vrules: [false, false], rows: [], hrules: [{ kind: "none" }] };
     this.dom.className = "cm-v-tedit";
@@ -102,32 +227,27 @@ class Controller {
     // Tab comes here, and Enter goes into the first cell.
     this.dom.tabIndex = 0;
     this.dom.setAttribute("role", "group");
-    this.dom.setAttribute("aria-label", "Table. Press Enter to go into its cells, or click one to type in it.");
+    this.dom.setAttribute("aria-label", "Table. Press Enter to go into its cells, or click one to type in it. Shift+F10 opens its menu.");
     this.bar.className = "cm-v-tbar";
     this.bar.setAttribute("role", "toolbar");
     this.bar.setAttribute("aria-label", "Table tools");
-    let group = 0;
-    for (const a of ACTIONS) {
-      if (a.group !== group) this.bar.appendChild(document.createElement("span")).className = "sep";
-      group = a.group;
-      const b = this.bar.appendChild(document.createElement("button"));
-      b.type = "button";
-      b.textContent = a.label;
-      b.title = a.title;
-      b.setAttribute("aria-label", a.title);
-      b.dataset.action = a.id;
-      b.onclick = () => void this.run(a.id);
-    }
+    for (const tool of BAR) this.bar.append(this.tool(tool));
     this.dom.append(this.bar, this.grid);
     this.dom.addEventListener("mousedown", (e) => this.onMouseDown(e));
     this.dom.addEventListener("mouseover", (e) => this.onMouseOver(e));
     this.dom.addEventListener("contextmenu", (e) => this.onContextMenu(e));
     this.dom.addEventListener("keydown", (e) => this.onKeyDown(e));
     this.dom.addEventListener("focusout", (e) => {
-      // Leaving the table altogether ends the edit of a cell.
-      if (!this.dom.contains(e.relatedTarget as Node | null) && !this.menu) this.stopEditing(false);
+      if (!this.dom.contains(e.relatedTarget as Node | null) && !this.menu) this.leave();
     });
     this.render();
+  }
+
+  /** The keyboard has left the table altogether: end the edit of a cell, and remember where it was. */
+  private leave() {
+    const [input, head] = [this.input, this.head];
+    if (head) target = { controller: this, at: head, start: input ? (input.selectionStart ?? input.value.length) : -1, end: input ? (input.selectionEnd ?? input.value.length) : -1 };
+    this.stopEditing(false);
   }
 
   /** The source changed under the table: by one of its own actions, by undo, or from outside. */
@@ -156,6 +276,7 @@ class Controller {
         this.typed = now;
       }
       this.fit();
+      this.paintSelection();
     } else {
       const editing = this.input ? { caret: this.input.selectionStart ?? 0 } : null;
       const focused = this.dom.contains(document.activeElement);
@@ -167,6 +288,87 @@ class Controller {
     this.view.requestMeasure();
   }
 
+  // ---------- the tool bar ----------
+
+  private tool(tool: Tool): HTMLElement {
+    if (tool === "sep") {
+      const sep = document.createElement("span");
+      sep.className = "sep";
+      return sep;
+    }
+    const b = document.createElement("button");
+    b.type = "button";
+    // Pressing a tool leaves the keyboard where it was, in the cell being typed in or on the
+    // selected cells, so that what the tool does applies there.
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    if (tool.kind === "button") {
+      const a = ACTIONS[tool.id];
+      b.dataset.action = tool.id;
+      b.title = (a.title ?? a.label) + (a.hint ? ` (${a.hint})` : "");
+      b.setAttribute("aria-label", a.title ?? a.label);
+      if (tool.glyph) {
+        b.textContent = tool.glyph;
+        b.classList.add(`g-${tool.id}`);
+      } else if (a.icon) b.append(icon(a.icon));
+      if (tool.text) b.append(Object.assign(document.createElement("span"), { className: "lbl", textContent: tool.text }));
+      b.onclick = () => void this.run(tool.id);
+      return b;
+    }
+    b.dataset.menu = tool.id;
+    // The actions the menu holds, so that they can be found without opening it.
+    b.dataset.items = tool.items.filter((i) => i !== "-").join(" ");
+    b.title = tool.label;
+    b.setAttribute("aria-label", tool.label);
+    b.setAttribute("aria-haspopup", "menu");
+    b.setAttribute("aria-expanded", "false");
+    b.append(icon(tool.icon), Object.assign(document.createElement("span"), { className: "lbl", textContent: tool.label }), icon("chev"));
+    b.lastElementChild!.classList.add("chev");
+    b.onclick = () => {
+      if (this.menuFrom === b) return this.closeMenu();
+      const box = b.getBoundingClientRect();
+      this.openMenu(tool.items, box.left, box.bottom + 4, b);
+    };
+    b.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowDown") return;
+      e.preventDefault();
+      e.stopPropagation();
+      b.click();
+    });
+    return b;
+  }
+
+  /** What can be done now, and which tools show as on. */
+  private state(): { off: Partial<Record<Action, boolean>>; on: Partial<Record<Action, boolean>> } {
+    const t = this.table;
+    const cur = this.head;
+    const rect = this.rect();
+    const many = Boolean(rect && !this.single());
+    const merged = Boolean(cur && isMerged(t, cur.r, cur.c));
+    const none = !cur || !rect;
+    const align = cur ? ((t.rows[cur.r][cur.c].spec && /[lcr]/.exec(t.rows[cur.r][cur.c].spec!)?.[0]) || t.aligns[cur.c]) : null;
+    const style = bordersStyle(t);
+    const off: Partial<Record<Action, boolean>> = {
+      merge: !many,
+      split: none || !merged || many,
+      splitColumns: none || merged || many,
+      splitRows: none || merged || many,
+      deleteRow: none || rect!.bottom - rect!.top + 1 >= t.rows.length,
+      deleteColumn: none || rect!.right - rect!.left + 1 >= t.aligns.length,
+    };
+    for (const id of ["rowAbove", "rowBelow", "columnLeft", "columnRight", "clear", "alignLeft", "alignCentre", "alignRight", "selectRow", "selectColumn", "copy", "cut", "bold", "italic"] as Action[]) off[id] = none;
+    for (const id of Object.keys(EDGES) as Action[]) off[id] = none;
+    const on: Partial<Record<Action, boolean>> = {
+      bold: Boolean(rect && !this.input && cellsStyled(t, rect, "textbf")),
+      italic: Boolean(rect && !this.input && cellsStyled(t, rect, "textit")),
+      alignLeft: align === "l",
+      alignCentre: align === "c",
+      alignRight: align === "r",
+    };
+    for (const [id, s] of Object.entries(STYLES)) on[id as Action] = style === s;
+    if (rect) for (const [id, edge] of Object.entries(EDGES)) on[id as Action] = hasEdge(t, rect, edge);
+    return { off, on };
+  }
+
   // ---------- drawing ----------
 
   private cellAt(r: number, c: number): HTMLTableCellElement | null {
@@ -176,7 +378,26 @@ class Controller {
   private draw(td: HTMLElement, tex: string) {
     td.replaceChildren();
     if (tex) renderInline(td, tex);
-    else td.append(" ");
+    else td.append(" ");
+  }
+
+  /** A small + on the edge between two rows or two columns, which adds one there. */
+  private adder(kind: "row" | "col", at: number): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    // The menus do the same from the keyboard; these are only for the mouse.
+    b.tabIndex = -1;
+    b.className = `cm-v-add cm-v-add-${kind}${at === 0 ? " first" : ""}`;
+    b.textContent = "+";
+    b.title = kind === "row" ? "Insert a row here" : "Insert a column here";
+    b.setAttribute("aria-label", b.title);
+    b.addEventListener("mousedown", (e) => e.preventDefault());
+    b.onclick = () => {
+      const keep = this.head ?? { r: 0, c: 0 };
+      if (kind === "row") this.act(insertRow(this.table, at), { r: at, c: keep.c });
+      else this.act(insertColumn(this.table, at), { r: keep.r, c: at });
+    };
+    return b;
   }
 
   private render() {
@@ -186,8 +407,29 @@ class Controller {
       const rule = t.hrules[b];
       return rule.kind === "cline" ? Boolean(rule.cols?.[c]) : rule.kind !== "none";
     };
+    // Handles above the columns and before the rows, as in a word processor: click one to
+    // choose a whole column or row, drag along them to choose several.
+    const heads = this.grid.appendChild(document.createElement("tr"));
+    heads.className = "cm-v-heads";
+    const corner = heads.appendChild(document.createElement("th"));
+    corner.className = "cm-v-corner";
+    corner.title = "Select the whole table";
+    t.aligns.forEach((_, c) => {
+      const th = heads.appendChild(document.createElement("th"));
+      th.className = "cm-v-colh";
+      th.dataset.col = String(c);
+      th.title = "Select this column (drag to select several)";
+      if (c === 0) th.append(this.adder("col", 0));
+      th.append(this.adder("col", c + 1));
+    });
     t.rows.forEach((row, r) => {
       const tr = this.grid.appendChild(document.createElement("tr"));
+      const th = tr.appendChild(document.createElement("th"));
+      th.className = "cm-v-rowh";
+      th.dataset.row = String(r);
+      th.title = "Select this row (drag to select several)";
+      if (r === 0) th.append(this.adder("row", 0));
+      th.append(this.adder("row", r + 1));
       row.forEach((cell, c) => {
         if (cell.hidden) return;
         const td = tr.appendChild(document.createElement("td"));
@@ -197,8 +439,9 @@ class Controller {
         if (cell.rowSpan > 1) td.rowSpan = cell.rowSpan;
         const align = (cell.spec && /[lcr]/.exec(cell.spec)?.[0]) || t.aligns[c];
         td.className = `al-${align}`;
-        if (lineUnder(r, c)) td.classList.add("rule-top");
-        if (lineUnder(r + cell.rowSpan, c)) td.classList.add("rule-bottom");
+        const ruleClass = (b: number) => (t.hrules[b].kind === "toprule" || t.hrules[b].kind === "bottomrule" ? "heavy" : "");
+        if (lineUnder(r, c)) td.classList.add("rule-top", ...(ruleClass(r) ? [`${ruleClass(r)}-top`] : []));
+        if (lineUnder(r + cell.rowSpan, c)) td.classList.add("rule-bottom", ...(ruleClass(r + cell.rowSpan) ? [`${ruleClass(r + cell.rowSpan)}-bottom`] : []));
         if (t.vrules[c]) td.classList.add("rule-left");
         if (t.vrules[c + cell.colSpan]) td.classList.add("rule-right");
         this.draw(td, cell.tex);
@@ -214,34 +457,29 @@ class Controller {
 
   private paintSelection() {
     const rect = this.rect();
-    const many = rect && (rect.top !== rect.bottom || rect.left !== rect.right) && !this.single();
+    const many = Boolean(rect && !this.single());
+    const t = this.table;
     for (const td of this.grid.querySelectorAll<HTMLTableCellElement>("td")) {
       const [r, c] = [Number(td.dataset.r), Number(td.dataset.c)];
       td.classList.toggle("sel", Boolean(many && rect && r >= rect.top && r <= rect.bottom && c >= rect.left && c <= rect.right));
       td.classList.toggle("cur", Boolean(this.head && this.head.r === r && this.head.c === c));
     }
-    const t = this.table;
-    const cur = this.head;
-    const merged = Boolean(cur && isMerged(t, cur.r, cur.c));
-    const off: Partial<Record<Action, boolean>> = {
-      merge: !many,
-      split: !cur || !merged || Boolean(many),
-      splitColumns: !cur || merged || Boolean(many),
-      splitRows: !cur || merged || Boolean(many),
-      rowAbove: !cur,
-      rowBelow: !cur,
-      deleteRow: !cur || !rect || rect.bottom - rect.top + 1 >= t.rows.length,
-      columnLeft: !cur,
-      columnRight: !cur,
-      deleteColumn: !cur || !rect || rect.right - rect.left + 1 >= t.aligns.length,
-      alignLeft: !cur,
-      alignCentre: !cur,
-      alignRight: !cur,
-    };
-    for (const b of this.bar.querySelectorAll<HTMLButtonElement>("button")) {
+    // The handles of whole rows and columns that are selected show it too.
+    const allRows = Boolean(rect && rect.top === 0 && rect.bottom === t.rows.length - 1);
+    const allCols = Boolean(rect && rect.left === 0 && rect.right === t.aligns.length - 1);
+    for (const th of this.grid.querySelectorAll<HTMLElement>("th.cm-v-colh")) {
+      const c = Number(th.dataset.col);
+      th.classList.toggle("on", Boolean(many && allRows && rect && c >= rect.left && c <= rect.right));
+    }
+    for (const th of this.grid.querySelectorAll<HTMLElement>("th.cm-v-rowh")) {
+      const r = Number(th.dataset.row);
+      th.classList.toggle("on", Boolean(many && allCols && rect && r >= rect.top && r <= rect.bottom));
+    }
+    const { off, on } = this.state();
+    for (const b of this.bar.querySelectorAll<HTMLButtonElement>("button[data-action]")) {
       const id = b.dataset.action as Action;
       b.disabled = Boolean(off[id]);
-      if (id === "borders") b.setAttribute("aria-pressed", String(hasBorders(t)));
+      if (id in on) b.setAttribute("aria-pressed", String(Boolean(on[id])));
     }
   }
 
@@ -261,6 +499,14 @@ class Controller {
     };
     this.anchor = fit(this.anchor);
     this.head = fit(this.head);
+  }
+
+  private select(anchor: At, head: At) {
+    this.stopEditing(false);
+    this.anchor = anchor;
+    this.head = head;
+    this.paintSelection();
+    this.dom.focus({ preventScroll: true });
   }
 
   // ---------- typing in a cell ----------
@@ -299,17 +545,26 @@ class Controller {
     const input = this.input;
     if (!input || !this.head) return;
     this.input = null;
+    this.wanted.clear();
     const td = input.closest("td");
     const kept = this.table.rows[this.head.r]?.[this.head.c]?.tex ?? "";
     if (input.classList.contains("bad")) {
-      store().notify(`“${input.value}” could not be put in the table as written, so the cell was left as it was. Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.`, true);
+      store().notify(`“${input.value}” could not be put in the table as written, so the cell was left as it was. ${this.problem(input.value)}`, true);
     }
     if (td) {
       td.classList.remove("editing");
       this.draw(td, kept);
     }
     if (keepFocus) this.dom.focus({ preventScroll: true });
+    this.paintSelection();
     this.view.requestMeasure();
+  }
+
+  /** What is wrong with text that cannot go into a cell, in a sentence. */
+  private problem(text: string): string {
+    if (/\\begin\{/.test(text)) return "An environment such as a matrix cannot go in a table cell here; use Edit source.";
+    if (/\\\\/.test(text)) return "A line break (\\\\) would end the row.";
+    return "Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.";
   }
 
   private onType() {
@@ -330,8 +585,48 @@ class Controller {
     const back = parseTable(writeTable(next));
     const sound = back.ok && same(back.table, next) && soundCaption(next.rows[at.r][at.c].tex);
     input.classList.toggle("bad", !sound);
-    input.title = sound ? "" : "This cannot go into the table yet. Check that its braces match and that $ signs come in pairs (write a dollar sign as \\$, and a ^ inside $…$), and that it has no line break (\\\\) in it.";
+    input.title = sound ? "" : `This cannot go into the table yet. ${this.problem(input.value)}`;
     if (sound) this.commit(next, false);
+  }
+
+  /** Put text around the selected text of the cell being typed in, keeping that text selected. */
+  private surround(input: HTMLInputElement, start: number, end: number, ins: Insertion) {
+    const value = input.value;
+    const [s, e] = [Math.min(start, value.length), Math.min(end, value.length)];
+    input.value = value.slice(0, s) + ins.before + value.slice(s, e) + ins.after + value.slice(e);
+    input.setSelectionRange(s + ins.before.length, s + ins.before.length + (e - s));
+    if (ins.pkg) this.wanted.add(ins.pkg);
+    this.byTool = true;
+    this.onType();
+  }
+
+  /** Bold or Italic from a tool: on the text selected in the cell, or on the selected cells. */
+  format(name: string, where: { at: At; start: number; end: number } | null) {
+    const input = this.input;
+    if (input && !where) return this.surround(input, input.selectionStart ?? 0, input.selectionEnd ?? 0, { before: `\\${name}{`, after: "}" });
+    if (where && where.start >= 0) {
+      this.edit(where.at);
+      if (this.input) this.surround(this.input, where.start, where.end, { before: `\\${name}{`, after: "}" });
+      return;
+    }
+    const rect = this.rect();
+    if (rect) this.act(toggleStyle(this.table, rect, name), "keep");
+  }
+
+  /** A symbol or a piece of LaTeX from a tool: into the cell, where its text cursor was or at its end. */
+  insert(make: (inMath: boolean, next: string) => Insertion, where: { at: At; start: number; end: number }) {
+    this.edit(where.at);
+    const input = this.input;
+    if (!input) return;
+    const [s, e] = where.start >= 0 ? [where.start, where.end] : [input.value.length, input.value.length];
+    this.surround(input, s, e, make(mathAt(input.value, s), input.value.slice(e, e + 1)));
+  }
+
+  /** Where typing in this table would go now: the text selected in the cell, or the current cell's end. */
+  here(): { at: At; start: number; end: number } | null {
+    const [input, head] = [this.input, this.head];
+    if (!head) return null;
+    return input ? { at: head, start: input.selectionStart ?? input.value.length, end: input.selectionEnd ?? input.value.length } : { at: head, start: -1, end: -1 };
   }
 
   // ---------- changing the source ----------
@@ -347,6 +642,8 @@ class Controller {
 
   /** Write a new version of the table to the source, as one step that undo takes back whole. */
   private commit(next: Table, structural: boolean): boolean {
+    structural ||= this.byTool;
+    this.byTool = false;
     const at = this.place();
     if (!at) return false;
     const changes: ChangeSpec[] = [];
@@ -359,16 +656,23 @@ class Controller {
     const change = smallestChange(this.source, writeTable(next, at.indent), at.from);
     if (!change) return false;
     changes.push(change);
-    if (needsMultirow(next)) {
-      const need = ensureMultirow(at.text);
+    // The packages the table now needs go into the preamble with the same change.
+    const wanted = new Set(this.wanted);
+    if (needsMultirow(next)) wanted.add("multirow");
+    if (needsBooktabs(next)) wanted.add("booktabs");
+    const added: string[] = [];
+    for (const name of wanted) {
+      const need = ensurePackage(at.text, name);
       if (typeof need === "object") {
         changes.push(need);
-        store().notify("Added \\usepackage{multirow} to the preamble. Cells merged down a column need it.");
-      } else if (need === "no-preamble" && !this.warned) {
-        this.warned = true;
-        store().notify("Cells merged down a column need \\usepackage{multirow}. This file has no preamble, so add it to your main file's.", true);
+        added.push(name);
+      } else if (need === "no-preamble" && !this.warned.has(name)) {
+        this.warned.add(name);
+        store().notify(`This needs \\usepackage{${name}}, and this file has no preamble to add it to. Add it to your main file's preamble.`, true);
       }
     }
+    this.wanted.clear();
+    if (added.length) store().notify(`Added ${added.map((name) => `\\usepackage{${name}}`).join(" and ")} to the preamble. ${WHY[added[0]] ?? ""}`.trim());
     this.view.dispatch({
       changes,
       userEvent: structural ? "input.table" : "input.type",
@@ -384,6 +688,7 @@ class Controller {
     const t = this.table;
     const cur = this.head;
     const rect = this.rect();
+    const last = { r: t.rows.length - 1, c: t.aligns.length - 1 };
     if (action === "source") {
       const at = this.place();
       if (!at) return;
@@ -392,34 +697,37 @@ class Controller {
       this.view.focus();
       return;
     }
-    if (action === "caption") {
+    if (action === "caption") return this.caption();
+    if (action === "deleteTable") {
       const at = this.place();
       if (!at) return;
-      const to = at.from + this.source.length;
-      const where = captionPlace(at.text, at.from, to);
-      if (where.kind === "no") return store().notify(where.reason, true);
-      const had = captionOf(at.text, at.from, to);
-      const caption = await prompt("Table caption", had ?? "", "Save", "Shown under the table in the PDF. Leave it empty to remove the caption.");
-      const again = this.place();
-      if (caption === null || !again || again.from !== at.from || again.text !== at.text) return;
-      if (trimSpaces(caption) === (had ?? "")) return;
-      const wanted = trimSpaces(escapeInserted(had ?? "", caption));
-      if (!wanted && where.kind === "float" && where.labelled) {
-        return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
-      }
-      if (!soundCaption(wanted)) {
-        return store().notify("That caption cannot be written as LaTeX as it stands, so it was not changed. Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.", true);
-      }
-      const changes = setCaption(at.text, at.from, to, wanted);
-      if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });
+      this.stopEditing(false);
+      const change = tableRemoval(at.text, at.from, at.from + this.source.length);
+      this.view.dispatch({ changes: change, selection: { anchor: change.from }, userEvent: "delete.table", annotations: isolateHistory.of("full") });
+      this.view.focus();
+      store().notify("The table was deleted. Ctrl+Z brings it back.");
       return;
     }
-    if (action === "borders") return void this.act(toggleBorders(t), cur);
+    if (action === "selectTable") return this.select({ r: 0, c: 0 }, last);
+    const style = STYLES[action];
+    if (style) return void this.act(setBorders(t, style), "keep");
+    if (action === "bold" || action === "italic") return this.format(action === "bold" ? "textbf" : "textit", null);
     if (!cur || !rect) return;
+    const edge = EDGES[action];
+    if (edge) return void this.act(toggleEdge(t, rect, edge), "keep");
     const rows = Array.from({ length: rect.bottom - rect.top + 1 }, (_, i) => rect.bottom - i);
     const cols = Array.from({ length: rect.right - rect.left + 1 }, (_, i) => rect.right - i);
-    const align = (a: Align) => this.act(setAlign(t, rect, a), cur);
+    const align = (a: Align) => this.act(setAlign(t, rect, a), "keep");
     switch (action) {
+      case "copy":
+      case "cut":
+        return this.copy(action === "cut");
+      case "selectRow":
+        return this.select({ r: rect.top, c: 0 }, { r: rect.bottom, c: last.c });
+      case "selectColumn":
+        return this.select({ r: 0, c: rect.left }, { r: last.r, c: rect.right });
+      case "clear":
+        return void this.act(clearCells(t, rect), "keep");
       case "merge":
         return void this.act(merge(t, rect), { r: rect.top, c: rect.left });
       case "split":
@@ -449,10 +757,37 @@ class Controller {
     }
   }
 
-  /** Make a change to the table's structure and leave one cell selected afterwards. */
-  private act(next: Table, then: At | null) {
+  private async caption() {
+    const at = this.place();
+    if (!at) return;
+    const to = at.from + this.source.length;
+    const where = captionPlace(at.text, at.from, to);
+    if (where.kind === "no") return store().notify(where.reason, true);
+    const had = captionOf(at.text, at.from, to);
+    const caption = await prompt("Table caption", had ?? "", "Save", "Shown under the table in the PDF. Leave it empty to remove the caption.");
+    const again = this.place();
+    if (caption === null || !again || again.from !== at.from || again.text !== at.text) return;
+    if (trimSpaces(caption) === (had ?? "")) return;
+    const wanted = trimSpaces(escapeInserted(had ?? "", caption));
+    if (!wanted && where.kind === "float" && where.labelled) {
+      return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
+    }
+    if (!soundCaption(wanted)) {
+      return store().notify("That caption cannot be written as LaTeX as it stands, so it was not changed. Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.", true);
+    }
+    const changes = setCaption(at.text, at.from, to, wanted);
+    if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });
+  }
+
+  /**
+   * Make a change to the table and leave the selection as asked: one cell, or the cells that
+   * were selected before ("keep").
+   */
+  private act(next: Table, then: At | null | "keep") {
+    const [anchor, head] = [this.anchor, this.head];
     this.stopEditing(false);
-    this.anchor = this.head = then;
+    if (then === "keep") [this.anchor, this.head] = [anchor, head];
+    else this.anchor = this.head = then;
     if (!this.commit(next, true)) this.paintSelection();
     this.refocus();
   }
@@ -464,6 +799,67 @@ class Controller {
     this.dom.focus({ preventScroll: true });
   }
 
+  // ---------- the clipboard ----------
+
+  private copy(cut: boolean) {
+    this.dom.focus({ preventScroll: true });
+    copying = { controller: this, cut };
+    try {
+      document.execCommand("copy");
+    } finally {
+      copying = null;
+    }
+  }
+
+  /** Put the selected cells on the clipboard: as LaTeX for this editor, as a table for others. */
+  onCopy(e: ClipboardEvent, cut: boolean): boolean {
+    const rect = this.rect();
+    if (this.input || !rect || !e.clipboardData) return false;
+    const cells = cellsOf(this.table, rect);
+    e.clipboardData.setData("text/plain", cells.map((row) => row.join("\t")).join("\n"));
+    e.clipboardData.setData("text/html", `<table>${cells.map((row) => `<tr>${row.map((tex) => `<td>${escapeHtml(tex)}</td>`).join("")}</tr>`).join("")}</table>`);
+    e.clipboardData.setData(CELLS_TYPE, JSON.stringify(cells));
+    e.preventDefault();
+    if (cut) this.act(clearCells(this.table, rect), "keep");
+    return true;
+  }
+
+  /** Paste cells: into the table from the selected cell on, as in a spreadsheet. */
+  onPaste(e: ClipboardEvent) {
+    const data = e.clipboardData;
+    const rect = this.rect();
+    if (!data || !rect) return;
+    let cells: string[][] | null = null;
+    try {
+      const own: unknown = JSON.parse(data.getData(CELLS_TYPE) || "null");
+      if (Array.isArray(own) && own.every((row) => Array.isArray(row) && row.every((x) => typeof x === "string"))) cells = own as string[][];
+    } catch {
+      cells = null;
+    }
+    const html = cells ? null : copiedFromHtml(data.getData("text/html"));
+    if (html) cells = html.map((row) => row.map((cell) => escapeTex(cell.text)));
+    if (!cells) {
+      const plain = data.getData("text/plain").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+      cells = plain ? plain.split("\n").map((line) => line.split("\t").map(escapeTex)) : null;
+    }
+    // A single piece of text pasted while typing is typed, like any other.
+    if (!cells || (this.input && cells.length === 1 && cells[0].length === 1)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const from = this.input && this.head ? this.head : { r: rect.top, c: rect.left };
+    const next = pasteCells(this.table, from.r, from.c, cells);
+    if (!next) {
+      store().notify("Cells cannot be pasted over merged cells. Split them first, or paste somewhere else.", true);
+      return;
+    }
+    const width = Math.max(...cells.map((row) => row.length));
+    this.stopEditing(false);
+    this.anchor = from;
+    this.head = { r: from.r + cells.length - 1, c: from.c + width - 1 };
+    if (!this.commit(next, true)) this.paintSelection();
+    this.dom.focus({ preventScroll: true });
+  }
+
   // ---------- mouse ----------
 
   private cellOf(target: EventTarget | null): At | null {
@@ -471,31 +867,102 @@ class Controller {
     return td && this.grid.contains(td) ? { r: Number(td.dataset.r), c: Number(td.dataset.c) } : null;
   }
 
-  private onMouseDown(e: MouseEvent) {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button, input, .cm-v-tmenu")) return;
-    const at = this.cellOf(e.target);
-    e.preventDefault();
-    this.closeMenu();
-    if (!at) return;
-    this.stopEditing(false);
-    if (e.shiftKey && this.anchor) this.head = at;
-    else this.anchor = this.head = at;
-    this.dragging = true;
-    this.paintSelection();
+  /** Until the mouse button is let go. */
+  private whenUp(then: () => void) {
     const up = () => {
       window.removeEventListener("mouseup", up);
-      this.dragging = false;
-      if (this.single() && this.head) this.edit(this.head);
-      else this.dom.focus({ preventScroll: true });
+      then();
     };
     window.addEventListener("mouseup", up);
   }
 
-  private onMouseOver(e: MouseEvent) {
-    if (!this.dragging) return;
+  private onMouseDown(e: MouseEvent) {
+    const el = e.target as HTMLElement;
+    if (e.button !== 0 || el.closest("button, .cm-v-tmenu")) return;
+    this.closeMenu();
+    if (el.closest("input")) {
+      // A press in the text being typed: selecting letters, unless the mouse goes on into
+      // another cell, when it selects cells instead.
+      this.pressFrom = this.head;
+      this.whenUp(() => {
+        this.pressFrom = null;
+        if (this.dragging) {
+          this.dragging = false;
+          this.dom.focus({ preventScroll: true });
+        }
+      });
+      return;
+    }
+    e.preventDefault();
+    const handle = el.closest("th");
+    if (handle && this.grid.contains(handle)) return this.pressHandle(handle, e.shiftKey);
     const at = this.cellOf(e.target);
-    if (!at || (this.head && at.r === this.head.r && at.c === this.head.c)) return;
-    this.head = at;
+    if (!at) return;
+    this.stopEditing(false);
+    if (e.shiftKey && this.anchor) this.head = at;
+    else this.anchor = this.head = at;
+    this.dragging = "cells";
+    this.paintSelection();
+    this.whenUp(() => {
+      this.dragging = false;
+      if (this.single() && this.head && !e.shiftKey) this.edit(this.head);
+      else this.dom.focus({ preventScroll: true });
+    });
+  }
+
+  /** A press on a row or column handle, or on the corner. */
+  private pressHandle(th: HTMLElement, extend: boolean) {
+    const t = this.table;
+    if (!t.rows.length) return;
+    const last = { r: t.rows.length - 1, c: t.aligns.length - 1 };
+    this.stopEditing(false);
+    if (th.classList.contains("cm-v-corner")) return this.select({ r: 0, c: 0 }, last);
+    if (th.dataset.col) {
+      const c = Number(th.dataset.col);
+      this.anchor = { r: 0, c: extend && this.anchor ? this.anchor.c : c };
+      this.head = { r: last.r, c };
+      this.dragging = "cols";
+    } else {
+      const r = Number(th.dataset.row);
+      this.anchor = { r: extend && this.anchor ? this.anchor.r : r, c: 0 };
+      this.head = { r, c: last.c };
+      this.dragging = "rows";
+    }
+    this.paintSelection();
+    this.dom.focus({ preventScroll: true });
+    this.whenUp(() => (this.dragging = false));
+  }
+
+  private onMouseOver(e: MouseEvent) {
+    const el = e.target as HTMLElement;
+    const t = this.table;
+    if (this.pressFrom && !this.dragging) {
+      const at = this.cellOf(el);
+      const from = anchorOf(t, this.pressFrom.r, this.pressFrom.c);
+      if (!at || (anchorOf(t, at.r, at.c).r === from.r && anchorOf(t, at.r, at.c).c === from.c)) return;
+      // The drag has left the cell it started in: from here on it selects cells.
+      this.stopEditing(false);
+      window.getSelection()?.removeAllRanges();
+      this.anchor = from;
+      this.head = at;
+      this.dragging = "cells";
+      this.paintSelection();
+      return;
+    }
+    if (!this.dragging) return;
+    const td = this.cellOf(el);
+    const th = el.closest("th");
+    let next: At | null = null;
+    if (this.dragging === "cells") next = td;
+    else if (this.dragging === "cols") {
+      const c = th?.dataset.col !== undefined ? Number(th.dataset.col) : td?.c;
+      if (c !== undefined) next = { r: t.rows.length - 1, c };
+    } else {
+      const r = th?.dataset.row !== undefined ? Number(th.dataset.row) : td?.r;
+      if (r !== undefined) next = { r, c: t.aligns.length - 1 };
+    }
+    if (!next || (this.head && next.r === this.head.r && next.c === this.head.c)) return;
+    this.head = next;
     this.paintSelection();
   }
 
@@ -510,55 +977,87 @@ class Controller {
       this.anchor = this.head = anchorOf(this.table, at.r, at.c);
       this.paintSelection();
     }
-    this.openMenu(e.clientX, e.clientY);
+    this.openMenu(CONTEXT, e.clientX, e.clientY, null, true);
   }
 
-  // ---------- the menu ----------
+  // ---------- menus ----------
 
-  private openMenu(x: number, y: number) {
+  /**
+   * Open a menu of actions at a place on screen. A tool bar menu shows every action it holds,
+   * those that cannot be used now greyed; the right-click menu shows only those that can.
+   */
+  private openMenu(items: Item[], x: number, y: number, from: HTMLElement | null, onlyUsable = false) {
     this.closeMenu();
-    this.stopEditing(false);
+    const { off, on } = this.state();
     const menu = document.createElement("div");
     menu.className = "cm-v-tmenu";
     menu.setAttribute("role", "menu");
-    menu.setAttribute("aria-label", "Table");
-    for (const source of this.bar.querySelectorAll<HTMLButtonElement>("button")) {
-      if (source.disabled) continue;
+    menu.setAttribute("aria-label", from?.getAttribute("aria-label") ?? "Table");
+    let gap = false;
+    for (const id of items) {
+      if (id === "-") {
+        gap = menu.childElementCount > 0;
+        continue;
+      }
+      if (onlyUsable && off[id]) continue;
+      if (gap) menu.appendChild(document.createElement("div")).className = "sep";
+      gap = false;
+      const a = ACTIONS[id];
       const item = menu.appendChild(document.createElement("button"));
       item.type = "button";
-      item.setAttribute("role", "menuitem");
-      item.textContent = source.title;
-      item.onclick = () => void this.run(source.dataset.action as Action);
+      item.dataset.action = id;
+      item.disabled = Boolean(off[id]);
+      const checkable = id in on || id in STYLES || id in EDGES;
+      item.setAttribute("role", checkable ? (id in STYLES ? "menuitemradio" : "menuitemcheckbox") : "menuitem");
+      if (checkable) item.setAttribute("aria-checked", String(Boolean(on[id])));
+      if (a.title) item.title = a.title;
+      const tick = item.appendChild(document.createElement("span"));
+      tick.className = "tick";
+      if (on[id]) tick.append(icon("check"));
+      item.append(Object.assign(document.createElement("span"), { className: "txt", textContent: a.label }));
+      if (a.hint) item.append(Object.assign(document.createElement("kbd"), { textContent: a.hint }));
+      item.addEventListener("mousedown", (e) => e.preventDefault());
+      item.onclick = () => void this.run(id);
     }
     menu.addEventListener("keydown", (e) => {
-      const items = Array.from(menu.querySelectorAll("button"));
-      const at = items.indexOf(document.activeElement as HTMLButtonElement);
+      const usable = Array.from(menu.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+      const at = usable.indexOf(document.activeElement as HTMLButtonElement);
       if (e.key === "Escape") {
+        const back = this.menuFrom;
         this.closeMenu();
-        this.dom.focus({ preventScroll: true });
-      } else if (e.key === "ArrowDown") items[(at + 1) % items.length]?.focus();
-      else if (e.key === "ArrowUp") items[(at - 1 + items.length) % items.length]?.focus();
-      else if (e.key === "Home") items[0]?.focus();
-      else if (e.key === "End") items[items.length - 1]?.focus();
+        (back ?? this.dom).focus({ preventScroll: true });
+      } else if (e.key === "ArrowDown") usable[(at + 1) % usable.length]?.focus();
+      else if (e.key === "ArrowUp") usable[(at - 1 + usable.length) % usable.length]?.focus();
+      else if (e.key === "Home") usable[0]?.focus();
+      else if (e.key === "End") usable[usable.length - 1]?.focus();
       else if (e.key !== "Tab") return;
       e.preventDefault();
       e.stopPropagation();
     });
     menu.addEventListener("focusout", (e) => {
-      if (!menu.contains(e.relatedTarget as Node | null)) this.closeMenu();
+      const to = e.relatedTarget as Node | null;
+      // A menu being closed, by one of its own items, says nothing about where the keyboard went.
+      if (this.menu !== menu || menu.contains(to)) return;
+      this.closeMenu();
+      // Out of the menu and out of the table too.
+      if (!this.dom.contains(to)) this.leave();
     });
-    this.dom.appendChild(menu);
+    document.body.appendChild(menu);
     this.menu = menu;
+    this.menuFrom = from;
+    from?.setAttribute("aria-expanded", "true");
     // Keep the whole menu on screen.
     const box = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - box.width - 4))}px`;
     menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - box.height - 4))}px`;
-    menu.querySelector("button")?.focus({ preventScroll: true });
+    menu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
   }
 
   private closeMenu() {
     const menu = this.menu;
     this.menu = null;
+    this.menuFrom?.setAttribute("aria-expanded", "false");
+    this.menuFrom = null;
     menu?.remove();
   }
 
@@ -591,17 +1090,18 @@ class Controller {
     if (target.closest(".cm-v-tmenu")) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key;
+    const lower = key.toLowerCase();
     const done = () => {
       e.preventDefault();
       e.stopPropagation();
     };
-    if (mod && !e.altKey && (key.toLowerCase() === "z" || key.toLowerCase() === "y")) {
+    if (mod && !e.altKey && (lower === "z" || lower === "y")) {
       // Undo belongs to the document, not to the box being typed in.
       done();
       // Undo scrolls to the text cursor, which is not where the table is: stay here.
       const scroller = this.view.scrollDOM;
       const [top, left] = [scroller.scrollTop, scroller.scrollLeft];
-      if (key.toLowerCase() === "y" || e.shiftKey) redo(this.view);
+      if (lower === "y" || e.shiftKey) redo(this.view);
       else undo(this.view);
       const stay = () => scroller.scrollTo(left, top);
       stay();
@@ -612,13 +1112,19 @@ class Controller {
       if (key === "Escape") {
         done();
         this.dom.focus({ preventScroll: true });
+      } else if (key === "ArrowRight" || key === "ArrowLeft") {
+        // Along the tool bar with the arrow keys.
+        done();
+        const tools = Array.from(this.bar.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+        const at = tools.indexOf(target as HTMLButtonElement);
+        tools[(at + (key === "ArrowRight" ? 1 : -1) + tools.length) % tools.length]?.focus();
       }
       return;
     }
     if ((key === "F10" && e.shiftKey) || key === "ContextMenu") {
       done();
       const box = (this.head ? this.cellAt(this.head.r, this.head.c) : this.grid)?.getBoundingClientRect();
-      if (box) this.openMenu(box.left + 8, box.bottom);
+      if (box) this.openMenu(CONTEXT, box.left + 8, box.bottom, null, true);
       return;
     }
     const cur = this.head;
@@ -642,7 +1148,6 @@ class Controller {
       } else if (key === "Escape") {
         done();
         this.stopEditing(true);
-        this.paintSelection();
       } else if (key === "Enter") {
         done();
         const below = this.beside(cur, 1, 0);
@@ -684,15 +1189,13 @@ class Controller {
     } else if (key === "Delete" || key === "Backspace") {
       done();
       const rect = this.rect();
-      if (!rect) return;
-      let next = this.table;
-      for (let r = rect.top; r <= rect.bottom; r++) for (let c = rect.left; c <= rect.right; c++) if (!next.rows[r][c].hidden && next.rows[r][c].tex) next = setCell(next, r, c, "");
-      const [a, h] = [this.anchor, this.head];
-      if (this.commit(next, true)) {
-        this.anchor = a;
-        this.head = h;
-        this.paintSelection();
-      }
+      if (rect) this.act(clearCells(this.table, rect), "keep");
+    } else if (mod && !e.altKey && lower === "a") {
+      done();
+      void this.run("selectTable");
+    } else if (mod && !e.altKey && (lower === "c" || lower === "x")) {
+      done();
+      this.copy(lower === "x");
     } else if (key.length === 1 && !mod && !e.altKey) {
       // Typing over a selected cell starts editing it; the key itself lands in the box.
       this.edit(cur);
@@ -707,6 +1210,65 @@ class Controller {
 }
 
 const controllers = new WeakMap<HTMLElement, Controller>();
+
+/** The table the keyboard is in now, if any. */
+function focusedTable(): Controller | null {
+  const el = (document.activeElement as HTMLElement | null)?.closest?.(".cm-v-tedit");
+  return el ? (controllers.get(el as HTMLElement) ?? null) : null;
+}
+
+/** Places outside a table the keyboard can visit and come back from without leaving it. */
+const TOOLS = ".tools, .menu-wrap, .menu-list, .sym-pop";
+
+let listening = false;
+/** The clipboard and focus listeners every table shares, set up with the first one. */
+function listenOnce() {
+  if (listening) return;
+  listening = true;
+  document.addEventListener("copy", (e) => void (copying ?? { controller: focusedTable(), cut: false }).controller?.onCopy(e, copying?.cut ?? false), true);
+  document.addEventListener("cut", (e) => void focusedTable()?.onCopy(e, true), true);
+  document.addEventListener("paste", (e) => focusedTable()?.onPaste(e), true);
+  // Going anywhere but the tools, or into another table, forgets the table the tools work on.
+  const away = (e: Event) => {
+    const el = e.target as HTMLElement | null;
+    if (!target || !el?.closest) return;
+    if (target.controller.dom.contains(el) || el.closest(TOOLS)) return;
+    target = null;
+  };
+  document.addEventListener("focusin", away, true);
+  document.addEventListener("mousedown", away, true);
+}
+
+/** The table the tools act on: the one the keyboard is in, or the one it last left for them. */
+function tableTarget(): { controller: Controller; where: { at: At; start: number; end: number } | null } | null {
+  const now = focusedTable();
+  if (now) return { controller: now, where: null };
+  if (target && !target.controller.dom.isConnected) target = null;
+  return target ? { controller: target.controller, where: target } : null;
+}
+
+/**
+ * The tool bar and menus of the app go through here first, so that what they put in lands in
+ * the table being worked on, where there is one.
+ */
+export const tableInput = {
+  /** Set the selected cells, or the selected text of a cell, in `\name`. False when no table is in use. */
+  format(name: string): boolean {
+    const t = tableTarget();
+    if (!t) return false;
+    t.controller.format(name, t.where);
+    return true;
+  },
+  /** Put LaTeX into the cell in use. False when no table is in use. */
+  insert(make: (inMath: boolean, next: string) => Insertion): boolean {
+    const t = tableTarget();
+    if (!t) return false;
+    const where = t.where ?? t.controller.here();
+    if (!where) return false;
+    t.controller.insert(make, where);
+    return true;
+  },
+};
 
 /** A table drawn so that it can be edited where it stands. */
 export class EditableTable extends WidgetType {

@@ -17,4 +17,8 @@ spellcheck: string,
 /**
  * Words the user has told the spelling checker to accept.
  */
-dictionary: Array<string>, };
+dictionary: Array<string>, 
+/**
+ * The symbols inserted lately, most recent first, by the LaTeX they are written as.
+ */
+recentSymbols: Array<string>, };

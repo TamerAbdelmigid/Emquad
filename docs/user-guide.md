@@ -33,22 +33,36 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 **Edit.** In **Visual** mode, click a cell and type. What you type is LaTeX, so `$x^2$` and `\textbf{…}` work; a plain `&`, `%` or `#` that you type is written as `\&`, `\%` or `\#` for you, and so is an `_` typed in ordinary text. In mathematics (`$…$`), and inside the argument of a command such as `\ref{…}`, `\cite{…}`, `\si{…}` or `\includegraphics{…}`, they are left as typed. Deleting such a character takes its backslash with it. A cell that could not compile as it stands (an unclosed `$`, or a `^` outside mathematics) is held back, marked, until it can; write a dollar sign as `\$`. Only what you type is treated this way; LaTeX already in the cell is never rewritten. Tab and Shift+Tab move between cells, and Tab in the last cell adds a row. The arrow keys move to the next cell when the cursor is at the edge of the text. Esc stops typing and leaves the cell selected.
 
-**Select cells** by dragging across them, or with Shift and the arrow keys.
+**Select cells** as in a word processor:
+
+- drag across cells, or Shift-click a second cell. A drag that starts in the text of a cell selects letters until it goes on into another cell, and then selects cells;
+- point just above a column or just left of a row to see its handle: click it to select the whole column or row, drag along the handles to select several, or Shift-click to extend;
+- the small square at the top left corner selects the whole table, and so does Ctrl+A once cells are selected;
+- with the keyboard, Shift and the arrow keys.
+
+A **+** appears on the line between two rows or columns when you point at their handle; click it to insert one there.
 
 **Without a mouse.** Esc leaves the text; Tab then reaches the table. Enter (or an arrow key) selects its first cell, the arrow keys move between cells, and Enter starts typing in the selected one.
 
-**The tools** are in the bar above the table and on its right-click menu (Shift+F10 from the keyboard; Esc then Tab reaches the bar):
+**The tools** are in the bar above the table, shown while the pointer or the keyboard is in it, and on its right-click menu (Shift+F10 from the keyboard; Esc then Tab reaches the bar, and the arrow keys move along it). In a narrow pane the bar shows its icons only; every one has a tooltip.
 
 | Tool | What it does |
 |---|---|
+| **B**, *I* | Sets the selected cells in bold (`\textbf`) or italic (`\textit`), or takes them out of it when they all are. While you type in a cell, they act on the selected text instead |
+| Align left, centre, right | Align the selected columns. The one that is lit shows the column's alignment |
+| Insert ▾ | A row above or below, a column to the left or right |
+| Delete ▾ | The selected rows or columns, the text of the selected cells (also Del), or the whole table. A table alone in a `table` float with its caption and label takes the float with it |
 | Merge | Makes one cell of the selected cells. Across a row this is `\multicolumn`, down a column `\multirow`, a block both. Text in the cells is joined, never dropped |
-| Split | Gives a merged cell its separate cells back. The text stays in the first |
-| Split ↔, Split ↕ | Divides an ordinary cell in two, side by side or one above the other. The other cells in its column or row are widened so that only this cell looks divided |
-| Row ↑ ↓ ✕, Col ← → ✕ | Insert or delete rows and columns |
-| Left, Centre, Right | Align the selected columns |
-| Borders | Draws every border, or removes them all |
+| Split ▾ | **Unmerge cells** gives a merged cell its separate cells back, the text staying in the first. **Split into two columns** or **two rows** divides an ordinary cell; the other cells in its column or row are widened so that only this cell looks divided |
+| Borders ▾ | A look for the whole table: all borders, the outside only, the inside lines only, lines above, below and under the first row, the book style of the `booktabs` package, or none. Below them, a line on one edge of the selected cells: above, below, left or right. Ticks show what is drawn now. A line above or below runs under the selected columns only (`\cline`); a line beside the cells runs the whole height of the table, because that is all LaTeX allows |
 | Caption | Adds, changes or (left empty) removes the caption. See below for where it works |
-| Edit source | Shows the table's LaTeX so you can change it directly. Move the cursor out of it to see the table again |
+| Source | Shows the table's LaTeX so you can change it directly. Move the cursor out of it to see the table again |
+
+The right-click menu also has **Cut** and **Copy**, and **Select row**, **Select column** and **Select table**.
+
+**Copy and paste cells.** Ctrl+C copies the selected cells: Emquad pastes them back exactly as they were written, and Word or Excel receive them as a table. Ctrl+V pastes cells from the selected one on, as a spreadsheet does, adding rows and columns at the end if they are needed; text from Word or Excel has its special characters escaped. Cells cannot be pasted over a merged cell. Ctrl+X copies the cells and empties them.
+
+**Bold, Italic and Ω from the main toolbar** act on the table you were working in: on the selected cells, or on the cell you were typing in.
 
 **Where Caption works.** A caption in the wrong place stops a document compiling, so the tool acts only on the two plain cases it can be sure of, and otherwise tells you why and changes nothing:
 
@@ -59,13 +73,31 @@ It leaves the caption to you, in the source, for a table inside anything else (a
 
 Every action changes your `.tex` file at once, and **Code** shows exactly what was written. Each action is one step for Undo (Ctrl+Z).
 
-**Merging down a column needs the `multirow` package.** The first time you do it, Emquad adds `\usepackage{multirow}` on a line of its own just before `\begin{document}` and tells you. The same happens when you paste a table from Word or Excel that has cells merged downwards. If the file you are in has no preamble, because it is included from another file, add that line to your main file yourself; Emquad reminds you.
+**Merging down a column needs the `multirow` package**, and the book style of borders the `booktabs` package. The first time you need one, Emquad adds its `\usepackage` line just before `\begin{document}` and tells you. The same happens when you paste a table from Word or Excel that has cells merged downwards. If the file you are in has no preamble, because it is included from another file, add that line to your main file yourself; Emquad reminds you.
 
 **Paste from Word or Excel.** Copy a table there and paste it into the editor. Emquad asks whether to paste it as a table; merged cells are kept and characters LaTeX treats specially are escaped. Cancel pastes the plain text.
 
 **Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly is drawn with a note saying why and an **Edit source** link. Examples: a `p{3cm}` column, a table inside a table, a comment, `\verb`, a rule with a thickness such as `\midrule[2pt]`, a rule drawn straight through a merged cell, a `\multirow` over a single row, or `tabularx`. Emquad never rewrites such a table. Before accepting any table it checks that writing it out and reading it again gives the same table, and it makes the same check before every change.
 
 When you edit a table you wrote by hand, Emquad lays its source out its own way, one row to a line. The cells, merges and rules are kept as they were.
+
+### Symbols
+
+**Ω** in the toolbar (or **Insert ▸ Symbol…**) opens the symbol panel. Type to search by name, by LaTeX command or by the symbol itself ("alpha", "arrow", "\leq", "≤"), or browse by kind: Greek, operators, relations, arrows, sets and logic, calculus, other, accents and fonts, structures (fractions, roots, sub- and superscripts, sums and integrals with limits, brackets that grow, matrices, cases), text symbols (©, §, –, —, €, ½ and so on) and special characters (`\$`, `\%`, a non-breaking space). **Recent** holds the ones you used last. Every tile shows the symbol as it will print; the line under the grid says what will be written, in a formula and in text.
+
+Emquad writes a symbol the way the place it goes needs:
+
+- inside a formula (`$…$`, `\[…\]`, `equation`, `align` and the like) it writes the command, such as `\alpha`;
+- in ordinary text it puts a formula symbol in `$…$`, and writes a text symbol such as `\textcopyright{}` with the braces that keep it from running into the next word;
+- a text symbol chosen inside a formula is put in `\mbox{…}`;
+- an accent or structure goes around the selected text: select `x` and choose the fraction to get `\frac{x}{}`;
+- when the symbol needs a package (`amssymb` for ⩽, ∴ or ℝ; `amsmath` for matrices, cases and `\binom`), Emquad adds it to the preamble and tells you, unless the document already has it or a package that provides it.
+
+While you type in a table cell, the symbol goes into the cell. Each symbol is one step for Undo.
+
+Keyboard: the panel opens with the cursor in its search box; the down arrow goes to the symbols, the arrow keys move among them, Enter puts one in, and Esc closes the panel. Enter in the search box puts in the first match.
+
+**Insert ▸ Formula in the line** puts `$…$` around the selection.
 
 ### Spelling
 
@@ -160,6 +192,9 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | In a table: select cells | Shift+arrow keys |
 | In a table: stop typing; then reach the tools | Esc; then Tab |
 | In a table: open its menu | Shift+F10 |
+| In a table: select the whole table | Ctrl+A, with cells selected |
+| In a table: copy, cut, paste cells | Ctrl+C, Ctrl+X, Ctrl+V, with cells selected |
+| In a table: empty the selected cells | Del |
 | Correct the misspelled word at the cursor | Ctrl+. |
 | Suggest completions | Ctrl+Space |
 | Go to definition, find references, rename | F12, Shift+F12, F2 |

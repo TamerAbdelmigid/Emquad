@@ -165,6 +165,11 @@
     await until("the Fieldwork theme again", () => getComputedStyle(document.body).backgroundColor === fieldworkPage);
 
     const { buffers } = await import("/src/features/editor/buffers.ts");
+    /** Edit, Undo: as the user would. */
+    const undoText = async () => {
+      await click("Edit");
+      (await until("the Undo item", () => $$(".menu-item").find((i) => i.firstChild?.textContent === "Undo"))).click();
+    };
     // --- visual mode draws the same source as a document, and code mode puts it back
     const plain = (await invoke("file_read", { path: "main.tex" })).text;
     const rich = plain.replace(
@@ -408,6 +413,22 @@
         window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
       };
       const tool = (id) => $(`.cm-v-tbar button[data-action="${id}"]`);
+      /** The menu of the tool bar that holds an action, opened; or null for an action on the bar itself. */
+      const menuOf = (id) => {
+        const holder = $$(".cm-v-tbar button[data-items]").find((b) => b.dataset.items.split(" ").includes(id));
+        if (holder && !$(".cm-v-tmenu")) holder.click();
+        return holder ? $(`.cm-v-tmenu button[data-action="${id}"]`) : null;
+      };
+      /** Use a tool, from the bar or from the menu that holds it. */
+      const use = (id) => (tool(id) ?? menuOf(id)).click();
+      /** Whether a tool can be used now. */
+      const usable = (id) => {
+        if (tool(id)) return !tool(id).disabled;
+        const item = menuOf(id);
+        const can = !item.disabled;
+        press(item, "Escape");
+        return can;
+      };
       const box = () => $(".cm-v-tedit input.cm-v-tcell");
       await until("the drawn table", () => td(0, 1));
 
@@ -442,7 +463,7 @@
 
       // Merge across a row.
       drag(td(0, 0), td(0, 1));
-      await ok($$(".cm-v-tedit td.sel").length === 2 && !tool("merge").disabled, "dragging across cells selects them and enables Merge");
+      await ok($$(".cm-v-tedit td.sel").length === 2 && usable("merge"), "dragging across cells selects them and enables Merge");
       tool("merge").click();
       await ok(tabular().includes("\\multicolumn{2}{l}{Name \\textbf{Total}} \\\\") && !src().includes("multirow"), "merging across a row writes \\multicolumn and keeps the text of both cells");
       press($(".cm-v-tedit"), "z", { ctrlKey: true });
@@ -459,10 +480,10 @@
       await ok(tabular().includes("\\multirow{2}{*}{$x$ y} & \\textbf{two} \\\\\n& three \\\\"), "merging down a column writes \\multirow, with an empty cell under it");
       await ok(/multirow/.test(text(".toast")) && src().indexOf("\\usepackage{multirow}") < src().indexOf("\\begin{document}"), "the multirow package is added to the preamble, and the app says so");
 
-      tool("borders").click();
-      await ok(!/hline|cline/.test(tabular()) && tabular().startsWith("\\begin{tabular}{ll}"), "Borders removes every rule when there are some");
-      tool("borders").click();
-      await ok(tabular().startsWith("\\begin{tabular}{|l|l|}") && tabular().includes("\\cline{2-2}\n") && !/\\\\\n\\hline\n& three/.test(tabular()), "and draws them all when there are none, with \\cline so no rule cuts the merged cell");
+      use("bordersNone");
+      await ok(!/hline|cline/.test(tabular()) && tabular().startsWith("\\begin{tabular}{ll}"), "No borders removes every rule");
+      use("bordersAll");
+      await ok(tabular().startsWith("\\begin{tabular}{|l|l|}") && tabular().includes("\\cline{2-2}\n") && !/\\\\\n\\hline\n& three/.test(tabular()), "and All borders draws them all, with \\cline so no rule cuts the merged cell");
       await shot("10-table");
 
       await act.compile();
@@ -471,25 +492,68 @@
       // Split.
       drag(td(1, 0), td(1, 0));
       press(box(), "Escape");
-      await ok(!tool("split").disabled && tool("splitRows").disabled, "a merged cell offers Split, an ordinary one the two divisions");
-      tool("split").click();
+      await ok(usable("split") && !usable("splitRows"), "a merged cell offers Unmerge, an ordinary one the two divisions");
+      use("split");
       await ok(!tabular().includes("multirow") && tabular().includes("$x$ y & \\textbf{two} \\\\\n\\hline\n& three \\\\"), "splitting a merged cell gives back its cells, the text staying in the first, and the rule returns");
       drag(td(2, 1), td(2, 1));
       press(box(), "Escape");
-      tool("splitColumns").click();
+      use("splitColumns");
       await ok(tabular().startsWith("\\begin{tabular}{|l|l|l|}") && tabular().includes("\\multicolumn{2}{l|}{\\textbf{two}}") && tabular().includes("& three & \\\\"), "splitting an ordinary cell adds a column and widens the cells above it");
       press($(".cm-v-tedit"), "z", { ctrlKey: true });
 
       // Rows, columns, alignment.
       drag(td(2, 1), td(2, 1));
       press(box(), "Escape");
-      tool("rowBelow").click();
-      tool("columnRight").click();
+      use("rowBelow");
+      use("columnRight");
       await ok((tabular().match(/\\\\/g) ?? []).length === 4 && tabular().startsWith("\\begin{tabular}{|l|l|l|}"), "a row and a column can be added");
-      tool("deleteColumn").click();
-      tool("deleteRow").click();
-      tool("alignCentre").click();
+      use("deleteColumn");
+      use("deleteRow");
+      use("alignCentre");
       await ok((tabular().match(/\\\\/g) ?? []).length === 3 && tabular().startsWith("\\begin{tabular}{|l|c|}"), "and deleted, and a column centred");
+      await ok(tool("alignCentre").getAttribute("aria-pressed") === "true" && tool("alignLeft").getAttribute("aria-pressed") === "false", "the alignment tools show the alignment of the column");
+
+      // Choosing cells with the mouse, as in a word processor.
+      const handles = (kind) => $$(`.cm-v-tedit th.cm-v-${kind}`);
+      const chosen = () => $$(".cm-v-tedit td.sel").map((cell) => `${cell.dataset.r},${cell.dataset.c}`);
+      drag(handles("rowh")[1], handles("rowh")[2]);
+      await ok($$(".cm-v-tedit td").every((cell) => cell.classList.contains("sel") === (cell.dataset.r !== "0")), "dragging along the row handles selects whole rows");
+      drag(handles("corner")[0], handles("corner")[0]);
+      await ok($$(".cm-v-tedit td").every((cell) => cell.classList.contains("sel")), "the corner handle selects the whole table");
+      drag(td(1, 0), td(1, 0));
+      box().dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0 }));
+      td(1, 1).dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      await ok(!box() && chosen().join(" ") === "1,0 1,1", "a drag that starts in the text of a cell and goes on into the next selects cells");
+      const beforeBold = tabular();
+      use("bold");
+      await ok(/\\textbf\{[^&]+\} & \\textbf\{/.test(tabular()) && chosen().length === 2, "Bold sets every selected cell in bold, keeping the selection");
+      use("bold");
+      await ok(!tabular().includes("\\textbf{$x$"), "and Bold again, with every cell bold, takes them all out of bold");
+      press($(".cm-v-tedit"), "z", { ctrlKey: true });
+      press($(".cm-v-tedit"), "z", { ctrlKey: true });
+      await ok(tabular() === beforeBold, "each one a step of its own for Ctrl+Z");
+
+      // The clipboard: cells out as LaTeX and as a table, and back in from the selected cell.
+      drag(td(1, 0), td(1, 1));
+      const clip = new DataTransfer();
+      $(".cm-v-tedit").dispatchEvent(new ClipboardEvent("copy", { clipboardData: clip, bubbles: true, cancelable: true }));
+      await ok(clip.getData("text/plain").includes("\t") && /<table>/.test(clip.getData("text/html")), "copying selected cells puts them on the clipboard as text and as a table");
+      drag(td(2, 0), td(2, 0));
+      press(box(), "Escape");
+      const pasted = new DataTransfer();
+      pasted.setData("text/plain", "p_1\t50%\nq\tr");
+      $(".cm-v-tedit").dispatchEvent(new ClipboardEvent("paste", { clipboardData: pasted, bubbles: true, cancelable: true }));
+      await ok(tabular().includes("p\\_1 & 50\\% \\\\\n") && tabular().includes("q & r \\\\"), "cells copied from a spreadsheet paste into the cells from the selected one on, rows added as needed and escaped");
+      press($(".cm-v-tedit"), "z", { ctrlKey: true });
+      await ok(!tabular().includes("p\\_1"), "and Ctrl+Z takes the paste back in one step");
+
+      // Rules in the style of the booktabs package.
+      use("bordersBook");
+      await until("the booktabs package", () => src().includes("\\usepackage{booktabs}"));
+      await ok(/\\toprule[\s\S]*\\midrule[\s\S]*\\bottomrule/.test(tabular()) && !tabular().includes("|"), "Book style draws booktabs rules, no vertical lines, and adds the package");
+      press($(".cm-v-tedit"), "z", { ctrlKey: true });
+      await ok(!src().includes("booktabs") && tabular().startsWith("\\begin{tabular}{|l|c|}"), "and Ctrl+Z takes back the rules and the package together");
 
       // Into the table without a mouse: it is in the tab order, and Enter goes into its cells.
       document.activeElement.blur();
@@ -519,6 +583,36 @@
       await until("the caption", () => src().includes("\\caption{Results by year}"));
       await ok(/\\begin\{table\}\[h\]\n\\centering\n\\begin\{tabular\}/.test(src()) && src().includes("\\end{tabular}\n\\caption{Results by year}\n\\end{table}"), "a caption puts the table in a float that carries it");
       await ok($(".cm-v-tedit td"), "and the table is still drawn and editable");
+
+      // Symbols: written as the place they go needs, into the cell being typed in or the text.
+      drag(td(1, 0), td(1, 0));
+      store().set({ symbols: true });
+      const search = await until("the symbol panel", () => $(".sym-search"));
+      await ok(document.activeElement === search && $$(".sym-grid button").length > 10, "the Symbol panel opens with the keyboard in its search box");
+      type(search, "fraction");
+      press(search, "Enter");
+      await until("the fraction in the cell", () => tabular().includes("$\\frac{}{}$"));
+      await ok(box()?.closest("td") === td(1, 0) && !$(".sym-pop"), "a structure chosen while typing in a cell goes into that cell, as a formula");
+      await until("the symbol remembered", async () => (await invoke("settings_get")).recentSymbols[0] === "\\frac{…}{}");
+      press($(".cm-v-tedit"), "z", { ctrlKey: true });
+      const prose = src().split("\n").findIndex((line) => line.startsWith("This sentence")) + 1;
+      buffers.goToLine(prose);
+      store().set({ symbols: true });
+      type(await until("the symbol panel", () => $(".sym-search")), "\\leqslant");
+      press($(".sym-search"), "Enter");
+      await until("the symbol in the text", () => src().includes("$\\leqslant$This sentence"));
+      await ok(src().indexOf("\\usepackage{amssymb}") > 0 && src().indexOf("\\usepackage{amssymb}") < src().indexOf("\\begin{document}") && /amssymb/.test(text(".toast")), "a formula symbol chosen in text goes in as $…$, and the package it needs is added, and the app says so");
+      await undoText();
+      await ok(!src().includes("amssymb") && !src().includes("leqslant"), "and one undo takes both back");
+
+      // Deleting the table takes the float that held only it and its caption.
+      drag(td(0, 0), td(0, 0));
+      press(box(), "Escape");
+      use("deleteTable");
+      await ok(!src().includes("\\begin{table}") && !src().includes("\\begin{tabular}") && !$(".cm-v-tedit"), "Delete table removes the table and the float that held it");
+      await undoText();
+      await until("the table back", () => src().includes("\\caption{Results by year}") && $(".cm-v-tedit td"));
+      await ok(true, "and undo brings it back");
 
       // A table that cannot be written back exactly is shown, not edited.
       buffers.goToLine(5);

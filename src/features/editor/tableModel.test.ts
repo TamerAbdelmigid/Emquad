@@ -1,22 +1,31 @@
 import { describe, expect, it } from "vitest";
 import {
   type Table,
+  bordersStyle,
   captionOf,
+  cellsOf,
+  cellsStyled,
+  clearCells,
   captionPlace,
   copiedFromPlain,
   deleteColumn,
   deleteRow,
   ensureMultirow,
+  ensurePackage,
   escapeInserted,
   escapeTex,
   escapeTyped,
   expandRect,
+  hasEdge,
   insertColumn,
   insertRow,
   merge,
+  needsBooktabs,
   needsMultirow,
   newTable,
   parseTable,
+  pasteCells,
+  setBorders,
   setAlign,
   setCaption,
   setCell,
@@ -26,7 +35,10 @@ import {
   splitIntoRows,
   splitMerged,
   tableFromCopied,
+  tableRemoval,
   toggleBorders,
+  toggleEdge,
+  toggleStyle,
   writeTable,
 } from "./tableModel";
 
@@ -260,6 +272,176 @@ describe("borders", () => {
     const t = toggleBorders(read("\\begin{tabular}{ll}\n\\multicolumn{2}{c}{Head} \\\\\na & b \\\\\n\\end{tabular}"));
     expect(t.rows[0][0].spec).toBe("|c|");
     expect(toggleBorders(t).rows[0][0].spec).toBe("c");
+  });
+
+  it("come in the usual looks for the whole table, each of which reads back as itself", () => {
+    const t = grid(3, 2);
+    const look = (style: Parameters<typeof setBorders>[1]) => writeTable(setBorders(t, style));
+    expect(look("outside")).toBe("\\begin{tabular}{|ll|}\n\\hline\na1 & b1 \\\\\na2 & b2 \\\\\na3 & b3 \\\\\n\\hline\n\\end{tabular}");
+    expect(look("inside")).toBe("\\begin{tabular}{l|l}\na1 & b1 \\\\\n\\hline\na2 & b2 \\\\\n\\hline\na3 & b3 \\\\\n\\end{tabular}");
+    expect(look("header")).toBe("\\begin{tabular}{ll}\n\\hline\na1 & b1 \\\\\n\\hline\na2 & b2 \\\\\na3 & b3 \\\\\n\\hline\n\\end{tabular}");
+    expect(look("book")).toBe("\\begin{tabular}{ll}\n\\toprule\na1 & b1 \\\\\n\\midrule\na2 & b2 \\\\\na3 & b3 \\\\\n\\bottomrule\n\\end{tabular}");
+    for (const style of ["all", "none", "outside", "inside", "header", "book"] as const) {
+      const made = setBorders(t, style);
+      expect(read(writeTable(made))).toEqual(made);
+      expect(bordersStyle(made)).toBe(style);
+    }
+    expect(needsBooktabs(setBorders(t, "book"))).toBe(true);
+    expect(needsBooktabs(t)).toBe(false);
+    expect(bordersStyle(toggleEdge(t, { top: 0, left: 0, bottom: 0, right: 0 }, "bottom"))).toBe(null);
+  });
+
+  it("draw around a merged cell in every look, and the book look turns into ordinary rules there", () => {
+    const merged = merge(grid(3, 2), { top: 0, left: 0, bottom: 1, right: 0 });
+    const book = setBorders(merged, "book");
+    expect(writeTable(book)).toContain("\\cline{2-2}");
+    expect(read(writeTable(book))).toEqual(book);
+  });
+
+  it("can be drawn on one edge of the selected cells at a time", () => {
+    const t = grid(3, 3, false);
+    const middle = { top: 1, left: 1, bottom: 1, right: 1 };
+    const above = toggleEdge(t, middle, "top");
+    expect(writeTable(above)).toContain("a1 & b1 & c1 \\\\\n\\cline{2-2}\na2");
+    expect(hasEdge(above, middle, "top")).toBe(true);
+    expect(hasEdge(above, middle, "bottom")).toBe(false);
+    expect(toggleEdge(above, middle, "top")).toEqual(t);
+    const wide = toggleEdge(t, { top: 2, left: 0, bottom: 2, right: 2 }, "bottom");
+    expect(wide.hrules[3]).toEqual({ kind: "hline" });
+    const left = toggleEdge(t, middle, "left");
+    expect(writeTable(left).split("\n")[0]).toBe("\\begin{tabular}{l|ll}");
+    expect(hasEdge(left, { top: 0, left: 1, bottom: 0, right: 1 }, "left")).toBe(true);
+    expect(writeTable(toggleEdge(t, middle, "right")).split("\n")[0]).toBe("\\begin{tabular}{ll|l}");
+    // Taking a piece out of a full rule leaves the rest of it.
+    const cut = toggleEdge(grid(2, 3), { top: 0, left: 1, bottom: 0, right: 1 }, "top");
+    expect(writeTable(cut).split("\n")[1]).toBe("\\cline{1-1}\\cline{3-3}");
+    // A booktabs rule drawn whole again is the rule it was.
+    const book = setBorders(grid(2, 2), "book");
+    const corner = { top: 0, left: 0, bottom: 0, right: 0 };
+    expect(toggleEdge(toggleEdge(book, corner, "top"), corner, "top")).toEqual(book);
+    for (const made of [above, wide, left, cut]) expect(read(writeTable(made))).toEqual(made);
+  });
+
+  it("on one edge of a merged cell, take the whole cell's edge", () => {
+    const merged = merge(grid(3, 3, false), { top: 0, left: 0, bottom: 1, right: 1 });
+    const t = toggleEdge(merged, { top: 0, left: 0, bottom: 0, right: 0 }, "bottom");
+    expect(writeTable(t)).toContain("\\cline{1-2}\na3");
+    expect(read(writeTable(t))).toEqual(t);
+  });
+
+  it("move a hand-written cell's bars with the table's", () => {
+    const t = read("\\begin{tabular}{ll}\n\\multicolumn{2}{c}{Head} \\\\\na & b \\\\\n\\end{tabular}");
+    const edged = toggleEdge(t, { top: 1, left: 1, bottom: 1, right: 1 }, "right");
+    expect(edged.rows[0][0].spec).toBe("c|");
+    expect(read(writeTable(edged))).toEqual(edged);
+  });
+});
+
+describe("formatting cells", () => {
+  const all = { top: 0, left: 0, bottom: 1, right: 1 };
+
+  it("sets every cell with text in bold, and takes it out again", () => {
+    const t = setCell(grid(2, 2), 1, 1, "");
+    const bold = toggleStyle(t, all, "textbf");
+    expect(tex(bold)).toEqual([["\\textbf{a1}", "\\textbf{b1}"], ["\\textbf{a2}", ""]]);
+    expect(cellsStyled(bold, all, "textbf")).toBe(true);
+    expect(toggleStyle(bold, all, "textbf")).toEqual(t);
+  });
+
+  it("makes the rest bold when only some cells are", () => {
+    const some = setCell(grid(1, 2), 0, 0, "\\textbf{a1}");
+    const row = { top: 0, left: 0, bottom: 0, right: 1 };
+    expect(cellsStyled(some, row, "textbf")).toBe(false);
+    expect(tex(toggleStyle(some, row, "textbf"))).toEqual([["\\textbf{a1}", "\\textbf{b1}"]]);
+  });
+
+  it("does not take text that only starts in bold for bold", () => {
+    const t = setCell(grid(1, 1), 0, 0, "\\textbf{a} and \\textbf{b}");
+    const one = { top: 0, left: 0, bottom: 0, right: 0 };
+    expect(cellsStyled(t, one, "textbf")).toBe(false);
+    expect(tex(toggleStyle(t, one, "textbf"))).toEqual([["\\textbf{\\textbf{a} and \\textbf{b}}"]]);
+  });
+
+  it("keeps merged cells merged", () => {
+    const t = merge(grid(2, 2), { top: 0, left: 0, bottom: 0, right: 1 });
+    const bold = toggleStyle(t, all, "textit");
+    expect(tex(bold)).toEqual([["\\textit{a1 b1}", "·"], ["\\textit{a2}", "\\textit{b2}"]]);
+    expect(read(writeTable(bold))).toEqual(bold);
+  });
+
+  it("empties the selected cells", () => {
+    expect(tex(clearCells(grid(2, 2), { top: 0, left: 1, bottom: 1, right: 1 }))).toEqual([["a1", ""], ["a2", ""]]);
+  });
+});
+
+describe("copying and pasting cells", () => {
+  it("copies the LaTeX of each cell, a merged one once", () => {
+    const t = merge(grid(2, 3), { top: 0, left: 0, bottom: 0, right: 1 });
+    expect(cellsOf(t, { top: 0, left: 1, bottom: 1, right: 2 })).toEqual([["a1 b1", "", "c1"], ["a2", "b2", "c2"]]);
+  });
+
+  it("pastes into the cells from the one chosen, adding rows and columns that are needed", () => {
+    const t = pasteCells(grid(2, 2), 1, 1, [["x", "y"], ["z", "w"]])!;
+    expect(tex(t)).toEqual([["a1", "b1", ""], ["a2", "x", "y"], ["", "z", "w"]]);
+    expect(read(writeTable(t))).toEqual(t);
+  });
+
+  it("will not paste over a merged cell", () => {
+    const t = merge(grid(2, 2), { top: 0, left: 0, bottom: 0, right: 1 });
+    expect(pasteCells(t, 0, 0, [["x"]])).toBe(null);
+    expect(pasteCells(t, 1, 0, [["x", "y"]])).not.toBe(null);
+    expect(pasteCells(t, 0, 0, [])).toBe(null);
+  });
+});
+
+describe("deleting a table", () => {
+  const table = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";
+  const remove = (text: string) => {
+    const from = text.indexOf("\\begin{tabular}");
+    const change = tableRemoval(text, from, from + table.length);
+    return text.slice(0, change.from) + change.insert + text.slice(change.to);
+  };
+
+  it("takes the table and the line it stood on", () => {
+    expect(remove(`Before.\n${table}\nAfter.`)).toBe("Before.\nAfter.");
+    expect(remove(`Before. ${table} After.`)).toBe("Before.  After.");
+  });
+
+  it("takes a float that held only the table, its caption and label", () => {
+    const float = `\\begin{table}[h]\n  \\centering\n  ${table}\n  \\caption{Costs {by} year}\n  \\label{tab:a}\n\\end{table}\n`;
+    expect(remove(`Before.\n${float}After.`)).toBe("Before.\nAfter.");
+    const centred = `\\begin{table}\n\\begin{center}\n${table}\n\\end{center}\n\\caption[Short]{Long}\n\\end{table}\n`;
+    expect(remove(`A\n${centred}B`)).toBe("A\nB");
+  });
+
+  it("leaves a float that holds something else as well", () => {
+    const float = `\\begin{table}\n\\centering\n${table}\n\\includegraphics{x}\n\\end{table}`;
+    expect(remove(float)).toBe("\\begin{table}\n\\centering\n\\includegraphics{x}\n\\end{table}");
+    const two = `\\begin{table}\n${table}\n\\end{table}\nText\n\\begin{center}\n${table}\n\\end{center}`;
+    const second = two.lastIndexOf("\\begin{tabular}");
+    const change = tableRemoval(two, second, second + table.length);
+    expect(two.slice(0, change.from) + two.slice(change.to)).toBe(`\\begin{table}\n${table}\n\\end{table}\nText\n`);
+  });
+});
+
+describe("adding a package", () => {
+  const DOC = "\\documentclass{article}\n\\usepackage{graphicx}\n\\begin{document}\nHi\n\\end{document}\n";
+
+  it("adds it before the document starts, once", () => {
+    const change = ensurePackage(DOC, "amssymb");
+    expect(change).toEqual({ from: DOC.indexOf("\\begin{document}"), to: DOC.indexOf("\\begin{document}"), insert: "\\usepackage{amssymb}\n" });
+    expect(ensurePackage(apply(DOC, [change as never]), "amssymb")).toBe("present");
+  });
+
+  it("knows packages and classes that provide it already, or would clash with it", () => {
+    expect(ensurePackage(DOC.replace("graphicx", "mathtools"), "amsmath")).toBe("present");
+    expect(ensurePackage(DOC.replace("article", "amsart"), "amsmath")).toBe("present");
+    expect(ensurePackage(DOC.replace("graphicx", "newtxmath"), "amssymb")).toBe("present");
+    expect(ensurePackage(DOC.replace("graphicx", "unicode-math"), "amssymb")).toBe("present");
+    expect(ensurePackage(DOC.replace("graphicx", "amssymbx"), "amssymb")).not.toBe("present");
+    expect(ensurePackage(DOC.replace("graphicx", "amsmath,amssymb"), "amssymb")).toBe("present");
+    expect(ensurePackage(DOC.replace("graphicx", "booktabs"), "booktabs")).toBe("present");
+    expect(ensurePackage("\\section{A part}\n", "booktabs")).toBe("no-preamble");
   });
 });
 

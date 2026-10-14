@@ -3,6 +3,7 @@ import { openSearchPanel } from "@codemirror/search";
 import { useEffect, useRef, useState } from "react";
 import { Icon, Menu } from "../../design/ui";
 import type { Tab } from "../../state/store";
+import { SymbolPicker } from "./SymbolPicker";
 import { buffers } from "./buffers";
 import { newTable, writeTable } from "./tableModel";
 
@@ -19,10 +20,13 @@ interface Props {
   onClose: (path: string) => void;
   onShowChanges: () => void;
   onComment: () => void;
+  symbolsOpen: boolean;
+  onSymbols: (open: boolean) => void;
+  recentSymbols: string[];
+  onSymbolUsed: (id: string) => void;
 }
 
 const HEADINGS = ["section", "subsection", "subsubsection", "paragraph"];
-const SYMBOLS = ["\\alpha", "\\beta", "\\gamma", "\\pi", "\\theta", "\\lambda", "\\sum", "\\int", "\\infty", "\\leq", "\\geq", "\\neq", "\\approx", "\\times", "\\rightarrow"];
 const PICK_ROWS = 8;
 const PICK_COLS = 10;
 
@@ -143,15 +147,15 @@ export function EditorPane(p: Props) {
           label={<>Tт<Icon name="chev" size={12} /></>}
           items={HEADINGS.map((h) => ({ label: h[0].toUpperCase() + h.slice(1), run: () => buffers.insert(`\\${h}{`, "}") }))}
         />
-        <button className="ib" aria-label="Bold" title="Bold" onClick={() => buffers.insert("\\textbf{", "}")}>
+        <button className="ib" aria-label="Bold" title="Bold: the selection, or the selected table cells" onMouseDown={(e) => e.preventDefault()} onClick={() => buffers.format("textbf")}>
           B
         </button>
-        <button className="ib italic" aria-label="Italic" title="Italic" onClick={() => buffers.insert("\\textit{", "}")}>
+        <button className="ib italic" aria-label="Italic" title="Italic: the selection, or the selected table cells" onMouseDown={(e) => e.preventDefault()} onClick={() => buffers.format("textit")}>
           I
         </button>
         <span className="sep" />
         <TablePicker disabled={!p.active} />
-        <Menu className="ib" ariaLabel="Insert symbol" label="Ω" items={SYMBOLS.map((s) => ({ label: s, run: () => buffers.insert(s) }))} />
+        <SymbolPicker open={p.symbolsOpen} disabled={!p.active} recent={p.recentSymbols} onOpen={p.onSymbols} onUsed={p.onSymbolUsed} />
         <button className="ib" aria-label="Find and replace" title="Find and replace (Ctrl+F)" onClick={() => buffers.run(openSearchPanel)}>
           <Icon name="search" />
         </button>

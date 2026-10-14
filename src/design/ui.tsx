@@ -4,7 +4,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 export type IconName =
   | "file" | "newfile" | "folder" | "search" | "review" | "history" | "help" | "gear" | "up"
   | "down" | "x" | "undo" | "redo" | "table" | "layout" | "chev" | "chevup" | "left" | "right"
-  | "log" | "play" | "plus" | "check" | "edit" | "trash" | "comment";
+  | "log" | "play" | "plus" | "check" | "edit" | "trash" | "comment" | "al-l" | "al-c" | "al-r" | "merge"
+  | "split" | "borders" | "rows" | "caption" | "code";
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (

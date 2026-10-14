@@ -39,6 +39,8 @@ interface State {
   languageServer: boolean;
   /** The editor draws the source with headings, emphasis and typeset mathematics. */
   visual: boolean;
+  /** The Symbol panel is open. */
+  symbols: boolean;
   /** What the side panel shows when it is open. */
   sidePanel: "files" | "search" | "comments";
   /** The project's comments, without the deleted ones. */
@@ -82,6 +84,7 @@ export const useStore = create<State>((set) => ({
   filesOpen: true,
   languageServer: false,
   visual: false,
+  symbols: false,
   sidePanel: "files",
   comments: [],
   comment: null,

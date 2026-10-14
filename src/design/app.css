@@ -231,29 +231,91 @@ dialog input[type=radio]{width:17px;height:17px;accent-color:var(--acc)}
 /* the table editor of visual mode */
 .cm-v-tnote{margin-bottom:4px;font:400 11.5px/1.4 var(--ui);color:var(--scr-dim);max-width:520px}
 .cm-v-tnote button{color:var(--acc);text-decoration:underline;text-underline-offset:2px}
-.cm-v-tedit{display:block;max-width:100%;margin:.2em 0 .4em;font-family:var(--ui);outline:none;cursor:default}
-.cm-v-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin-bottom:5px;padding:3px;border-radius:8px;background:var(--scr-cur);visibility:hidden;width:fit-content;max-width:100%}
+.cm-v-tedit{display:block;max-width:100%;margin:.2em 0 .4em;font-family:var(--ui);outline:none;cursor:default;container-type:inline-size}
+.cm-v-tbar{display:flex;flex-wrap:wrap;align-items:center;gap:1px;margin:0 0 4px 14px;padding:3px;border-radius:9px;background:var(--scr-cur);box-shadow:0 0 0 1px var(--scr-line);visibility:hidden;width:fit-content;max-width:calc(100% - 14px)}
 .cm-v-tedit:hover .cm-v-tbar,.cm-v-tedit:focus-within .cm-v-tbar{visibility:visible}
-.cm-v-tbar button{padding:3px 7px;border-radius:5px;font:500 11.5px/1.3 var(--ui);color:var(--scr-tx);white-space:nowrap}
-.cm-v-tbar button:hover:not(:disabled),.cm-v-tbar button:focus-visible{background:var(--acc);color:var(--acc-on,#fff);outline:none}
-.cm-v-tbar button:disabled{opacity:.35;cursor:not-allowed}
-.cm-v-tbar button[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--scr-dim)}
-.cm-v-tbar .sep{width:1px;height:16px;margin:0 3px;background:var(--scr-line)}
+.cm-v-tbar button{display:inline-flex;align-items:center;gap:4px;height:26px;min-width:25px;justify-content:center;padding:0 5px;border-radius:6px;font:500 12px/1 var(--ui);color:var(--scr-tx);white-space:nowrap}
+.cm-v-tbar button .chev{width:11px;height:11px;margin-left:-2px;opacity:.7}
+.cm-v-tbar button.g-bold{font-weight:800;font-size:13px}
+.cm-v-tbar button.g-italic{font:italic 500 14px/1 Georgia,serif}
+.cm-v-tbar button:hover:not(:disabled),.cm-v-tbar button:focus-visible,.cm-v-tbar button[aria-expanded="true"]{background:var(--scr-line);outline:none}
+.cm-v-tbar button:focus-visible{box-shadow:0 0 0 1.5px var(--acc)}
+.cm-v-tbar button:disabled{opacity:.32;cursor:not-allowed}
+.cm-v-tbar button[aria-pressed="true"]{background:color-mix(in srgb,var(--acc) 26%,transparent);color:#fff}
+.cm-v-tbar .sep{width:1px;height:16px;margin:0 2px;background:var(--scr-line)}
+/* In a narrow pane the tool bar keeps its icons and drops its words. */
+@container (max-width:620px){.cm-v-tbar .lbl,.cm-v-tbar .chev{display:none}.cm-v-tbar button{padding:0 4px;min-width:24px}}
 .cm-v-tedit table{border-collapse:collapse}
-.cm-v-tedit td{min-width:2.2em;padding:.25em .7em;color:var(--scr-tx);vertical-align:middle;border:1px dashed color-mix(in srgb,var(--scr-dim) 45%,transparent);cursor:text}
+.cm-v-tedit td{min-width:2.2em;padding:.25em .7em;color:var(--scr-tx);vertical-align:middle;border:1px dashed color-mix(in srgb,var(--scr-dim) 40%,transparent);cursor:text}
 .cm-v-tedit td.al-l{text-align:left}
 .cm-v-tedit td.al-c{text-align:center}
 .cm-v-tedit td.al-r{text-align:right}
 .cm-v-tedit td.rule-top{border-top:1px solid var(--scr-tx)}
 .cm-v-tedit td.rule-bottom{border-bottom:1px solid var(--scr-tx)}
+.cm-v-tedit td.heavy-top{border-top-width:2px}
+.cm-v-tedit td.heavy-bottom{border-bottom-width:2px}
 .cm-v-tedit td.rule-left{border-left:1px solid var(--scr-tx)}
 .cm-v-tedit td.rule-right{border-right:1px solid var(--scr-tx)}
-.cm-v-tedit td.sel{background:color-mix(in srgb,var(--acc) 30%,transparent)}
+.cm-v-tedit td.sel{background:color-mix(in srgb,var(--acc) 24%,transparent)}
 .cm-v-tedit td.cur{box-shadow:inset 0 0 0 2px var(--acc)}
 .cm-v-tedit:not(:focus-within) td.cur{box-shadow:none}
-.cm-v-tedit td.editing{padding:.1em .3em}
+.cm-v-tedit td.editing{padding:.1em .3em;background:color-mix(in srgb,var(--scr-tx) 6%,transparent)}
+.cm-v-tedit td.sel ::selection{background:transparent}
 .cm-v-tcell{font:400 .92em/1.5 var(--mono);color:var(--scr-tx);background:transparent;border:0;outline:none;padding:.1em .3em;min-width:2em;max-width:60ch}
 .cm-v-tcell.bad{box-shadow:0 0 0 2px var(--m);border-radius:3px}
-.cm-v-tmenu{position:fixed;z-index:50;display:flex;flex-direction:column;min-width:230px;padding:4px;border-radius:9px;background:var(--scr-cur);box-shadow:0 0 0 1px var(--scr-line),0 18px 40px rgba(0,0,0,.55);font:400 12.5px/1.3 var(--ui)}
-.cm-v-tmenu button{text-align:left;padding:5px 10px;border-radius:5px;color:var(--scr-tx)}
-.cm-v-tmenu button:hover,.cm-v-tmenu button:focus-visible{background:var(--acc);color:var(--acc-on,#fff);outline:none}
+/* Handles above each column and before each row: click to select it, drag along them for several. */
+.cm-v-tedit th{position:relative;padding:0;border:0;background:transparent;cursor:pointer}
+.cm-v-tedit tr.cm-v-heads th{height:12px}
+.cm-v-tedit th.cm-v-rowh,.cm-v-tedit th.cm-v-corner{width:12px}
+.cm-v-tedit th.cm-v-colh::before,.cm-v-tedit th.cm-v-rowh::before{content:"";position:absolute;border-radius:2px;background:var(--scr-line);opacity:0;transition:opacity .12s}
+.cm-v-tedit th.cm-v-colh::before{left:2px;right:2px;top:3px;height:5px}
+.cm-v-tedit th.cm-v-rowh::before{top:2px;bottom:2px;left:3px;width:5px}
+.cm-v-tedit:hover th::before,.cm-v-tedit:focus-within th::before{opacity:1}
+.cm-v-tedit th.cm-v-colh{cursor:s-resize}
+.cm-v-tedit th.cm-v-rowh{cursor:e-resize}
+.cm-v-tedit th:hover::before,.cm-v-tedit th.on::before{background:var(--acc);opacity:1}
+.cm-v-tedit th.cm-v-corner::before{content:"";position:absolute;left:2px;top:2px;width:7px;height:7px;border-radius:2px;border:1.5px solid var(--scr-dim);opacity:0}
+.cm-v-tedit:hover th.cm-v-corner::before{opacity:1}
+.cm-v-tedit th.cm-v-corner:hover::before{border-color:var(--acc)}
+/* The + on the line between two rows or columns, shown when its handle is pointed at. */
+.cm-v-add{position:absolute;z-index:2;display:none;width:15px;height:15px;place-items:center;border-radius:50%;background:var(--acc);color:#fff;font:700 12px/1 var(--ui);padding:0;box-shadow:0 0 0 2px var(--scr-bg,#141517)}
+.cm-v-tedit th:hover>.cm-v-add{display:grid}
+.cm-v-add-col{top:-3px;right:-8px}
+.cm-v-add-col.first{right:auto;left:-8px}
+.cm-v-add-row{left:-2px;bottom:-8px}
+.cm-v-add-row.first{bottom:auto;top:-8px}
+.cm-v-add:hover{transform:scale(1.15)}
+.cm-v-tmenu{position:fixed;z-index:50;display:flex;flex-direction:column;min-width:250px;padding:4px;border-radius:10px;background:var(--scr-cur);box-shadow:0 0 0 1px var(--scr-line),0 18px 40px rgba(0,0,0,.55);font:400 12.5px/1.3 var(--ui)}
+.cm-v-tmenu button{display:flex;align-items:center;gap:6px;text-align:left;padding:5px 10px 5px 6px;border-radius:6px;color:var(--scr-tx)}
+.cm-v-tmenu .tick{display:inline-grid;place-items:center;width:16px;flex:none}
+.cm-v-tmenu .tick .ic{width:13px;height:13px;color:var(--acc)}
+.cm-v-tmenu .txt{flex:1}
+.cm-v-tmenu kbd{font:400 11px/1 var(--mono);color:var(--scr-dim)}
+.cm-v-tmenu button:hover:not(:disabled),.cm-v-tmenu button:focus-visible{background:var(--acc);color:var(--acc-on,#fff);outline:none}
+.cm-v-tmenu button:hover:not(:disabled) .tick .ic,.cm-v-tmenu button:focus-visible .tick .ic,.cm-v-tmenu button:hover kbd,.cm-v-tmenu button:focus-visible kbd{color:inherit}
+.cm-v-tmenu button:disabled{opacity:.38;cursor:default}
+.cm-v-tmenu .sep{height:1px;margin:4px 6px;background:var(--scr-line)}
+/* The Symbol panel. */
+.sym{position:relative;display:inline-flex}
+.sym-pop{position:absolute;top:calc(100% + 6px);left:0;z-index:30;display:flex;flex-direction:column;gap:8px;width:404px;max-width:calc(100vw - 32px);padding:10px;border-radius:12px;background:var(--scr-cur);box-shadow:0 0 0 1px var(--scr-line),0 18px 40px rgba(0,0,0,.5);color:var(--scr-tx);font:400 12.5px/1.35 var(--ui)}
+.sym-search{width:100%;padding:7px 10px;border-radius:7px;border:0;background:var(--scr-line);color:var(--scr-tx);font:inherit;outline:none}
+.sym-search:focus{box-shadow:0 0 0 1.5px var(--acc)}
+.sym-cats{display:flex;flex-wrap:wrap;gap:3px}
+.sym-cats button{padding:3px 8px;border-radius:999px;font:500 11.5px/1.3 var(--ui);color:var(--scr-dim)}
+.sym-cats button:hover{color:var(--scr-tx);background:var(--scr-line)}
+.sym-cats button.on{background:var(--acc);color:var(--acc-on,#fff)}
+.sym-grid{display:grid;gap:2px;max-height:220px;overflow-y:auto;overflow-x:hidden}
+.sym-grid button{display:grid;place-items:center;height:36px;min-width:0;border-radius:6px;color:var(--scr-tx);font-size:15px;overflow:hidden}
+.sym-grid button:hover,.sym-grid button:focus-visible{background:var(--scr-line);outline:none}
+.sym-grid button:focus-visible{box-shadow:inset 0 0 0 1.5px var(--acc)}
+.sym-tex{pointer-events:none;max-width:100%}
+.sym-tex .katex{font-size:1.05em}
+.sym-grid .sym-tex .katex{font-size:1.12em}
+.sym-text{font-family:KaTeX_Main,"Times New Roman",serif;pointer-events:none}
+.sym-none{grid-column:1/-1;margin:6px 2px;color:var(--scr-dim)}
+.sym-about{display:flex;gap:12px;align-items:center;padding-top:8px;border-top:1px solid var(--scr-line);min-height:64px}
+.sym-about b{font-weight:600}
+.sym-about code{font:400 11.5px/1.4 var(--mono);color:var(--k);margin-left:4px}
+.sym-big{display:grid;place-items:center;width:56px;height:56px;flex:none;border-radius:8px;background:var(--scr-line);font-size:24px;overflow:hidden}
+.sym-big .sym-tex .katex{font-size:1.5em}
+.sym-pkg{margin-top:2px;color:var(--scr-dim);font-size:11.5px}

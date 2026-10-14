@@ -25,6 +25,8 @@ pub struct Settings {
     pub spellcheck: String,
     /// Words the user has told the spelling checker to accept.
     pub dictionary: Vec<String>,
+    /// The symbols inserted lately, most recent first, by the LaTeX they are written as.
+    pub recent_symbols: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -46,6 +48,7 @@ impl Default for Settings {
             theme: "fieldwork".into(),
             spellcheck: "en-US".into(),
             dictionary: Vec::new(),
+            recent_symbols: Vec::new(),
         }
     }
 }
@@ -56,6 +59,23 @@ static LOCK: Mutex<()> = Mutex::new(());
 
 pub const THEMES: [&str; 3] = ["fieldwork", "glass", "onyx"];
 pub const SPELLCHECK: [&str; 3] = ["off", "en-US", "en-GB"];
+/// How many recently used symbols are kept.
+pub const RECENT_SYMBOLS: usize = 20;
+
+/// The recently used symbols as given, cut to a sensible list: no blanks, no repeats, no
+/// overlong entries, and no more than are kept.
+pub fn clean_recent_symbols(given: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for id in given {
+        if !id.is_empty() && id.chars().count() <= 80 && !out.contains(&id) {
+            out.push(id);
+        }
+        if out.len() == RECENT_SYMBOLS {
+            break;
+        }
+    }
+    out
+}
 
 impl Settings {
     fn read(dir: &Path) -> Result<Settings> {
@@ -164,6 +184,23 @@ mod tests {
         threads.into_iter().for_each(|t| t.join().unwrap());
         let end = Settings::load(&dir).unwrap();
         assert_eq!((end.author_id, end.display_name.as_str()), (id, "Tamer"));
+    }
+
+    #[test]
+    fn recent_symbols_are_kept_short_and_without_repeats() {
+        let given = vec![
+            r"\alpha".to_string(),
+            String::new(),
+            r"\alpha".to_string(),
+            "x".repeat(81),
+            r"\beta".to_string(),
+        ];
+        assert_eq!(
+            clean_recent_symbols(given),
+            vec![r"\alpha".to_string(), r"\beta".to_string()]
+        );
+        let many: Vec<String> = (0..50).map(|i| format!("s{i}")).collect();
+        assert_eq!(clean_recent_symbols(many).len(), RECENT_SYMBOLS);
     }
 
     #[test]

@@ -587,6 +587,218 @@ export function toggleBorders(table: Table): Table {
   return fixRules(t);
 }
 
+/** Give every cell with a description of its own the bars the table now has beside it. */
+function respec(t: Table): Table {
+  t.rows.forEach((row) =>
+    row.forEach((at, c) => {
+      if (at.spec) at.spec = (c === 0 && t.vrules[0] ? "|" : "") + (/[lcr]/.exec(at.spec)?.[0] ?? t.aligns[c]) + (t.vrules[c + at.colSpan] ? "|" : "");
+    }),
+  );
+  return t;
+}
+
+/** The looks the Borders menu offers for a whole table. */
+export type BorderStyle = "all" | "none" | "outside" | "inside" | "header" | "book";
+
+/**
+ * Give the whole table one of the usual looks. `book` is the style of the booktabs package:
+ * a heavier rule above and below, a lighter one under the first row, and no vertical lines.
+ */
+export function setBorders(table: Table, style: BorderStyle): Table {
+  const t = copy(table);
+  const [n, m] = [columns(t), t.rows.length];
+  const edge = (i: number, last: number) => i === 0 || i === last;
+  t.vrules = t.vrules.map((_, i) => (style === "all" ? true : style === "outside" ? edge(i, n) : style === "inside" ? !edge(i, n) : false));
+  t.hrules = t.hrules.map((_, b): Rule => {
+    const ends = edge(b, m);
+    if (style === "all" || (style === "outside" && ends) || (style === "inside" && !ends) || (style === "header" && (ends || b === 1))) return { kind: "hline" };
+    if (style === "book") return b === 0 ? { kind: "toprule" } : b === m ? { kind: "bottomrule" } : b === 1 ? { kind: "midrule" } : { kind: "none" };
+    return { kind: "none" };
+  });
+  return fixRules(respec(t));
+}
+
+/** The look a table has now, if it is one of those the Borders menu offers. */
+export function bordersStyle(t: Table): BorderStyle | null {
+  for (const style of ["none", "all", "outside", "inside", "header", "book"] as BorderStyle[]) {
+    const made = setBorders(t, style);
+    if (JSON.stringify(made.vrules) === JSON.stringify(t.vrules) && JSON.stringify(made.hrules) === JSON.stringify(t.hrules)) return style;
+  }
+  return null;
+}
+
+/** The table uses the rules of the booktabs package. */
+export const needsBooktabs = (t: Table) => t.hrules.some((r) => r.kind === "toprule" || r.kind === "midrule" || r.kind === "bottomrule");
+
+export type Edge = "top" | "bottom" | "left" | "right";
+
+/** Which columns the rule on boundary `b` is drawn under. */
+function drawnUnder(t: Table, b: number): boolean[] {
+  const rule = t.hrules[b];
+  const cut = crossed(t, b);
+  return t.aligns.map((_, c) => !cut[c] && rule.kind !== "none" && (rule.kind !== "cline" || Boolean(rule.cols?.[c])));
+}
+
+/** Whether a block has a line along one of its edges. */
+export function hasEdge(table: Table, block: Rect, edge: Edge): boolean {
+  const rect = expandRect(table, block);
+  if (edge === "left") return table.vrules[rect.left];
+  if (edge === "right") return table.vrules[rect.right + 1];
+  const drawn = drawnUnder(table, edge === "top" ? rect.top : rect.bottom + 1);
+  for (let c = rect.left; c <= rect.right; c++) if (!drawn[c]) return false;
+  return true;
+}
+
+/**
+ * Draw a line along one edge of a block, or take it away if it is there. A line above or
+ * below runs under the block's columns only. A line beside it runs the whole height of the
+ * table, because that is all a LaTeX column description can say.
+ */
+export function toggleEdge(table: Table, block: Rect, edge: Edge): Table {
+  const t = copy(table);
+  const rect = expandRect(t, block);
+  const on = !hasEdge(t, rect, edge);
+  if (edge === "left" || edge === "right") {
+    t.vrules[edge === "left" ? rect.left : rect.right + 1] = on;
+    return fixRules(respec(t));
+  }
+  const b = edge === "top" ? rect.top : rect.bottom + 1;
+  const was = t.hrules[b];
+  const cols = drawnUnder(t, b);
+  for (let c = rect.left; c <= rect.right; c++) cols[c] = on;
+  const cut = crossed(t, b);
+  if (cols.every((drawn, c) => drawn || cut[c])) {
+    // Under every column it can be: a full rule, of the kind it was if it was one already,
+    // and in a table drawn in the booktabs style, the booktabs rule for where it is.
+    const book = needsBooktabs(t) ? (b === 0 ? "toprule" : b === t.rows.length ? "bottomrule" : "midrule") : "hline";
+    t.hrules[b] = { kind: was.kind === "none" || was.kind === "cline" ? book : was.kind };
+  } else t.hrules[b] = { kind: "cline", cols };
+  return fixRules(t);
+}
+
+/** Whether `tex` is, from end to end, the one argument of `\name`. */
+function wholly(tex: string, name: string): boolean {
+  const head = `\\${name}{`;
+  return tex.startsWith(head) && closing(tex, head.length - 1) === tex.length;
+}
+
+/** Every cell of a block that has text in it is set in `\name`, as Bold or Italic would make it. */
+export function cellsStyled(table: Table, block: Rect, name: string): boolean {
+  const rect = expandRect(table, block);
+  let any = false;
+  for (let r = rect.top; r <= rect.bottom; r++) {
+    for (let c = rect.left; c <= rect.right; c++) {
+      const at = table.rows[r][c];
+      if (at.hidden || !at.tex) continue;
+      if (!wholly(at.tex, name)) return false;
+      any = true;
+    }
+  }
+  return any;
+}
+
+/**
+ * Set the text of every cell in a block in `\name`, such as `\textbf`, or take it out of it if
+ * every one is already. Empty cells are left empty.
+ */
+export function toggleStyle(table: Table, block: Rect, name: string): Table {
+  const t = copy(table);
+  const rect = expandRect(t, block);
+  const off = cellsStyled(t, rect, name);
+  for (let r = rect.top; r <= rect.bottom; r++) {
+    for (let c = rect.left; c <= rect.right; c++) {
+      const at = t.rows[r][c];
+      if (at.hidden || !at.tex) continue;
+      if (off) at.tex = at.tex.slice(name.length + 2, -1);
+      else if (!wholly(at.tex, name)) at.tex = `\\${name}{${at.tex}}`;
+    }
+  }
+  return t;
+}
+
+/** Empty every cell of a block. */
+export function clearCells(table: Table, block: Rect): Table {
+  const t = copy(table);
+  const rect = expandRect(t, block);
+  for (let r = rect.top; r <= rect.bottom; r++) for (let c = rect.left; c <= rect.right; c++) t.rows[r][c].tex = "";
+  return t;
+}
+
+/** The LaTeX of each cell of a block, by rows, for the clipboard. A merged cell is named once. */
+export function cellsOf(table: Table, block: Rect): string[][] {
+  const rect = expandRect(table, block);
+  const out: string[][] = [];
+  for (let r = rect.top; r <= rect.bottom; r++) {
+    const row: string[] = [];
+    for (let c = rect.left; c <= rect.right; c++) row.push(table.rows[r][c].hidden ? "" : table.rows[r][c].tex);
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * Put a block of cell texts into the table with its top left at `r`, `c`, as pasting cells
+ * does: rows and columns are added at the end when it does not fit. Null when a merged cell
+ * is in the way, since it is not clear where the texts that fall on it should go.
+ */
+export function pasteCells(table: Table, r: number, c: number, texts: string[][]): Table | null {
+  let t = copy(table);
+  const height = texts.length;
+  const width = Math.max(0, ...texts.map((row) => row.length));
+  if (!height || !width) return null;
+  while (t.rows.length < r + height) t = insertRow(t, t.rows.length);
+  while (columns(t) < c + width) t = insertColumn(t, columns(t));
+  for (let dr = 0; dr < height; dr++) {
+    for (let dc = 0; dc < width; dc++) {
+      const at = t.rows[r + dr][c + dc];
+      if (at.hidden || isMerged(t, r + dr, c + dc)) return null;
+      at.tex = texts[dr][dc] ?? "";
+    }
+  }
+  return t;
+}
+
+/**
+ * The text to take out of a document to delete the tabular at `from`..`to`. A `table` float or
+ * a `center` that holds nothing else but its caption, label and \centering goes with it.
+ */
+export function tableRemoval(text: string, from: number, to: number): Change {
+  const settings = /^(?:\s+|\\centering(?![a-zA-Z@])|\\label\{[^{}]*\}|\\(?:small|footnotesize|scriptsize|tiny)(?![a-zA-Z@]))/;
+  /** Nothing but whitespace, a caption, a label or a setting. */
+  const bare = (rest: string): boolean => {
+    for (let s = rest; ; ) {
+      if (s === "") return true;
+      const m = settings.exec(s);
+      if (m) {
+        s = s.slice(m[0].length);
+        continue;
+      }
+      const cap = /^\\caption\*?\s*(?:\[[^\]]*\]\s*)?\{/.exec(s);
+      const end = cap ? closing(s, cap[0].length - 1) : -1;
+      if (end < 0) return false;
+      s = s.slice(end);
+    }
+  };
+  let [start, stop] = [from, to];
+  for (let level = 0; level < 3; level++) {
+    const opener = [...text.slice(0, start).matchAll(/\\begin\{(table\*?|center)\}(?:\[[^\]]*\])?/g)].pop();
+    if (!opener) break;
+    const close = `\\end{${opener[1]}}`;
+    const end = text.indexOf(close, stop);
+    if (end < 0) break;
+    const inner = opener.index + opener[0].length;
+    if (!bare(text.slice(inner, start)) || !bare(text.slice(stop, end))) break;
+    [start, stop] = [opener.index, end + close.length];
+  }
+  // The line the table stood on goes too, when nothing else was on it.
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  if (/^[ \t]*$/.test(text.slice(lineStart, start))) {
+    const after = /^[ \t]*(?:\r?\n|$)/.exec(text.slice(stop));
+    if (after) [start, stop] = [lineStart, stop + after[0].length];
+  }
+  return { from: start, to: stop, insert: "" };
+}
+
 /** The table has a cell merged downwards, which needs the multirow package. */
 export const needsMultirow = (t: Table) => t.rows.some((row) => row.some((at) => !at.hidden && at.rowSpan > 1));
 
@@ -603,16 +815,34 @@ export interface Change {
  * when it already does, or "no-preamble" when this file has no preamble to add it to.
  */
 export function ensureMultirow(text: string): Change | "present" | "no-preamble" {
+  return ensurePackage(text, "multirow");
+}
+
+/**
+ * Packages that provide what another one does, or clash with it if it is loaded as well, and
+ * document classes that load it themselves.
+ */
+const PROVIDED: Record<string, { packages: string[]; classes?: RegExp }> = {
+  amssymb: { packages: ["unicode-math", "newtxmath", "newpxmath", "stix", "stix2", "mathabx", "libertinust1math", "mtpro2"] },
+  amsmath: { packages: ["mathtools", "physics", "empheq"], classes: /^ams(?:art|book|proc)$/ },
+};
+
+/** The same for any package: what to add so that the document loads `name`. */
+export function ensurePackage(text: string, name: string): Change | "present" | "no-preamble" {
   const begin = text.indexOf("\\begin{document}");
   const preamble = begin < 0 ? text : text.slice(0, begin);
   const uncommented = preamble.replace(/(?<!\\)%.*$/gm, "");
-  if (/\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]*\bmultirow\b[^}]*\}/.test(uncommented)) return "present";
-  if (begin < 0 || !/\\documentclass\s*(?:\[[^\]]*\])?\s*\{/.test(uncommented)) return "no-preamble";
+  const also = PROVIDED[name] ?? { packages: [] };
+  const names = [name, ...also.packages].map((n) => n.replace(/[-]/g, "\\-")).join("|");
+  if (new RegExp(`\\\\(?:usepackage|RequirePackage)\\s*(?:\\[[^\\]]*\\])?\\s*\\{[^}]*(?<![\\w-])(?:${names})(?![\\w-])[^}]*\\}`).test(uncommented)) return "present";
+  const klass = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/.exec(uncommented);
+  if (klass && also.classes?.test(klass[1].trim())) return "present";
+  if (begin < 0 || !klass) return "no-preamble";
   // On a line of its own just before the document starts: the one place in a preamble that
   // is never inside a condition or a group.
   const at = text.lastIndexOf("\n", begin) + 1;
   const lead = text.slice(at, begin);
-  return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: "\\usepackage{multirow}\n" } : { from: begin, to: begin, insert: "\n\\usepackage{multirow}\n" };
+  return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: `\\usepackage{${name}}\n` } : { from: begin, to: begin, insert: `\n\\usepackage{${name}}\n` };
 }
 
 /** Environments that can carry a caption. */

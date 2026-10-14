@@ -25,8 +25,9 @@ Known limitations, none of which lose data:
 - Spaces at the ends of a cell that TeX ignores (space, tab, line end) are not kept when a table is rewritten; characters that print, such as a no-break space, are.
 - The Caption tool is cautious on purpose, and refuses more often than it strictly must. It works for a table that is a paragraph of its own in the body of a document whose class is on a short list of ordinary ones, or directly in a `table`, `table*`, `figure` or `subtable` float (optionally inside `center`), alone there. Anywhere else it refuses and points to the source: in a file with no `\begin{document}` of its own, inside braces, brackets, mathematics or another environment, in a document whose preamble contains any command that begins or ends an environment or group (which includes most home-made environments), where something is written straight after the table in its float, where verbatim text cannot be followed to its end, and where a float's caption belongs to something else in it. It will not remove a caption from a float that has a `\label`. Definitions in files brought in with `\input` are not seen.
 - A cell written over several source lines is read as one line; a table with a blank line inside a cell is read-only.
-- Borders are all or nothing from the tool bar. A table that came with some rules keeps them until Borders is pressed.
-- Splitting an ordinary cell into rows, and merging down a column, need the `multirow` package. The app adds it to the preamble of the file being edited; when that file has no preamble (it is included by another), it says so and the user adds it to the main file.
+- A vertical line drawn from the Borders menu runs the whole height of the table, because a LaTeX column description cannot say otherwise. A line above or below part of a row is a `\cline`, so in the book style it is an ordinary thin rule rather than `\cmidrule`.
+- Splitting an ordinary cell into rows, and merging down a column, need the `multirow` package, and the book style of borders the `booktabs` package. The app adds it to the preamble of the file being edited; when that file has no preamble (it is included by another), it says so and the user adds it to the main file. The same goes for `amssymb` and `amsmath` when a symbol needs them.
+- A matrix or `cases` chosen from the symbol panel while typing in a table cell is held back, because an environment inside a cell makes the table one the editor cannot write back. Write it in the source, or outside the table.
 - A cell holds one line of LaTeX. A line break inside a cell has to be written as LaTeX allows inside `l`, `c` and `r` columns, which is to say not at all without another package.
 
 - A bundle's LaTeX packages are every package file the sender's computer holds for the compiler's source, not only the ones the document uses, so the bundle can be larger than strictly needed. The export dialog shows the size.
@@ -177,13 +178,13 @@ Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js
 
 ## After version 1
 
-Done since the first release: the table editor, visual mode (with tables, figures and citations), the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab, LaTeX packages inside bundles, spell check, comments.
+Done since the first release: the table editor (with mouse selection, row and column handles, formatting, border styles and edges, and copy and paste of cells), the symbol panel, visual mode (with tables, figures and citations), the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab, LaTeX packages inside bundles, spell check, comments.
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.
 
 1. **Signing the installer** (see `docs/releasing.md`).
 2. **macOS and Linux builds.**
-3. **Visual mode, further**: toolbar actions that act on the drawn document; table columns with a width (`p{…}`) and `booktabs` rules in the table editor; borders one edge at a time.
+3. **Visual mode, further**: toolbar actions that act on the drawn document; table columns with a width (`p{…}`) and `\cmidrule` in the table editor.
 4. **Smaller offline bundles**: carry only the package files the document used. This needs the compiler to report them.
 5. **More spelling languages**, and a language per project.
 

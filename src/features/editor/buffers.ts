@@ -8,7 +8,7 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
 import { serverCompletionSource } from "@codemirror/lsp-client";
 import { HighlightStyle, StreamLanguage, bracketMatching, syntaxHighlighting } from "@codemirror/language";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
@@ -31,7 +31,9 @@ import { commenting, focusComment, placeComments, placedComments } from "./comme
 import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
 import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
-import { tablePaste } from "./tableEditor";
+import { type Insertion, type Sym, insertion, mathAt } from "./symbols";
+import { tableInput, tablePaste } from "./tableEditor";
+import { ensurePackage } from "./tableModel";
 import { forgetPictures, redrawVisual, visualMode } from "./visual";
 
 const states = new Map<string, EditorState>();
@@ -373,6 +375,57 @@ export const buffers = {
       userEvent: "input",
     });
     view.focus();
+  },
+
+  /**
+   * Put in a short piece of LaTeX that belongs in a line of text, around the selection: into the
+   * table cell being worked on, if there is one, else at the cursor. `make` is told whether the
+   * place is inside a formula and what character comes after it. A package it needs is added to
+   * the preamble, and the user told.
+   */
+  insertInline(make: (inMath: boolean, next: string) => Insertion) {
+    if (tableInput.insert(make)) return;
+    if (!view || !shownPath) return;
+    const state = view.state;
+    const range = state.selection.main;
+    const text = state.doc.toString();
+    const ins = make(mathAt(text, range.from), text.slice(range.to, range.to + 1));
+    const selected = state.sliceDoc(range.from, range.to);
+    const changes = [{ from: range.from, to: range.to, insert: ins.before + selected + ins.after }];
+    let shift = 0;
+    if (ins.pkg) {
+      const need = ensurePackage(text, ins.pkg);
+      if (typeof need === "object" && (need.to <= range.from || need.from >= range.to)) {
+        // A package line that goes in where the cursor is goes in before what was chosen.
+        if (need.to <= range.from) {
+          changes.unshift(need);
+          shift = need.insert.length;
+        } else changes.push(need);
+        store().notify(`Added \\usepackage{${ins.pkg}} to the preamble. What you chose needs it.`);
+      } else if (need === "no-preamble") {
+        store().notify(`This needs \\usepackage{${ins.pkg}}. This file has no preamble, so add it to your main file's.`, true);
+      }
+    }
+    const from = range.from + shift + ins.before.length;
+    view.dispatch({
+      changes,
+      selection: EditorSelection.range(from, from + selected.length),
+      userEvent: "input",
+      annotations: isolateHistory.of("full"),
+      scrollIntoView: true,
+    });
+    view.focus();
+  },
+
+  /** Put in a symbol, written the way the place it goes needs. */
+  insertSymbol(sym: Sym) {
+    buffers.insertInline((inMath, next) => insertion(sym, inMath, next));
+  },
+
+  /** Bold, italic and the like: on the selected cells of a table being worked on, else around the selection. */
+  format(name: string) {
+    if (tableInput.format(name)) return;
+    buffers.insert(`\\${name}{`, "}");
   },
 
   /** Show compile errors and warnings in every open file they belong to. */
