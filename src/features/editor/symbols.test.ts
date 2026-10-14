@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_SYMBOLS, CATEGORIES, findSymbols, insertion, mathAt, symbolId, symbolsById } from "./symbols";
+import { ALL_SYMBOLS, CATEGORIES, findSymbols, insertion, mathAt, placeInsertion, symbolId, symbolsById } from "./symbols";
 
 const sym = (name: string) => ALL_SYMBOLS.find((s) => s.name === name)!;
 /** Whether the place marked | is in a formula. */
@@ -69,6 +69,21 @@ describe("writing a symbol", () => {
     expect(insertion(sym("binomial coefficient"), true).pkg).toBe("amsmath");
     expect(insertion(sym("quotation marks"), false)).toEqual({ before: "``", after: "''" });
     expect(insertion(sym("quotation marks"), true)).toEqual({ before: "\\mbox{``", after: "''}" });
+  });
+});
+
+describe("placing a symbol", () => {
+  const make = (s: string) => (inMath: boolean, next: string) => insertion(sym(s), inMath, next);
+  it("puts a formula symbol straight after a formula inside it", () => {
+    const text = "where $n$ is";
+    const at = text.indexOf("$ is") + 1;
+    expect(placeInsertion(text, at, at, make("less or equal"))).toEqual({ from: at - 1, to: at - 1, ins: { before: "\\leq ", after: "" } });
+    // Not after an escaped dollar, a display, or with text selected.
+    expect(placeInsertion("costs \\$", 8, 8, make("alpha")).ins.before).toBe("$\\alpha$");
+    expect(placeInsertion("$$x$$", 5, 5, make("alpha")).ins.before).toBe("$\\alpha$");
+    expect(placeInsertion("$n$ ab", 3, 5, make("alpha")).from).toBe(3);
+    // A text symbol straight after a formula stays outside it.
+    expect(placeInsertion("$n$", 3, 3, make("copyright")).ins.before).toBe("\\textcopyright{}");
   });
 });
 

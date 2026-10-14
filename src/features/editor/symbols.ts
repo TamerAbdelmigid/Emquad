@@ -316,6 +316,27 @@ export function mathAt(text: string, pos: number): boolean {
   return math();
 }
 
+/**
+ * What to write, made by `make`, for the text from `from` to `to`, and where. A formula symbol
+ * put straight after a formula in the line goes inside that formula, before its closing $,
+ * rather than starting one of its own next to it.
+ */
+export function placeInsertion(
+  text: string,
+  from: number,
+  to: number,
+  make: (inMath: boolean, next: string) => Insertion,
+): { from: number; to: number; ins: Insertion } {
+  const inMath = mathAt(text, from);
+  const ins = make(inMath, text.slice(to, to + 1));
+  const opensFormula = ins.before.startsWith("$") && !ins.before.startsWith("$$");
+  const closes = from > 0 && text[from - 1] === "$" && text[from - 2] !== "$" && text[from - 2] !== "\\";
+  if (!inMath && from === to && opensFormula && closes && mathAt(text, from - 1)) {
+    return { from: from - 1, to: from - 1, ins: make(true, "$") };
+  }
+  return { from, to, ins };
+}
+
 export interface Insertion {
   /** Written before the selected text, and after it. The selection stays between them. */
   before: string;

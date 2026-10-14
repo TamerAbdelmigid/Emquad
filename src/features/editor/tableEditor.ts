@@ -8,7 +8,7 @@ import { type ChangeSpec, type Extension } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
 import { confirm, prompt, store } from "../../state/store";
 import { renderInline } from "./inlineTex";
-import { type Insertion, mathAt } from "./symbols";
+import { type Insertion, placeInsertion } from "./symbols";
 import {
   type Align,
   type BorderStyle,
@@ -43,6 +43,7 @@ import {
   newTable,
   oneLine,
   cellRanges,
+  cellBars,
   ruleUnder,
   specAlign,
   packageNotice,
@@ -104,8 +105,8 @@ const ACTIONS: Record<Action, { label: string; title?: string; icon?: string; hi
   bordersNone: { label: "No borders" },
   edgeTop: { label: "Line above the selection" },
   edgeBottom: { label: "Line below the selection" },
-  edgeLeft: { label: "Line left of the selection", title: "A vertical line always runs the whole height of a LaTeX table" },
-  edgeRight: { label: "Line right of the selection", title: "A vertical line always runs the whole height of a LaTeX table" },
+  edgeLeft: { label: "Line left of the selection" },
+  edgeRight: { label: "Line right of the selection" },
   selectRow: { label: "Select row" },
   selectColumn: { label: "Select column" },
   selectTable: { label: "Select table", hint: "Ctrl+A" },
@@ -486,8 +487,9 @@ class Controller {
         const ruleClass = (b: number) => (t.hrules[b].kind === "toprule" || t.hrules[b].kind === "bottomrule" ? "heavy" : "");
         if (lineUnder(r, c)) td.classList.add("rule-top", ...(ruleClass(r) ? [`${ruleClass(r)}-top`] : []));
         if (lineUnder(r + cell.rowSpan, c)) td.classList.add("rule-bottom", ...(ruleClass(r + cell.rowSpan) ? [`${ruleClass(r + cell.rowSpan)}-bottom`] : []));
-        if (t.vrules[c]) td.classList.add("rule-left");
-        if (t.vrules[c + cell.colSpan]) td.classList.add("rule-right");
+        const bars = cellBars(t, r, c);
+        if (bars.left) td.classList.add("rule-left");
+        if (bars.right) td.classList.add("rule-right");
         this.draw(td, cell.tex);
       });
     });
@@ -683,8 +685,8 @@ class Controller {
     if (!this.head) return;
     const input = this.boxFor(this.head);
     if (!input) return;
-    const [s, e] = [input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length];
-    this.surround(input, s, e, make(mathAt(input.value, s), input.value.slice(e, e + 1)));
+    const placed = placeInsertion(input.value, input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length, make);
+    this.surround(input, placed.from, placed.to, placed.ins);
   }
 
   // ---------- changing the source ----------

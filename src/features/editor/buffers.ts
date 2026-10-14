@@ -31,7 +31,7 @@ import { commenting, focusComment, placeComments, placedComments } from "./comme
 import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
 import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
-import { type Insertion, type Sym, insertion, mathAt } from "./symbols";
+import { type Insertion, type Sym, insertion, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
 import { forgetPictures, redrawVisual, visualMode } from "./visual";
@@ -388,9 +388,10 @@ export const buffers = {
     if (tableInput.insert(make)) return;
     if (!view || !shownPath) return;
     const state = view.state;
-    const range = state.selection.main;
     const text = state.doc.toString();
-    const ins = make(mathAt(text, range.from), text.slice(range.to, range.to + 1));
+    const placed = placeInsertion(text, state.selection.main.from, state.selection.main.to, make);
+    const range = { from: placed.from, to: placed.to };
+    const ins = placed.ins;
     const selected = state.sliceDoc(range.from, range.to);
     const changes = [{ from: range.from, to: range.to, insert: ins.before + selected + ins.after }];
     let shift = 0;

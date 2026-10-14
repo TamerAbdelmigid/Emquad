@@ -3,6 +3,7 @@ import {
   type Table,
   bordersStyle,
   captionOf,
+  cellBars,
   cellProblem,
   cellRanges,
   cellsOf,
@@ -407,10 +408,11 @@ describe("borders", () => {
     expect(toggleEdge(above, middle, "top")).toEqual(t);
     const wide = toggleEdge(t, { top: 2, left: 0, bottom: 2, right: 2 }, "bottom");
     expect(wide.hrules[3]).toEqual({ kind: "hline" });
-    const left = toggleEdge(t, middle, "left");
+    const column = { top: 0, left: 1, bottom: 2, right: 1 };
+    const left = toggleEdge(t, column, "left");
     expect(writeTable(left).split("\n")[0]).toBe("\\begin{tabular}{l|ll}");
     expect(hasEdge(left, { top: 0, left: 1, bottom: 0, right: 1 }, "left")).toBe(true);
-    expect(writeTable(toggleEdge(t, middle, "right")).split("\n")[0]).toBe("\\begin{tabular}{ll|l}");
+    expect(writeTable(toggleEdge(t, column, "right")).split("\n")[0]).toBe("\\begin{tabular}{ll|l}");
     // Taking a piece out of a full rule leaves the rest of it.
     const cut = toggleEdge(grid(2, 3), { top: 0, left: 1, bottom: 0, right: 1 }, "top");
     expect(writeTable(cut).split("\n")[1]).toBe("\\cline{1-1}\\cline{3-3}");
@@ -419,6 +421,27 @@ describe("borders", () => {
     const corner = { top: 0, left: 0, bottom: 0, right: 0 };
     expect(toggleEdge(toggleEdge(book, corner, "top"), corner, "top")).toEqual(book);
     for (const made of [above, wide, left, cut]) expect(read(writeTable(made))).toEqual(made);
+  });
+
+  it("beside only some rows, are drawn in those rows' own descriptions", () => {
+    const t = grid(2, 2, false);
+    const first = { top: 0, left: 1, bottom: 0, right: 1 };
+    const right = toggleEdge(t, first, "right");
+    expect(writeTable(right)).toContain("a1 & \\multicolumn{1}{l|}{b1} \\\\\na2 & b2 \\\\");
+    expect(hasEdge(right, first, "right")).toBe(true);
+    expect(hasEdge(right, { top: 1, left: 1, bottom: 1, right: 1 }, "right")).toBe(false);
+    expect(cellBars(right, 0, 1)).toEqual({ left: false, right: true });
+    expect(cellBars(right, 1, 1)).toEqual({ left: false, right: false });
+    // A line on the left of a cell further along is the right bar of the cell before it.
+    const left = toggleEdge(t, first, "left");
+    expect(writeTable(left)).toContain("\\multicolumn{1}{l|}{a1} & b1 \\\\");
+    expect(hasEdge(left, first, "left")).toBe(true);
+    // Taken away again, the cells need no description of their own.
+    expect(toggleEdge(right, first, "right")).toEqual(t);
+    expect(toggleEdge(left, first, "left")).toEqual(t);
+    for (const made of [right, left]) expect(read(writeTable(made))).toEqual(made);
+    // The whole height of the table is still said once, in the table's description.
+    expect(toggleEdge(t, { top: 0, left: 1, bottom: 1, right: 1 }, "right").vrules).toEqual([false, false, true]);
   });
 
   it("on one edge of a merged cell, take the whole cell's edge", () => {
@@ -430,7 +453,7 @@ describe("borders", () => {
 
   it("move a hand-written cell's bars with the table's", () => {
     const t = read("\\begin{tabular}{ll}\n\\multicolumn{2}{c}{Head} \\\\\na & b \\\\\n\\end{tabular}");
-    const edged = toggleEdge(t, { top: 1, left: 1, bottom: 1, right: 1 }, "right");
+    const edged = toggleEdge(t, { top: 0, left: 1, bottom: 1, right: 1 }, "right");
     expect(edged.rows[0][0].spec).toBe("c|");
     expect(read(writeTable(edged))).toEqual(edged);
     // One that does not touch the line keeps its description as written.
@@ -441,10 +464,13 @@ describe("borders", () => {
     // A bar the user wrote on the left of a cell further along goes when that line is taken away.
     const lefty = read("\\begin{tabular}{|l|l|}\na & \\multicolumn{1}{|c|}{H2} \\\\\n\\end{tabular}");
     expect(toggleEdge(lefty, { top: 0, left: 1, bottom: 0, right: 1 }, "left").rows[0][1].spec).toBe("c|");
-    // The other side of a cell on the line stays as written.
-    const ruled = read("\\begin{tabular}{|l|l|l|}\n\\multicolumn{1}{c}{H1} & b & c \\\\\n\\end{tabular}");
-    expect(toggleEdge(ruled, { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c");
-    expect(toggleEdge(toggleEdge(ruled, { top: 0, left: 0, bottom: 0, right: 0 }, "right"), { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c|");
+    // A heading that draws no bars of its own has no line beside it, whatever the columns say:
+    // the line goes on, in its description, and the other side stays as written.
+    const ruled = read("\\begin{tabular}{|l|l|l|}\n\\multicolumn{1}{c}{H1} & b & c \\\\\nd & e & f \\\\\n\\end{tabular}");
+    const heading = { top: 0, left: 0, bottom: 0, right: 0 };
+    expect(hasEdge(ruled, heading, "right")).toBe(false);
+    expect(toggleEdge(ruled, heading, "right").rows[0][0].spec).toBe("c|");
+    expect(toggleEdge(toggleEdge(ruled, heading, "right"), heading, "right").rows[0][0].spec).toBe("c");
   });
 });
 

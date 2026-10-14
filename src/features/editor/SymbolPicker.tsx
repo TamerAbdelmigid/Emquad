@@ -47,6 +47,8 @@ export function SymbolPicker(p: Props) {
   const [category, setCategory] = useState(p.recent.length ? "recent" : CATEGORIES[0].id);
   const [shown, setShown] = useState<Sym | null>(null);
   const [focus, setFocus] = useState(0);
+  /** The panel stays open after a symbol is put in, for writing several in a row. */
+  const [keep, setKeep] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
@@ -69,10 +71,10 @@ export function SymbolPicker(p: Props) {
   const list = query.trim() ? findSymbols(query) : category === "recent" ? recent : (CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0]).symbols;
   const about = shown ?? list[Math.min(focus, list.length - 1)] ?? null;
 
-  const choose = (sym: Sym) => {
+  const choose = (sym: Sym, stay = false) => {
     buffers.insertSymbol(sym);
     p.onUsed(symbolId(sym));
-    p.onOpen(false);
+    if (!keep && !stay) p.onOpen(false);
   };
   const tile = (i: number) => grid.current?.querySelectorAll<HTMLButtonElement>("button")[i];
   const move = (to: number) => {
@@ -132,10 +134,14 @@ export function SymbolPicker(p: Props) {
                 move(0);
               } else if (e.key === "Enter" && list.length) {
                 e.preventDefault();
-                choose(list[0]);
+                choose(list[0], e.shiftKey);
               }
             }}
           />
+          <label className="sym-keep" title="Leave the panel open after a symbol is put in. Shift+click does this for one symbol.">
+            <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
+            Keep open
+          </label>
           {!query.trim() && (
             <div className="sym-cats" role="tablist" aria-label="Kinds of symbol">
               {[{ id: "recent", label: "Recent" }, ...CATEGORIES].map((c) => (
@@ -185,7 +191,7 @@ export function SymbolPicker(p: Props) {
                 onMouseEnter={() => setShown(sym)}
                 onMouseLeave={() => setShown(null)}
                 onFocus={() => setFocus(i)}
-                onClick={() => choose(sym)}
+                onClick={(e) => choose(sym, e.shiftKey)}
               >
                 <Glyph sym={sym} />
               </button>

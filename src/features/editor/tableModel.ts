@@ -1059,11 +1059,73 @@ function drawnUnder(t: Table, b: number): boolean[] {
   return drawnCols(t.hrules[b], columns(t)).map((on, c) => on && !cut[c]);
 }
 
+/** The description of a column on its own, as a \multicolumn over it would give it. */
+function plainSpec(t: Table, c: number, span: number): string {
+  return (c === 0 && t.vrules[0] ? "|" : "") + (t.kinds?.[c] ?? t.aligns[c]) + (t.vrules[c + span] ? "|" : "");
+}
+
+/** The description that sets the bars of the cell standing at row `r` from column `c`: its own, its filler's, or none. */
+function descAt(t: Table, r: number, c: number): string | undefined {
+  const a = anchorOf(t, r, c);
+  const top = t.rows[a.r][a.c];
+  if (a.r === r) return top.spec;
+  return t.rows[r][a.c].fill ?? (top.colSpan > 1 ? top.spec : undefined);
+}
+
+/** Whether a description draws a bar on one side. */
+function descBar(desc: string, side: "left" | "right"): boolean | null {
+  const read = readSpec(desc);
+  return typeof read === "string" || read.kinds.length !== 1 ? null : read.vrules[side === "left" ? 0 : 1];
+}
+
+/** Whether a bar is drawn at the right of the cell in row `r` that ends at column `c`. */
+function rightBar(t: Table, r: number, c: number): boolean {
+  const a = anchorOf(t, r, c);
+  const desc = descAt(t, r, a.c);
+  return (desc !== undefined ? descBar(desc, "right") : null) ?? t.vrules[c + 1];
+}
+
+/** Whether a bar is drawn at the left of the cell in row `r` that starts at column `c`. */
+function leftBar(t: Table, r: number, c: number): boolean {
+  const desc = descAt(t, r, c);
+  const own = desc !== undefined ? descBar(desc, "left") : null;
+  if (c === 0) return own ?? t.vrules[0];
+  return rightBar(t, r, c - 1) || Boolean(own);
+}
+
+/** The bars drawn on either side of the cell at row `r`, column `c`. */
+export function cellBars(t: Table, r: number, c: number): { left: boolean; right: boolean } {
+  const a = anchorOf(t, r, c);
+  return { left: leftBar(t, r, a.c), right: rightBar(t, r, a.c + t.rows[a.r][a.c].colSpan - 1) };
+}
+
+/** Give the cell standing at row `r` from column `c` a bar on one side, or take it away, in its own description. */
+function setBar(t: Table, r: number, c: number, side: "left" | "right", on: boolean) {
+  const a = anchorOf(t, r, c);
+  const top = t.rows[a.r][a.c];
+  const desc = descAt(t, r, a.c) ?? plainSpec(t, a.c, top.colSpan);
+  const read = readSpec(desc);
+  if (typeof read === "string" || read.kinds.length !== 1) return;
+  const left = side === "left" ? on : read.vrules[0];
+  const right = side === "right" ? on : read.vrules[1];
+  const made = (left ? "|" : "") + read.seps[0] + read.kinds[0] + (right ? "|" : "") + read.seps[1];
+  if (a.r === r) {
+    // A cell of one column described just as its column is needs no description of its own.
+    if (top.colSpan === 1 && made === plainSpec(t, a.c, 1)) delete top.spec;
+    else top.spec = made;
+  } else if (made === (top.colSpan > 1 ? top.spec : undefined)) delete t.rows[r][a.c].fill;
+  else t.rows[r][a.c].fill = made;
+}
+
 /** Whether a block has a line along one of its edges. */
 export function hasEdge(table: Table, block: Rect, edge: Edge): boolean {
   const rect = expandRect(table, block);
-  if (edge === "left") return table.vrules[rect.left];
-  if (edge === "right") return table.vrules[rect.right + 1];
+  if (edge === "left" || edge === "right") {
+    for (let r = rect.top; r <= rect.bottom; r++) {
+      if (!(edge === "left" ? leftBar(table, r, rect.left) : rightBar(table, r, rect.right))) return false;
+    }
+    return true;
+  }
   const drawn = drawnUnder(table, edge === "top" ? rect.top : rect.bottom + 1);
   for (let c = rect.left; c <= rect.right; c++) if (!drawn[c]) return false;
   return true;
@@ -1080,8 +1142,21 @@ export function toggleEdge(table: Table, block: Rect, edge: Edge): Table {
   const on = !hasEdge(t, rect, edge);
   if (edge === "left" || edge === "right") {
     const b = edge === "left" ? rect.left : rect.right + 1;
-    t.vrules[b] = on;
-    return fixRules(respec(t, b));
+    if (rect.top === 0 && rect.bottom === t.rows.length - 1) {
+      // The whole height of the table: the table's own description says it.
+      t.vrules[b] = on;
+      return fixRules(respec(t, b));
+    }
+    // Only some rows: each of their cells beside the line says it in its own description.
+    for (let r = rect.top; r <= rect.bottom; r++) {
+      if (edge === "right") setBar(t, r, rect.right, "right", on);
+      else if (rect.left === 0) setBar(t, r, 0, "left", on);
+      else {
+        setBar(t, r, rect.left - 1, "right", on);
+        if (!on) setBar(t, r, rect.left, "left", false);
+      }
+    }
+    return fixRules(t);
   }
   const b = edge === "top" ? rect.top : rect.bottom + 1;
   const was = t.hrules[b];
