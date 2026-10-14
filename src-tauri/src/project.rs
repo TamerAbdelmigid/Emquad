@@ -233,8 +233,15 @@ impl Project {
     pub fn find_image(&self, name: &str) -> Result<Option<PathBuf>> {
         const EXTENSIONS: [&str; 5] = ["", ".pdf", ".png", ".jpg", ".jpeg"];
         const SHOWN: [&str; 6] = ["pdf", "png", "jpg", "jpeg", "gif", "webp"];
-        for extension in EXTENSIONS {
-            let Ok(path) = self.resolve(&format!("{}{extension}", name.trim())) else {
+        // Where LaTeX looks: as written, then in each folder named by \graphicspath. A folder
+        // outside the project is not looked in.
+        let mut folders = vec![String::new()];
+        folders.extend(self.graphics_paths());
+        for (folder, extension) in folders
+            .iter()
+            .flat_map(|f| EXTENSIONS.iter().map(move |e| (f, e)))
+        {
+            let Ok(path) = self.resolve(&format!("{folder}{}{extension}", name.trim())) else {
                 continue;
             };
             let shown = path
@@ -246,6 +253,38 @@ impl Project {
             }
         }
         Ok(None)
+    }
+
+    /// The folders named by `\graphicspath` in the project's `.tex` files, each ending in `/`.
+    pub fn graphics_paths(&self) -> Vec<String> {
+        let all = regex::Regex::new(r"\\graphicspath\s*\{((?:\s*\{[^{}]*\})+)\s*\}").unwrap();
+        let one = regex::Regex::new(r"\{([^{}]*)\}").unwrap();
+        let mut out = Vec::new();
+        for (rel, path) in self.walk_files().unwrap_or_default() {
+            if !rel.ends_with(".tex") {
+                continue;
+            }
+            let Ok(bytes) = fs::read(&path) else { continue };
+            let Some(text) = as_text(&bytes) else {
+                continue;
+            };
+            for line in text.lines().filter(|l| !l.trim_start().starts_with('%')) {
+                for c in all.captures_iter(line) {
+                    for d in one.captures_iter(&c[1]) {
+                        let dir = d[1].trim().trim_start_matches("./").replace('\\', "/");
+                        let dir = if dir.is_empty() || dir.ends_with('/') {
+                            dir
+                        } else {
+                            format!("{dir}/")
+                        };
+                        if !out.contains(&dir) {
+                            out.push(dir);
+                        }
+                    }
+                }
+            }
+        }
+        out
     }
 
     pub fn save_info(&self) -> Result<()> {
@@ -676,6 +715,26 @@ mod tests {
             .unwrap();
         let many = p.search("x", true).unwrap();
         assert!(many.truncated && many.hits.len() == MAX_SEARCH_HITS);
+    }
+
+    #[test]
+    fn pictures_are_found_in_the_folders_graphicspath_names_and_no_further() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        fs::create_dir_all(p.root.join("img")).unwrap();
+        fs::write(p.root.join("img").join("plot.png"), b"png").unwrap();
+        fs::write(tmp.path().join("outside.png"), b"png").unwrap();
+        assert!(p.find_image("plot").unwrap().is_none());
+        p.write_file(
+            "main.tex",
+            "\\graphicspath{{img/}{../}}\n\\begin{document}\n\\end{document}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            p.find_image("plot").unwrap(),
+            Some(p.root.join("img").join("plot.png"))
+        );
+        assert!(p.find_image("outside").unwrap().is_none());
     }
 
     #[test]

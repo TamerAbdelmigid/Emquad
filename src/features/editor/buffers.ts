@@ -396,7 +396,7 @@ export const buffers = {
     const changes = [{ from: range.from, to: range.to, insert: ins.before + selected + ins.after }];
     let shift = 0;
     if (ins.pkg) {
-      const need = ensurePackage(text, ins.pkg);
+      const need = ensurePackage(text, ins.pkg, store().index.stylePackages);
       if (typeof need === "object" && (need.to <= range.from || need.from >= range.to)) {
         // A package line that goes in where the cursor is goes in before what was chosen.
         if (need.to <= range.from) {

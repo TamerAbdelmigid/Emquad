@@ -610,6 +610,13 @@ describe("adding a package", () => {
     expect(ensurePackage(doc, "amssymb")).toBe("present");
   });
 
+  it("counts a package loaded by a style file of the project's own that the document uses", () => {
+    const doc = DOC.replace("graphicx", "mystyle");
+    expect(ensurePackage(doc, "amssymb", { mystyle: ["newtxmath"] })).toBe("present");
+    expect(ensurePackage(doc, "booktabs", { mystyle: ["inner"], inner: ["booktabs"] })).toBe("present");
+    expect(typeof ensurePackage(doc, "booktabs", { other: ["booktabs"] })).toBe("object");
+  });
+
   it("leaves it to the user when the preamble reads another file", () => {
     expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{preamble}"), "amssymb")).toBe("elsewhere");
     expect(typeof ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{glyphtounicode}"), "amssymb")).toBe("object");

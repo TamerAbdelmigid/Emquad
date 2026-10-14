@@ -1354,8 +1354,12 @@ const PROVIDED: Record<string, { packages: string[]; classes?: RegExp }> = {
  */
 export type PackageNeed = Change | "present" | "no-preamble" | "elsewhere";
 
-/** The same for any package: what to add so that the document loads `name`. */
-export function ensurePackage(text: string, name: string): PackageNeed {
+/**
+ * The same for any package: what to add so that the document loads `name`. `styles` gives, for
+ * each style file of the project's own, the packages it loads, so that a package loaded by one
+ * the document uses counts as loaded.
+ */
+export function ensurePackage(text: string, name: string, styles: Record<string, string[]> = {}): PackageNeed {
   // Judged on the text with comments and verbatim blanked out, every character in its place:
   // a \begin{document} in a comment is not where the document begins.
   const { clean } = uncommented(text);
@@ -1364,6 +1368,17 @@ export function ensurePackage(text: string, name: string): PackageNeed {
   const also = PROVIDED[name] ?? { packages: [] };
   const names = [name, ...also.packages].map((n) => n.replace(/[-]/g, "\\-")).join("|");
   if (new RegExp(`\\\\(?:usepackage|RequirePackage)\\s*(?:\\[[^\\]]*\\])?\\s*\\{[^}]*(?<![\\w-])(?:${names})(?![\\w-])[^}]*\\}`).test(preamble)) return "present";
+  // Through the project's own style files, and the ones they load in turn.
+  const seen = new Set<string>();
+  const loaded = [...preamble.matchAll(/\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/g)].flatMap((m) => m[1].split(",").map((p) => p.trim()));
+  for (let queue = loaded.filter((p) => p in styles); queue.length; ) {
+    const style = queue.shift()!;
+    if (seen.has(style)) continue;
+    seen.add(style);
+    const through = styles[style] ?? [];
+    if (through.some((p) => p === name || also.packages.includes(p))) return "present";
+    queue.push(...through.filter((p) => p in styles));
+  }
   const klass = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/.exec(preamble);
   if (klass && also.classes?.test(klass[1].trim())) return "present";
   if (begin < 0 || !klass) return "no-preamble";

@@ -756,7 +756,7 @@ class Controller {
     if (needsArray(next)) wanted.add("array");
     const added: string[] = [];
     for (const name of wanted) {
-      const need = ensurePackage(at.text, name);
+      const need = ensurePackage(at.text, name, store().index.stylePackages);
       if (typeof need === "object") {
         changes.push(need);
         added.push(name);

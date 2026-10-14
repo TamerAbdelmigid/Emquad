@@ -93,7 +93,7 @@ export const useStore = create<State>((set) => ({
   root: null,
   info: null,
   tree: [],
-  index: { labels: [], citeKeys: [], citations: [] },
+  index: { labels: [], citeKeys: [], citations: [], stylePackages: {} },
   tabs: [],
   active: null,
   cursor: { line: 1, column: 1 },

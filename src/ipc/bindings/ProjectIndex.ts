@@ -3,6 +3,11 @@ import type { Citation } from "./Citation";
 
 export type ProjectIndex = { labels: Array<string>, citeKeys: Array<string>, 
 /**
- * The references found in the project's `.bib` files.
+ * The references found in the project's `.bib` files, and in `.bib` files elsewhere that
+ * the document names.
  */
-citations: Array<Citation>, };
+citations: Array<Citation>, 
+/**
+ * For each style or class file of the project's own, by name, the packages it loads.
+ */
+stylePackages: { [key in string]: Array<string> }, };

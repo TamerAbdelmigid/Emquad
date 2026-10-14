@@ -1,5 +1,5 @@
 //! What the editor needs to know about a project as a whole: its labels, its citation keys,
-//! and enough about each reference to show it by name.
+//! enough about each reference to show it by name, and the packages its own style files load.
 
 use crate::error::Result;
 use crate::project::{Project, as_text};
@@ -15,8 +15,11 @@ use ts_rs::TS;
 pub struct ProjectIndex {
     pub labels: Vec<String>,
     pub cite_keys: Vec<String>,
-    /// The references found in the project's `.bib` files.
+    /// The references found in the project's `.bib` files, and in `.bib` files elsewhere that
+    /// the document names.
     pub citations: Vec<Citation>,
+    /// For each style or class file of the project's own, by name, the packages it loads.
+    pub style_packages: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
@@ -119,14 +122,53 @@ fn citations(text: &str, out: &mut BTreeMap<String, Citation>) {
     }
 }
 
+/// The largest `.bib` file outside the project that is read for its references.
+const MAX_OUTSIDE_BIB: u64 = 8 << 20;
+
+/// The packages a piece of LaTeX loads with `\usepackage` or `\RequirePackage`, comments left out.
+fn loaded_packages(text: &str) -> Vec<String> {
+    let load =
+        Regex::new(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}").unwrap();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = uncomment(line);
+        for c in load.captures_iter(line) {
+            out.extend(
+                c[1].split(',')
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| !p.is_empty()),
+            );
+        }
+    }
+    out
+}
+
+/// A line without its comment.
+fn uncomment(line: &str) -> &str {
+    let mut escaped = false;
+    for (i, ch) in line.char_indices() {
+        if ch == '%' && !escaped {
+            return &line[..i];
+        }
+        escaped = ch == '\\' && !escaped;
+    }
+    line
+}
+
 pub fn build(project: &Project) -> Result<ProjectIndex> {
     let label = Regex::new(r"\\label\{([^}]+)\}").unwrap();
     let bib_item = Regex::new(r"\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}").unwrap();
+    let bib_named =
+        Regex::new(r"\\(?:bibliography|addbibresource)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}").unwrap();
     let (mut labels, mut keys) = (BTreeSet::new(), BTreeSet::new());
     let mut found = BTreeMap::new();
+    let mut style_packages = BTreeMap::new();
+    let mut named_bibs = BTreeSet::new();
+    let mut inside_bibs = BTreeSet::new();
     for (rel, path) in project.walk_files()? {
         let is_tex = rel.ends_with(".tex");
-        if !is_tex && !rel.ends_with(".bib") {
+        let is_style = rel.ends_with(".sty") || rel.ends_with(".cls");
+        if !is_tex && !is_style && !rel.ends_with(".bib") {
             continue;
         }
         let Ok(bytes) = fs::read(&path) else { continue };
@@ -136,7 +178,55 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
         if is_tex {
             labels.extend(label.captures_iter(text).map(|c| c[1].to_string()));
             keys.extend(bib_item.captures_iter(text).map(|c| c[1].to_string()));
+            for line in text.lines() {
+                for c in bib_named.captures_iter(uncomment(line)) {
+                    named_bibs.extend(
+                        c[1].split(',')
+                            .map(|b| b.trim().to_string())
+                            .filter(|b| !b.is_empty()),
+                    );
+                }
+            }
+        } else if is_style {
+            let name = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            style_packages.insert(name, loaded_packages(text));
         } else {
+            inside_bibs.insert(path.clone());
+            citations(text, &mut found);
+        }
+    }
+    // A .bib file the document names but that is kept outside the project, such as a shared
+    // bibliography: read for its references only, never written.
+    let base = project
+        .root
+        .join(&project.info.main_file)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| project.root.clone());
+    for name in named_bibs {
+        let with_ext = if name.to_ascii_lowercase().ends_with(".bib") {
+            name.clone()
+        } else {
+            format!("{name}.bib")
+        };
+        let path = base.join(&with_ext);
+        let Ok(real) = fs::canonicalize(&path) else {
+            continue;
+        };
+        if inside_bibs
+            .iter()
+            .any(|p| fs::canonicalize(p).is_ok_and(|q| q == real))
+        {
+            continue;
+        }
+        if !fs::metadata(&real).is_ok_and(|m| m.is_file() && m.len() <= MAX_OUTSIDE_BIB) {
+            continue;
+        }
+        let Ok(bytes) = fs::read(&real) else { continue };
+        if let Some(text) = as_text(&bytes) {
             citations(text, &mut found);
         }
     }
@@ -145,6 +235,7 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
         labels: labels.into_iter().collect(),
         cite_keys: keys.into_iter().collect(),
         citations: found.into_values().collect(),
+        style_packages,
     })
 }
 
@@ -169,6 +260,43 @@ mod tests {
         let index = build(&p).unwrap();
         assert_eq!(index.labels, ["eq:polar", "sec:proof"]);
         assert_eq!(index.cite_keys, ["byhand", "knuth84", "lamport94"]);
+    }
+
+    #[test]
+    fn style_files_of_the_projects_own_are_read_for_the_packages_they_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        p.write_file(
+            "mystyle.sty",
+            "\\RequirePackage[T1]{fontenc}\n\\RequirePackage{newtxmath, xcolor}\n% \\RequirePackage{amssymb}\n",
+        )
+        .unwrap();
+        let index = build(&p).unwrap();
+        assert_eq!(
+            index.style_packages.get("mystyle").unwrap(),
+            &vec!["fontenc".to_string(), "newtxmath".into(), "xcolor".into()]
+        );
+    }
+
+    #[test]
+    fn a_bib_file_named_outside_the_project_is_read_for_its_references() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        fs::write(
+            tmp.path().join("shared.bib"),
+            "@book{knuth84, author={Knuth, Donald}, year={1984}, title={The TeXbook}}\n",
+        )
+        .unwrap();
+        p.write_file("main.tex", "\\documentclass{article}\n\\begin{document}\n\\bibliography{../shared}\n\\end{document}\n")
+            .unwrap();
+        let index = build(&p).unwrap();
+        assert_eq!(index.cite_keys, ["knuth84"]);
+        assert_eq!(index.citations[0].authors, "Knuth");
+        // Only .bib files, and only those the document names.
+        fs::write(tmp.path().join("secret.txt"), "@book{leak, title={x}}").unwrap();
+        p.write_file("main.tex", "\\bibliography{../secret.txt}\n")
+            .unwrap();
+        assert!(build(&p).unwrap().cite_keys.is_empty());
     }
 
     #[test]
