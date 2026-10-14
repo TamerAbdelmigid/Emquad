@@ -148,12 +148,17 @@ impl AppState {
         Ok(claim)
     }
 
-    /// The window has opened what `claim` holds: everything else it held is let go.
+    /// The window has opened what `claim` holds: everything else it held is let go. Nothing is,
+    /// when `claim` itself has gone meanwhile (its window closed or its page loaded again): what
+    /// the window holds now is a newer open's.
     pub fn settle(&self, label: &str, claim: &Claim) {
-        self.claims
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .retain(|(other, held)| other != label || held == claim);
+        let mut claims = self.claims.lock().unwrap_or_else(|e| e.into_inner());
+        if claims
+            .iter()
+            .any(|(other, held)| other == label && held == claim)
+        {
+            claims.retain(|(other, held)| other != label || held == claim);
+        }
     }
 
     /// Let go of one claim, such as that of a project that failed to open.
@@ -1253,6 +1258,16 @@ mod tests {
         state.settle("main", &opened);
         assert_eq!(state.claim("w-2", &a.root, &id(&a)).map(|_| ()), Ok(()));
         state.release_all("w-2");
+        // An open whose window's page loaded again meanwhile lets go of nothing a newer open holds.
+        let stale = state.claim("main", &tmp.path().join("d"), "d").unwrap();
+        state.release_all("main");
+        let fresh = state.claim("main", &tmp.path().join("e"), "e").unwrap();
+        state.settle("main", &stale);
+        assert_eq!(
+            state.claim("w-2", &tmp.path().join("e"), "e"),
+            Err("main".to_string())
+        );
+        state.settle("main", &fresh);
         // A closed window takes its project with it.
         state.end_session("main");
         assert_eq!(state.claim("w-2", &c, "c").map(|_| ()), Ok(()));
