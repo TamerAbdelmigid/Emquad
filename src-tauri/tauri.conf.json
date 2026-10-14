@@ -25,6 +25,7 @@
   },
   "bundle": {
     "active": true,
+    "copyright": "Copyright (c) 2026 the Emquad authors. MIT licence.",
     "targets": [
       "nsis"
     ],

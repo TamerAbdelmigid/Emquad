@@ -519,6 +519,13 @@ pub fn bundle_export(
     let p = current(&state)?;
     // Held from the offline check until the bundle is written, so no compile runs between.
     let _one_at_a_time = state.compile_lock.lock().unwrap_or_else(|e| e.into_inner());
+    // The offline check compiles the files as they are now. A file another program writes
+    // before the bundle is made would travel unchecked, so the files are looked at again after.
+    let checked = if include_packages {
+        Some(p.fingerprint()?)
+    } else {
+        None
+    };
     let mut carried = None;
     if include_packages {
         let (tectonic, store) = package_source(&state, &p).ok_or_else(|| {
@@ -538,14 +545,24 @@ pub fn bundle_export(
             None
         },
     };
-    bundle::export(
+    let manifest = bundle::export(
         &p,
         &History::open(&p)?,
         &author(&state)?,
         Path::new(&dest),
         &note,
         &extras,
-    )
+    )?;
+    if let Some(checked) = checked
+        && p.fingerprint()? != checked
+    {
+        let _ = std::fs::remove_file(&dest);
+        return Err(Error::app(
+            "changed_during_export",
+            "A file in the project changed while the bundle was being checked, so the bundle was not kept. Export it again.",
+        ));
+    }
+    Ok(manifest)
 }
 
 /// A project that has just been given packages by a bundle compiles from its own store from

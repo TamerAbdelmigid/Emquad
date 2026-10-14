@@ -9,13 +9,14 @@ How to produce the installer, and what is needed before giving it to other peopl
 3. Run the end-to-end script (instructions at the top of `scripts/e2e.js`).
 4. Build a release with the test harness and run the smoke test (instructions at the top of `scripts/smoke-release.js`).
 5. Build the installer **without** the harness: `pnpm tauri build`. The result is in `src-tauri/target/release/bundle/nsis/`.
-6. Install it on a clean machine and open, compile and export once by hand.
+6. Install it and run `scripts/installed-test.ps1` against the installed copy (usage at the top of the script; Windows PowerShell 5 or 7). It opens a recent project, compiles it with the installed Tectonic, and checks that double-clicking a bundle reuses the open window. It puts the user's settings back exactly as they were.
+7. Install it on a clean machine and open, compile and export once by hand.
 
 To change the version, edit `version` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `package.json` together.
 
 ## Signing
 
-The installer is not signed. On another person's computer, Windows SmartScreen will warn that the publisher is unknown, and they have to choose "More info" and then "Run anyway". Signing removes the unknown-publisher label; the SmartScreen warning itself fades as a signed app builds reputation, or immediately with an Extended Validation certificate.
+The installer is not signed: on 14 October 2026 the owner chose to stay unsigned for now. The steps below are for when that changes. On another person's computer, Windows SmartScreen will warn that the publisher is unknown, and they have to choose "More info" and then "Run anyway". Signing removes the unknown-publisher label; the SmartScreen warning itself fades as a signed app builds reputation, or immediately with an Extended Validation certificate.
 
 Signing needs a code-signing certificate, which has to be bought and is issued to a verified person or organisation. That is a purchase and an identity check only the owner can do. The options:
 

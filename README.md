@@ -4,6 +4,10 @@ An offline desktop LaTeX editor in the spirit of Overleaf: source on the left, t
 
 The name comes from the em quad, the square blank a typesetter sets between words (`\quad` in LaTeX). The logo sheet is `mockup/emquad-logo.html`.
 
+## Licence
+
+Emquad is under the MIT licence; see `LICENSE`. The programs and libraries it ships with keep their own licences, listed in `THIRD-PARTY-NOTICES.md`. texlab, which is GPL-3.0, is a separate program the app starts, not part of it.
+
 ## Status
 
 Version 1 is implemented and runs: projects and files, the editor, compile with errors shown inline, PDF preview, jumping between source and PDF, snapshots and History, bundles, and review with merge. `docs/05-implementation-plan.md` has the exact state of each milestone, including what is not done yet.

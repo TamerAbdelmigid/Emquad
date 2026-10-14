@@ -421,11 +421,16 @@ fn clean_time(stamp: &str, now: &chrono::DateTime<chrono::Utc>) -> Option<String
 /// Read the comments out of a bundle. They are untrusted: anything malformed or oversized is
 /// dropped, and what remains can only ever be shown as plain text.
 pub fn from_bundle(bytes: &[u8]) -> Vec<Comment> {
+    from_bundle_at(bytes, &chrono::Utc::now())
+}
+
+/// The same, with times later than `present` brought back to it.
+fn from_bundle_at(bytes: &[u8], present: &chrono::DateTime<chrono::Utc>) -> Vec<Comment> {
     let Ok(stored) = serde_json::from_slice::<Stored>(bytes) else {
         return Vec::new();
     };
     let short = |s: &str, max: usize| s.len() <= max;
-    let present = chrono::Utc::now();
+    let present = *present;
     stored
         .comments
         .into_iter()
@@ -462,14 +467,62 @@ pub fn from_bundle(bytes: &[u8]) -> Vec<Comment> {
         .collect()
 }
 
+/// Times a bundle gave from a clock that runs ahead were brought back to the moment of import
+/// (`clamped`), so the same bundle imported again would bring them back to a later moment and
+/// seem newer than itself. Where such a comment says just what the copy here says, it takes the
+/// times of the copy here, and importing it again changes nothing.
+fn settle(theirs: &mut [Comment], mine: &[Comment], clamped: &str) {
+    for c in theirs.iter_mut() {
+        let Some(m) = mine.iter().find(|m| m.id == c.id) else {
+            continue;
+        };
+        if c.created_at == clamped {
+            c.created_at = m.created_at.clone();
+        }
+        let same_place = c.path == m.path && c.anchor == m.anchor;
+        if c.placed_at == clamped && same_place {
+            c.placed_at = m.placed_at.clone();
+        }
+        let same_state = (
+            c.deleted,
+            c.resolved,
+            &c.text,
+            &c.author_id,
+            &c.author_name,
+            &c.created_at,
+        ) == (
+            m.deleted,
+            m.resolved,
+            &m.text,
+            &m.author_id,
+            &m.author_name,
+            &m.created_at,
+        );
+        if c.updated_at == clamped && same_state {
+            c.updated_at = m.updated_at.clone();
+        }
+        for r in c.replies.iter_mut().filter(|r| r.created_at == clamped) {
+            if let Some(kept) = m.replies.iter().find(|x| x.id == r.id && x.text == r.text) {
+                r.created_at = kept.created_at.clone();
+            }
+        }
+    }
+}
+
 /// Take in the comments of a bundle.
 pub fn import(project: &Project, bytes: &[u8]) -> Result<()> {
-    let theirs = from_bundle(bytes);
+    let present = chrono::Utc::now();
+    let mut theirs = from_bundle_at(bytes, &present);
     if theirs.is_empty() {
         return Ok(());
     }
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mine = load(project)?;
+    settle(
+        &mut theirs,
+        &mine,
+        &present.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    );
     let merged = merge(mine.clone(), theirs);
     if merged != mine {
         save(project, &merged)?;
@@ -677,6 +730,47 @@ mod tests {
         let stale = load(&p).unwrap();
         let resolved = set_resolved(&p, &mine[0].id, true).unwrap();
         assert!(merge(resolved, stale)[0].resolved);
+    }
+
+    #[test]
+    fn a_bundle_from_a_clock_that_runs_ahead_changes_nothing_the_second_time() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = project(tmp.path());
+        let mine = add(&p, &me(), "main.tex", anchor("w"), "my words").unwrap();
+        let mut ahead = mine[0].clone();
+        ahead.id = "from-the-future".into();
+        ahead.text = "theirs".into();
+        ahead.created_at = "2999-01-01T00:00:00.000Z".into();
+        ahead.updated_at = "2999-01-01T00:00:00.000Z".into();
+        ahead.placed_at = "2999-01-01T00:00:00.000Z".into();
+        ahead.replies = vec![Reply {
+            id: "reply-ahead".into(),
+            author_id: "author-2".into(),
+            author_name: "Sam".into(),
+            created_at: "2999-01-01T00:00:00.000Z".into(),
+            text: "agreed".into(),
+        }];
+        let bytes = serde_json::to_vec(&Stored {
+            format_version: 1,
+            comments: vec![ahead],
+        })
+        .unwrap();
+        import(&p, &bytes).unwrap();
+        let first = std::fs::read(p.root.join(".emquad").join("comments.json")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        import(&p, &bytes).unwrap();
+        let second = std::fs::read(p.root.join(".emquad").join("comments.json")).unwrap();
+        assert_eq!(first, second);
+        // A real change in the bundle still counts.
+        let mut changed: Stored = serde_json::from_slice(&bytes).unwrap();
+        changed.comments[0].resolved = true;
+        import(&p, &serde_json::to_vec(&changed).unwrap()).unwrap();
+        let now_resolved = load(&p).unwrap();
+        assert!(
+            now_resolved
+                .iter()
+                .any(|c| c.id == "from-the-future" && c.resolved)
+        );
     }
 
     #[test]

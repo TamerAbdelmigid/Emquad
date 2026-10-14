@@ -1,6 +1,6 @@
 # Third-party notices
 
-Emquad is built from, and ships with, software and fonts made by other people. This file lists what is included in the installed app and under which licence. Each project's full licence text is available at the address given, and in the package's own files in this repository's dependency folders.
+Emquad itself is under the MIT licence (`LICENSE`). It is built from, and ships with, software and fonts made by other people. This file lists what is included in the installed app and under which licence. Each project's full licence text is available at the address given, and in the package's own files in this repository's dependency folders.
 
 ## Programs shipped beside the app
 

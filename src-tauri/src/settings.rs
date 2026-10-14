@@ -85,7 +85,10 @@ impl Settings {
             fresh.write(dir)?;
             return Ok(fresh);
         }
-        match serde_json::from_slice(&fs::read(&path)?) {
+        let bytes = fs::read(&path)?;
+        // A file saved by another program may start with a byte-order mark; it says nothing.
+        let text = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
+        match serde_json::from_slice(text) {
             Ok(settings) => Ok(settings),
             Err(_) => {
                 // Unreadable settings must not be silently replaced: keep the file for recovery.
@@ -201,6 +204,18 @@ mod tests {
         );
         let many: Vec<String> = (0..50).map(|i| format!("s{i}")).collect();
         assert_eq!(clean_recent_symbols(many).len(), RECENT_SYMBOLS);
+    }
+
+    #[test]
+    fn settings_saved_with_a_byte_order_mark_are_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(
+            tmp.path().join("settings.json"),
+            b"\xEF\xBB\xBF{\"displayName\":\"Sam\"}",
+        )
+        .unwrap();
+        assert_eq!(Settings::load(tmp.path()).unwrap().display_name, "Sam");
+        assert!(!tmp.path().join("settings.damaged.json").exists());
     }
 
     #[test]

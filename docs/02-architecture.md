@@ -38,7 +38,7 @@ Pin exact versions of every dependency and of the two sidecar binaries when scaf
 - LaTeX package files that a bundle carries keep their own licences, mostly the LaTeX Project Public License, which permits passing them on unchanged.
 - No Overleaf source code is used. Overleaf is AGPL; the app only follows its layout conventions.
 
-Decide the app's own license before the first public release.
+The app itself is under the MIT licence (`LICENSE`), chosen by the owner on 14 October 2026.
 
 ## Process model
 

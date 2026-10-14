@@ -453,8 +453,23 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
         Ok(project)
     };
     let project = build();
-    if project.is_err() && !existed {
-        let _ = fs::remove_dir_all(&dest);
+    if project.is_err() {
+        if existed {
+            // The folder was empty when the import began, so all that is in it now came from
+            // this import: it is emptied again, and the folder the user chose is kept.
+            if let Ok(entries) = fs::read_dir(&dest) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let _ = if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                        fs::remove_dir_all(&path)
+                    } else {
+                        fs::remove_file(&path)
+                    };
+                }
+            }
+        } else {
+            let _ = fs::remove_dir_all(&dest);
+        }
     }
     project
 }
@@ -734,6 +749,15 @@ mod tests {
             assert!(
                 !fresh.join("paper").exists(),
                 "{what}: no half-made project is left"
+            );
+            // Into a folder that is there already and empty: it is left there, and empty.
+            let parent = tmp.path().join(format!("empty{n}"));
+            fs::create_dir_all(parent.join("paper")).unwrap();
+            assert!(import_new(&bad, &parent).is_err(), "{what}");
+            assert!(
+                parent.join("paper").is_dir()
+                    && fs::read_dir(parent.join("paper")).unwrap().next().is_none(),
+                "{what}: an empty folder chosen for the project is left empty"
             );
         }
 

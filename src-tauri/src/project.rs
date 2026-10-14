@@ -378,6 +378,18 @@ impl Project {
         Ok(out)
     }
 
+    /// What the user's files are now, by path, size and time of last change: two that differ
+    /// mean that some file was written, added or removed in between.
+    pub fn fingerprint(&self) -> Result<Vec<(String, u64, Option<std::time::SystemTime>)>> {
+        self.walk_files()?
+            .into_iter()
+            .map(|(rel, abs)| {
+                let meta = fs::metadata(&abs)?;
+                Ok((rel, meta.len(), meta.modified().ok()))
+            })
+            .collect()
+    }
+
     pub fn tree(&self) -> Result<Vec<TreeNode>> {
         fn walk(dir: &Path, prefix: &str) -> Result<Vec<TreeNode>> {
             let mut nodes = Vec::new();
@@ -664,6 +676,22 @@ mod tests {
             .unwrap();
         let many = p.search("x", true).unwrap();
         assert!(many.truncated && many.hits.len() == MAX_SEARCH_HITS);
+    }
+
+    #[test]
+    fn the_fingerprint_changes_when_a_file_is_written_added_or_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        let first = p.fingerprint().unwrap();
+        assert_eq!(p.fingerprint().unwrap(), first);
+        // App data is not the user's: writing it changes nothing.
+        fs::write(p.data_dir().join("scratch.txt"), "x").unwrap();
+        assert_eq!(p.fingerprint().unwrap(), first);
+        p.write_file("main.tex", "changed\n").unwrap();
+        let written = p.fingerprint().unwrap();
+        assert_ne!(written, first);
+        p.write_file("extra.tex", "x").unwrap();
+        assert_ne!(p.fingerprint().unwrap(), written);
     }
 
     #[test]
