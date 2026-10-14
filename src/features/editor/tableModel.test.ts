@@ -339,6 +339,10 @@ describe("borders", () => {
     const right = toggleEdge(three, { top: 0, left: 2, bottom: 0, right: 2 }, "right");
     expect(right.rows[0][0].spec).toBe("c");
     expect(toggleEdge(three, { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c|");
+    // The other side of a cell on the line stays as written.
+    const ruled = read("\\begin{tabular}{|l|l|l|}\n\\multicolumn{1}{c}{H1} & b & c \\\\\n\\end{tabular}");
+    expect(toggleEdge(ruled, { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c");
+    expect(toggleEdge(toggleEdge(ruled, { top: 0, left: 0, bottom: 0, right: 0 }, "right"), { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c|");
   });
 });
 
@@ -425,6 +429,12 @@ describe("deleting a table", () => {
     expect(remove(`A \\fbox{${table}} B`)).toBe("A  B");
     // A box with other text in it keeps that text, and the box.
     expect(remove(`\\fbox{Key: ${table}}`)).toBe("\\fbox{Key: }");
+    // The usual way of writing it, with comments at the line ends.
+    expect(remove(`A\n\\resizebox{\\linewidth}{!}{%\n${table}%\n}\nB`)).toBe("A\nB");
+    expect(remove(`A \\scalebox{0.8}[1]{${table}} B`)).toBe("A  B");
+    // Text in an argument before the box's own braces is never taken with it.
+    expect(remove(`Intro \\fbox{Keep me}{${table}} after`)).toBe(`Intro \\fbox{Keep me}{} after`);
+    expect(remove(`\\parbox{3cm}{${table}}`)).toBe("");
   });
 
   it("leaves a float that holds something else as well", () => {
@@ -468,6 +478,7 @@ describe("adding a package", () => {
 
   it("leaves it to the user when the preamble reads another file", () => {
     expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{preamble}"), "amssymb")).toBe("elsewhere");
+    expect(typeof ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{glyphtounicode}"), "amssymb")).toBe("object");
     expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{preamble}\n\\usepackage{amssymb}"), "amssymb")).toBe("present");
   });
 });
@@ -762,6 +773,8 @@ describe("the text around a table", () => {
     expect(soundCaption("$$a$")).toBe(false);
     expect(soundCaption("$x$$y$")).toBe(true);
     expect(soundCaption("$x$$y$$z$")).toBe(true);
+    expect(soundCaption("$\\alpha$$y_1$")).toBe(true);
+    expect(escapeInserted("$\\alpha$$y", "$\\alpha$$y_")).toBe("$\\alpha$$y_");
     expect(escapeInserted("$x$$y$", "$x$$y_1$ a_b")).toBe("$x$$y_1$ a\\_b");
   });
 

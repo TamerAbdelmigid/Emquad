@@ -648,6 +648,7 @@ class Controller {
    * cursor is, or at the end of the selected cell.
    */
   insert(make: (inMath: boolean, next: string) => Insertion) {
+    if (!this.head && this.table.rows.length) this.anchor = this.head = { r: 0, c: 0 };
     if (!this.head) return;
     const input = this.boxFor(this.head);
     if (!input) return;
@@ -1067,7 +1068,10 @@ class Controller {
     this.menu = menu;
     // Fixed on the page, it would be left behind by scrolling: it closes instead.
     const scroller = this.view.scrollDOM;
-    const onScroll = () => this.closeMenu();
+    const onScroll = () => {
+      this.closeMenu();
+      this.release();
+    };
     scroller.addEventListener("scroll", onScroll, { once: true });
     this.unmenu = () => scroller.removeEventListener("scroll", onScroll);
     this.menuFrom = from;

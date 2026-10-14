@@ -594,8 +594,14 @@ export function toggleBorders(table: Table): Table {
 function respec(t: Table, only?: number): Table {
   t.rows.forEach((row) =>
     row.forEach((at, c) => {
-      if (only !== undefined && !(only === 0 && c === 0) && c + at.colSpan !== only) return;
-      if (at.spec) at.spec = (c === 0 && t.vrules[0] ? "|" : "") + (/[lcr]/.exec(at.spec)?.[0] ?? t.aligns[c]) + (t.vrules[c + at.colSpan] ? "|" : "");
+      if (!at.spec) return;
+      if (only !== undefined) {
+        // Only the bar on the boundary that changed; the rest is as the user wrote it.
+        if (c + at.colSpan === only) at.spec = at.spec.replace(/\|*$/, t.vrules[only] ? "|" : "");
+        if (c === 0 && only === 0) at.spec = at.spec.replace(/^\|*/, t.vrules[0] ? "|" : "");
+        return;
+      }
+      at.spec = (c === 0 && t.vrules[0] ? "|" : "") + (/[lcr]/.exec(at.spec)?.[0] ?? t.aligns[c]) + (t.vrules[c + at.colSpan] ? "|" : "");
     }),
   );
   return t;
@@ -763,6 +769,15 @@ export function pasteCells(table: Table, r: number, c: number, texts: string[][]
   return t;
 }
 
+/** Spaces, line ends and comments: what may stand between a box's braces and what is in it. */
+const GAP = String.raw`(?:\s|(?<!\\)%[^\n]*(?:\n|$))*`;
+const ARG = String.raw`\{[^{}]*\}\s*`;
+const OPT = String.raw`\[[^\]]*\]\s*`;
+/** A box command, with exactly the arguments it takes, whose last brace opens just before the end. */
+const BOX = new RegExp(
+  String.raw`\\(?:resizebox\*?\s*${ARG}${ARG}|scalebox\s*${ARG}(?:${OPT})?|adjustbox\s*${ARG}|parbox\s*(?:${OPT})*${ARG}|(?:makebox|framebox)\s*(?:${OPT})*|fbox\s*|mbox\s*)\{${GAP}$`,
+);
+
 /**
  * The text to take out of a document to delete the tabular at `from`..`to`. A `table` float or
  * a `center` that holds nothing else but its caption, label and \centering goes with it.
@@ -788,8 +803,8 @@ export function tableRemoval(text: string, from: number, to: number): Change {
   for (let level = 0; level < 4; level++) {
     // A box that held nothing else, such as \resizebox{\linewidth}{!}{…}: left empty it
     // would not compile.
-    const box = /\\(?:resizebox\*?|scalebox|adjustbox|makebox|framebox|fbox|parbox|mbox)\s*(?:\[[^\]]*\]\s*)*(?:\{[^{}]*\}\s*)*\{\s*$/.exec(text.slice(0, start));
-    const shut = /^\s*\}/.exec(text.slice(stop));
+    const box = BOX.exec(text.slice(0, start));
+    const shut = new RegExp(`^${GAP}\\}`).exec(text.slice(stop));
     if (box && shut) {
       [start, stop] = [box.index, stop + shut[0].length];
       continue;
@@ -861,7 +876,8 @@ export function ensurePackage(text: string, name: string): PackageNeed {
   const klass = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/.exec(preamble);
   if (klass && also.classes?.test(klass[1].trim())) return "present";
   if (begin < 0 || !klass) return "no-preamble";
-  if (/\\(?:input|include|import|subimport|InputIfFileExists)(?![a-zA-Z@])/.test(preamble)) return "elsewhere";
+  const reads = preamble.replace(/\\input\s*\{?\s*glyphtounicode(?:\.tex)?\s*\}?/g, "");
+  if (/\\(?:input|include|import|subimport|InputIfFileExists)(?![a-zA-Z@])/.test(reads)) return "elsewhere";
   // On a line of its own just before the document starts: the one place in a preamble that
   // is never inside a condition or a group.
   const at = text.lastIndexOf("\n", begin) + 1;
@@ -1307,9 +1323,10 @@ function mathAt(text: string): Uint8Array {
     const ch = text[i];
     if (ch === "\\") {
       const next = text[i + 1];
-      if (next === "(" || next === "[") math = true;
-      if (next === ")" || next === "]") math = false;
-      inline = false;
+      if (next === "(" || next === "[" || next === ")" || next === "]") {
+        math = next === "(" || next === "[";
+        inline = false;
+      }
       out[i] = out[i + 1] = math ? 1 : 0;
       i++;
     } else if (ch === "$") {

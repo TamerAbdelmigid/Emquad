@@ -16,7 +16,7 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 - **Commit `a5f3145`** fixes the two findings of the ninth review of the table editor (below). It passed `pnpm verify`, the end-to-end script, the release smoke test and the installed-copy test, but no independent reviewer has read it. The ninth review's verdict, on `23ec40a`, was "blocking defects found". A review of `a5f3145` alone, scoped to `escapeInserted`, `inProse`, `soundCaption` and `PROSE` in `src/features/editor/tableModel.ts`, would close this.
 - **Commit `13c5737`** (the last tidy-up of comments and packages) was likewise verified but not re-reviewed after the second review of that work.
-- **The fixes to the review of the table tools and symbols** (the commit after `0e87df0` on `feat/word-like-editing`) passed every automated check but have not been reviewed again.
+- **The last fixes to the table tools and symbols** (the commit after `0d1b1ad` on `feat/word-like-editing`) passed every automated check but have not been reviewed again. They answer the second review, of `0d1b1ad`, whose verdict was "no blocking defects" with seven smaller findings, all fixed.
 
 ## Table editor: noted in review, not fixed
 
@@ -64,7 +64,7 @@ All in `src/features/editor/tableModel.ts` unless another file is named. None of
 
 ## Table tools and symbols: noted, not fixed
 
-From the work on word-processor-style editing (branch `feat/word-like-editing`). The review of its first commit found ten defects; all ten were fixed, each with a test.
+From the work on word-processor-style editing (branch `feat/word-like-editing`). The first review found ten defects and the second seven smaller ones; all were fixed, each with a test.
 
 - **A symbol put straight after a formula** starts a formula of its own: with the cursor just after `$n$`, ≥ gives `$n$$\geq$`. It compiles and prints the same, but reads untidily. It could go inside the formula before it instead.
 - **Packages loaded by a style file of the user's own** (`\usepackage{mystyle}`) are not looked into. A symbol needing `amssymb` adds it even if `mystyle.sty` loads a font package that clashes with it, such as `newtxmath`. A preamble that reads another file with `\input` is left to the user, with a message.
