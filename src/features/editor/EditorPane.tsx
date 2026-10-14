@@ -145,7 +145,10 @@ export function EditorPane(p: Props) {
           className="ib tool-text"
           ariaLabel="Heading level"
           label={<>Tт<Icon name="chev" size={12} /></>}
-          items={HEADINGS.map((h) => ({ label: h[0].toUpperCase() + h.slice(1), run: () => buffers.insert(`\\${h}{`, "}") }))}
+          items={[
+            { label: "Normal text", run: () => buffers.heading(null) },
+            ...HEADINGS.map((h) => ({ label: h[0].toUpperCase() + h.slice(1), run: () => buffers.heading(h) })),
+          ]}
         />
         <button className="ib" aria-label="Bold" title="Bold: the selection, or the selected table cells" onMouseDown={(e) => e.preventDefault()} onClick={() => buffers.format("textbf")}>
           B

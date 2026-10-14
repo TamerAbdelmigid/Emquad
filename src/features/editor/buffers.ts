@@ -28,7 +28,7 @@ import type { Comment, Diagnostic } from "../../ipc/api";
 import { store } from "../../state/store";
 import { type Anchor, describe, locate, relocate } from "./commentAnchor";
 import { commenting, focusComment, placeComments, placedComments } from "./comments";
-import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
+import { COMMANDS, ENVIRONMENTS, completionAt, setHeading, toggleCommand } from "./latex";
 import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
 import { type Insertion, type Sym, insertion, placeInsertion } from "./symbols";
@@ -431,10 +431,27 @@ export const buffers = {
     buffers.insertInline((inMath, next) => insertion(sym, inMath, next));
   },
 
-  /** Bold, italic and the like: on the selected cells of a table being worked on, else around the selection. */
+  /**
+   * Bold, italic and the like: on the selected cells of a table being worked on; else set the
+   * selection in it, or take it out of it when it is set in it already.
+   */
   format(name: string) {
     if (tableInput.format(name)) return;
-    buffers.insert(`\\${name}{`, "}");
+    if (!view || !shownPath) return;
+    const range = view.state.selection.main;
+    const done = toggleCommand(view.state.doc.toString(), range.from, range.to, name);
+    view.dispatch({ changes: done.changes, selection: EditorSelection.range(done.select.from, done.select.to), userEvent: "input", scrollIntoView: true });
+    view.focus();
+  },
+
+  /** Make the heading the cursor is in one of `level`, or plain text; or start a new heading of that level. */
+  heading(level: string | null) {
+    if (!view || !shownPath) return;
+    const changes = setHeading(view.state.doc.toString(), view.state.selection.main.head, level);
+    if (changes) {
+      view.dispatch({ changes, userEvent: "input" });
+      view.focus();
+    } else if (level) buffers.insert(`\\${level}{`, "}");
   },
 
   /** Show compile errors and warnings in every open file they belong to. */
