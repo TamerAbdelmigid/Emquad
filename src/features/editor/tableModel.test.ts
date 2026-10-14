@@ -3,6 +3,7 @@ import {
   type Table,
   bordersStyle,
   captionOf,
+  cellProblem,
   cellsOf,
   cellsStyled,
   clearCells,
@@ -19,6 +20,7 @@ import {
   hasEdge,
   insertColumn,
   insertRow,
+  looksLikeMoney,
   merge,
   needsBooktabs,
   needsMultirow,
@@ -339,6 +341,9 @@ describe("borders", () => {
     const right = toggleEdge(three, { top: 0, left: 2, bottom: 0, right: 2 }, "right");
     expect(right.rows[0][0].spec).toBe("c");
     expect(toggleEdge(three, { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c|");
+    // A bar the user wrote on the left of a cell further along goes when that line is taken away.
+    const lefty = read("\\begin{tabular}{|l|l|}\na & \\multicolumn{1}{|c|}{H2} \\\\\n\\end{tabular}");
+    expect(toggleEdge(lefty, { top: 0, left: 1, bottom: 0, right: 1 }, "left").rows[0][1].spec).toBe("c|");
     // The other side of a cell on the line stays as written.
     const ruled = read("\\begin{tabular}{|l|l|l|}\n\\multicolumn{1}{c}{H1} & b & c \\\\\n\\end{tabular}");
     expect(toggleEdge(ruled, { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c");
@@ -435,6 +440,7 @@ describe("deleting a table", () => {
     // Text in an argument before the box's own braces is never taken with it.
     expect(remove(`Intro \\fbox{Keep me}{${table}} after`)).toBe(`Intro \\fbox{Keep me}{} after`);
     expect(remove(`\\parbox{3cm}{${table}}`)).toBe("");
+    expect(remove(`A\n\\resizebox{\\linewidth}{!}%\n{%\n${table}%\n}\nB`)).toBe("A\nB");
   });
 
   it("leaves a float that holds something else as well", () => {
@@ -476,9 +482,16 @@ describe("adding a package", () => {
     expect(ensurePackage("\\documentclass{article}\n% \\usepackage{amssymb}\n\\begin{document}\n", "amssymb")).not.toBe("present");
   });
 
+  it("reads a \\path with a space before its mark as the address it is", () => {
+    const doc = "\\documentclass{article}\n\\newcommand{\\p}{\\path |a%b|} \\usepackage{amssymb}\n\\begin{document}\n";
+    expect(ensurePackage(doc, "amssymb")).toBe("present");
+  });
+
   it("leaves it to the user when the preamble reads another file", () => {
     expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{preamble}"), "amssymb")).toBe("elsewhere");
     expect(typeof ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{glyphtounicode}"), "amssymb")).toBe("object");
+    expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{glyphtounicode-extra}"), "amssymb")).toBe("elsewhere");
+    expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{glyphtounicodex}"), "amssymb")).toBe("elsewhere");
     expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{preamble}\n\\usepackage{amssymb}"), "amssymb")).toBe("present");
   });
 });
@@ -766,7 +779,13 @@ describe("the text around a table", () => {
     // A caret or an underscore on its own in prose would stop the document compiling.
     expect(soundCaption("50^2 metres")).toBe(false);
     expect(soundCaption("Sales_2024")).toBe(false);
-    expect(soundCaption("$50^2$ metres, $x_i$, $$a_b$$, \\(c^d\\)")).toBe(true);
+    expect(soundCaption("$50^2$ metres, $x_i$, \\(c^d\\)")).toBe(true);
+    // A display cannot stand in a cell or a caption.
+    expect(soundCaption("$$a_b$$")).toBe(false);
+    expect(soundCaption("\\[x^2\\]")).toBe(false);
+    // An & on its own would end the cell, or break the caption; in an environment it is a column.
+    expect(soundCaption("R & D")).toBe(false);
+    expect(soundCaption("$\\begin{matrix} a & b \\end{matrix}$")).toBe(true);
     expect(soundCaption("\\si{m^2}, \\ref{tab:a_b}, \\url{http://x.org/a_b#frag}")).toBe(true);
     expect(soundCaption("open \\( never closed")).toBe(false);
     expect(soundCaption("$a$$")).toBe(false);
@@ -776,6 +795,60 @@ describe("the text around a table", () => {
     expect(soundCaption("$\\alpha$$y_1$")).toBe(true);
     expect(escapeInserted("$\\alpha$$y", "$\\alpha$$y_")).toBe("$\\alpha$$y_");
     expect(escapeInserted("$x$$y$", "$x$$y_1$ a_b")).toBe("$x$$y_1$ a\\_b");
+  });
+
+  it("says what stops a cell or a caption going in", () => {
+    expect(cellProblem("fine")).toBeNull();
+    expect(cellProblem("Sales_2024")).toMatch(/underscore/);
+    expect(cellProblem("Item #3")).toMatch(/#/);
+    expect(cellProblem("50% done")).toMatch(/%/);
+    expect(cellProblem("open {brace")).toMatch(/not closed/);
+    expect(cellProblem("close} brace")).toMatch(/no opening/);
+    expect(cellProblem("$$a$$")).toMatch(/display/);
+    expect(cellProblem("Cost in $ per unit")).toMatch(/\$ starts a formula/);
+    // A caret: the message offers the formula it was probably meant to be.
+    expect(cellProblem("area 50^2 metres")).toContain("$50^2$");
+  });
+
+  it("takes the argument of \\text inside a formula for text", () => {
+    expect(escapeInserted("", "$\\text{a_b}$ $x_1$")).toBe("$\\text{a\\_b}$ $x_1$");
+    expect(escapeInserted("", "$\\mbox{a_b}$")).toBe("$\\mbox{a\\_b}$");
+    expect(soundCaption("$\\text{a_b}$")).toBe(false);
+    expect(soundCaption("$\\text{a\\_b} + x_1$")).toBe(true);
+    // A formula inside the text inside a formula is a formula again.
+    expect(escapeInserted("", "$\\text{if $x_1$}$")).toBe("$\\text{if $x_1$}$");
+  });
+
+  it("counts a command's arguments, and takes a group or [ after the last of them for text", () => {
+    expect(escapeInserted("", "\\textbf{a}{c_d}")).toBe("\\textbf{a}{c\\_d}");
+    expect(escapeInserted("", "\\textbf{a}[b_c]")).toBe("\\textbf{a}[b\\_c]");
+    expect(escapeInserted("", "\\LaTeX[a_b")).toBe("\\LaTeX[a\\_b");
+    expect(escapeInserted("", "\\color{red}{a_b}")).toBe("\\color{red}{a\\_b}");
+    // Options and arguments that are names keep their underscores.
+    expect(escapeInserted("", "\\raisebox{1ex}[0pt][0pt]{a_b}")).toBe("\\raisebox{1ex}[0pt][0pt]{a\\_b}");
+    expect(escapeInserted("", "\\makebox[2cm_x]{a_b}")).toBe("\\makebox[2cm_x]{a\\_b}");
+    expect(escapeInserted("", "\\label {a_b} \\ref {a_b}")).toBe("\\label {a_b} \\ref {a_b}");
+    expect(escapeInserted("", "\\href{http://x/a_b}{my_page}")).toBe("\\href{http://x/a_b}{my\\_page}");
+  });
+
+  it("gives an escape back its backslash when only something other than a backslash was typed between", () => {
+    expect(escapeInserted("A\\&B", "A\\ &B")).toBe("A\\ \\&B");
+    expect(escapeInserted("50\\%", "50\\,%")).toBe("50\\,\\%");
+    // A backslash typed there is a command being started in front of the escape.
+    expect(escapeInserted("50\\%", "50\\\\%")).toBe("50\\\\%");
+  });
+
+  it("notices dollar signs meant as money", () => {
+    expect(looksLikeMoney("Price $5 to $10")).toBe(true);
+    expect(looksLikeMoney("$x$ and $5$ items")).toBe(false);
+    expect(looksLikeMoney("Price \\$5 to \\$10")).toBe(false);
+  });
+
+  it("stays quick with a long text that has many groups", () => {
+    const pasted = "\\textbf{a_b} {c_d} \\href{u_v}{w_x} & % ".repeat(400);
+    const started = Date.now();
+    escapeInserted("", pasted);
+    expect(Date.now() - started).toBeLessThan(1500);
   });
 
   it("finds the smallest change between two versions of a table", () => {
@@ -1124,6 +1197,10 @@ describe("tables from the clipboard", () => {
     expect(copied).toEqual([[{ text: "Name" }, { text: "Share" }], [{ text: "R&D" }, { text: "50%" }]]);
     expect(writeTable(tableFromCopied(copied!)!)).toBe("\\begin{tabular}{|l|l|}\n\\hline\nName & Share \\\\\n\\hline\nR\\&D & 50\\% \\\\\n\\hline\n\\end{tabular}");
     expect(copiedFromPlain("just a sentence\nand another")).toBeNull();
+    // Spans that overlap, as malformed copied HTML can have, are cut back to fit.
+    const odd = tableFromCopied([[{ text: "a", rowSpan: 2 }, { text: "b" }], [{ text: "c", colSpan: 2 }]])!;
+    expect(odd).not.toBeNull();
+    expect(read(writeTable(odd))).toEqual(odd);
     // Indented source and ragged lines have tabs too, and are not tables.
     expect(copiedFromPlain("\\begin{itemize}\n\t\\item a\n\t\\item b\n\\end{itemize}")).toBeNull();
     expect(copiedFromPlain("a\tb\nc")).toBeNull();

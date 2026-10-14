@@ -123,7 +123,7 @@ pub fn list(store: &Path) -> Result<Vec<Entry>> {
     let mut out = Vec::new();
     let mut digests = BTreeSet::new();
     for (name, path, size) in files_in(&store.join("hashes"))? {
-        if name.ends_with(".lock") || check_component(&name).is_err() {
+        if name.ends_with(".lock") || name.ends_with(PARTIAL) || check_component(&name).is_err() {
             continue;
         }
         let Some(digest) = digest_in(&path) else {
@@ -359,6 +359,9 @@ pub fn install(dir: &Path, project: &Project) -> Result<usize> {
     let entries = checked(dir)?;
     let store = project_store(project);
     let existed = store.exists();
+    // The cache folder alone is enough for a compile to look for packages there, so one made
+    // by an install that then fails must go too.
+    let cache_existed = project_cache(project).exists();
     let put = || -> Result<usize> {
         let mut added = 0;
         let (records, files): (Vec<&Entry>, Vec<&Entry>) =
@@ -377,8 +380,12 @@ pub fn install(dir: &Path, project: &Project) -> Result<usize> {
         Ok(added)
     };
     let added = put();
-    if added.is_err() && !existed {
-        let _ = fs::remove_dir_all(&store);
+    if added.is_err() {
+        if !cache_existed {
+            let _ = fs::remove_dir_all(project_cache(project));
+        } else if !existed {
+            let _ = fs::remove_dir_all(&store);
+        }
     }
     added
 }
@@ -529,7 +536,7 @@ pub(crate) mod tests {
             .unwrap();
         assert!(install(&dir, &p).is_err());
         assert!(
-            !project_cache(&p).join("bundles").exists(),
+            !project_cache(&p).exists(),
             "the project still compiles from the shared store"
         );
         drop(held);

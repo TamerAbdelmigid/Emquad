@@ -48,6 +48,8 @@ import {
   setCell,
   smallestChange,
   soundCaption,
+  cellProblem,
+  looksLikeMoney,
   splitIntoColumns,
   splitIntoRows,
   splitMerged,
@@ -213,6 +215,8 @@ class Controller {
   /** Packages that what was put in the cell being typed in needs. */
   private readonly wanted = new Set<string>();
   private readonly warned = new Set<string>();
+  /** The user has been told that a cell seems to use $ for money. */
+  private moneyTold = false;
   /** The next change is one a tool made, and is a step of its own for undo. */
   private byTool = false;
 
@@ -584,9 +588,18 @@ class Controller {
 
   /** What is wrong with text that cannot go into a cell, in a sentence. */
   private problem(text: string): string {
+    const why = cellProblem(text);
+    if (why) return why;
     if (/\\begin\{/.test(text)) return "An environment such as a matrix cannot go in a table cell here; use Edit source.";
     if (/\\\\/.test(text)) return "A line break (\\\\) would end the row.";
-    return "Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.";
+    return "It would not read back as this one cell; use Edit source for it.";
+  }
+
+  /** Say once, for this table, when a cell seems to use $ for money. */
+  private moneyCheck(tex: string) {
+    if (this.moneyTold || !looksLikeMoney(tex)) return;
+    this.moneyTold = true;
+    store().notify("A $ in this cell starts a formula, so the words after it are set as mathematics. If it is meant as a dollar sign, write it as \\$.");
   }
 
   private onType() {
@@ -608,7 +621,7 @@ class Controller {
     const sound = back.ok && same(back.table, next) && soundCaption(next.rows[at.r][at.c].tex);
     input.classList.toggle("bad", !sound);
     input.title = sound ? "" : `This cannot go into the table yet. ${this.problem(input.value)}`;
-    if (sound) this.commit(next, false);
+    if (sound && this.commit(next, false)) this.moneyCheck(next.rows[at.r][at.c].tex);
   }
 
   /** Put text around the selected text of the cell being typed in, keeping that text selected. */
@@ -800,9 +813,9 @@ class Controller {
     if (!wanted && where.kind === "float" && where.labelled) {
       return store().notify("This table has a label that goes with its caption, so the caption was not removed. Remove both in the source.", true);
     }
-    if (!soundCaption(wanted)) {
-      return store().notify("That caption cannot be written as LaTeX as it stands, so it was not changed. Check that its braces match and that $ signs come in pairs; write a dollar sign as \\$, and a ^ inside $…$.", true);
-    }
+    const why = cellProblem(wanted);
+    if (why) return store().notify(`That caption cannot be written as LaTeX as it stands, so it was not changed. ${why}`, true);
+    this.moneyCheck(wanted);
     const changes = setCaption(at.text, at.from, to, wanted);
     if (changes.length) this.view.dispatch({ changes, userEvent: "input.table", annotations: isolateHistory.of("full") });
   }

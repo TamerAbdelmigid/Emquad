@@ -49,3 +49,34 @@ export function locate(text: string, anchor: Anchor): { from: number; to: number
   }
   return best ? { from: best.from, to: best.from + anchor.quote.length } : null;
 }
+
+/** Shortest piece of the text either side that is trusted to find a rewritten passage. */
+const SURE = 6;
+
+/**
+ * Where the passage is when its own words were rewritten but the text either side of it was
+ * not: whatever now stands between the two, if they are still close together. Null when either
+ * side is gone too, or is too short to be sure of.
+ */
+export function relocate(text: string, anchor: Anchor): { from: number; to: number } | null {
+  const before = anchor.before.slice(-CONTEXT);
+  const after = anchor.after.slice(0, CONTEXT);
+  if (before.trim().length < SURE || after.trim().length < SURE) return null;
+  const room = Math.max(200, anchor.quote.length * 4);
+  let best: { from: number; to: number; distance: number } | null = null;
+  let line = 1;
+  let counted = 0;
+  let seen = 0;
+  for (let at = text.indexOf(before); at >= 0 && seen < 500; at = text.indexOf(before, at + 1), seen++) {
+    const from = at + before.length;
+    const to = text.indexOf(after, from);
+    if (to <= from || to - from > room) continue;
+    for (let i = text.indexOf("\n", counted); i >= 0 && i < from; i = text.indexOf("\n", i + 1)) {
+      line++;
+      counted = i + 1;
+    }
+    const distance = Math.abs(line - anchor.line);
+    if (!best || distance < best.distance) best = { from, to, distance };
+  }
+  return best && { from: best.from, to: best.to };
+}

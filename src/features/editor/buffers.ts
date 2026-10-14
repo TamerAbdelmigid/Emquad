@@ -26,7 +26,7 @@ import {
 import { tags as t } from "@lezer/highlight";
 import type { Comment, Diagnostic } from "../../ipc/api";
 import { store } from "../../state/store";
-import { type Anchor, describe, locate } from "./commentAnchor";
+import { type Anchor, describe, locate, relocate } from "./commentAnchor";
 import { commenting, focusComment, placeComments, placedComments } from "./comments";
 import { COMMANDS, ENVIRONMENTS, completionAt } from "./latex";
 import { lspActive, lspFor } from "./lsp";
@@ -72,7 +72,8 @@ function place(path: string, afresh: boolean) {
   const placed = comments
     .filter((c) => c.path === path)
     .flatMap((c) => {
-      const at = followed.get(c.id) ?? locate(text, c);
+      // Its own words first; failing those, the words that were either side of them.
+      const at = followed.get(c.id) ?? locate(text, c) ?? relocate(text, c);
       return at ? [{ id: c.id, from: at.from, to: at.to, quiet: c.resolved }] : [];
     });
   apply(path, { effects: placeComments.of(placed) });

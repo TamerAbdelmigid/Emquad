@@ -599,6 +599,9 @@ function respec(t: Table, only?: number): Table {
         // Only the bar on the boundary that changed; the rest is as the user wrote it.
         if (c + at.colSpan === only) at.spec = at.spec.replace(/\|*$/, t.vrules[only] ? "|" : "");
         if (c === 0 && only === 0) at.spec = at.spec.replace(/^\|*/, t.vrules[0] ? "|" : "");
+        // Further along, the bar on a cell's left is drawn by the column before it; one the
+        // user wrote on the cell itself goes when the line there is taken away.
+        if (c > 0 && c === only && !t.vrules[only]) at.spec = at.spec.replace(/^\|+/, "");
         return;
       }
       at.spec = (c === 0 && t.vrules[0] ? "|" : "") + (/[lcr]/.exec(at.spec)?.[0] ?? t.aligns[c]) + (t.vrules[c + at.colSpan] ? "|" : "");
@@ -771,8 +774,8 @@ export function pasteCells(table: Table, r: number, c: number, texts: string[][]
 
 /** Spaces, line ends and comments: what may stand between a box's braces and what is in it. */
 const GAP = String.raw`(?:\s|(?<!\\)%[^\n]*(?:\n|$))*`;
-const ARG = String.raw`\{[^{}]*\}\s*`;
-const OPT = String.raw`\[[^\]]*\]\s*`;
+const ARG = String.raw`\{[^{}]*\}${GAP}`;
+const OPT = String.raw`\[[^\]]*\]${GAP}`;
 /** A box command, with exactly the arguments it takes, whose last brace opens just before the end. */
 const BOX = new RegExp(
   String.raw`\\(?:resizebox\*?\s*${ARG}${ARG}|scalebox\s*${ARG}(?:${OPT})?|adjustbox\s*${ARG}|parbox\s*(?:${OPT})*${ARG}|(?:makebox|framebox)\s*(?:${OPT})*|fbox\s*|mbox\s*)\{${GAP}$`,
@@ -876,7 +879,7 @@ export function ensurePackage(text: string, name: string): PackageNeed {
   const klass = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/.exec(preamble);
   if (klass && also.classes?.test(klass[1].trim())) return "present";
   if (begin < 0 || !klass) return "no-preamble";
-  const reads = preamble.replace(/\\input\s*\{?\s*glyphtounicode(?:\.tex)?\s*\}?/g, "");
+  const reads = preamble.replace(/\\input\s*(?:\{\s*glyphtounicode(?:\.tex)?\s*\}|\s+glyphtounicode(?:\.tex)?(?![\w.-]))/g, "");
   if (/\\(?:input|include|import|subimport|InputIfFileExists)(?![a-zA-Z@])/.test(reads)) return "elsewhere";
   // On a line of its own just before the document starts: the one place in a preamble that
   // is never inside a condition or a group.
@@ -966,8 +969,11 @@ function uncommented(text: string): { clean: string; sure: boolean } {
         // the matching one. \mintinline names its language in braces first.
         const lineEnd = text.indexOf("\n", i) < 0 ? text.length : text.indexOf("\n", i);
         let at = i + inline[0].length;
-        // TikZ has a \path of its own, followed by a space and never by a mark.
-        if (inline[0] === "\\path" && /[ \t\r\n([]/.test(text[at] ?? " ")) {
+        // TikZ has a \path of its own, followed by a coordinate, an option or a word, never by
+        // a mark. Spaces may come before the mark of the other \path, as with \verb, so what
+        // follows them decides.
+        if (inline[0] === "\\path") while (text[at] === " " || text[at] === "\t") at++;
+        if (inline[0] === "\\path" && /[\r\n([a-zA-Z\\]/.test(text[at] ?? " ")) {
           i += inline[0].length;
           continue;
         }
@@ -1181,30 +1187,6 @@ export function captionOf(text: string, from: number, to: number): string | null
 }
 
 /**
- * Whether text can be a caption, or a cell, as it stands: its braces match, it ends no group
- * early, its mathematics is closed, and it has no character on its own that LaTeX would act
- * on: a bare % anywhere, or a #, _ or ^ written in prose outside mathematics.
- */
-export function soundCaption(caption: string): boolean {
-  let depth = 0;
-  let dollars = 0;
-  const math = mathAt(caption);
-  for (let i = 0; i < caption.length; i++) {
-    const ch = caption[i];
-    if (ch === "\\") {
-      // A backslash with nothing after it would take the closing brace for itself.
-      if (++i >= caption.length) return false;
-    } else if (ch === "{") depth++;
-    else if (ch === "}" && --depth < 0) return false;
-    else if (ch === "%") return false;
-    else if (ch === "$") dollars++;
-    else if ((ch === "#" || ch === "_" || ch === "^") && !math[i] && inProse(caption.slice(0, i))) return false;
-  }
-  // Mathematics left open would swallow whatever comes after.
-  return depth === 0 && math[caption.length] === 0 && dollars % 2 === 0;
-}
-
-/**
  * Give the tabular at `from`..`to` a caption, change the one it has, or with an empty caption
  * take it away. A tabular that stands alone is put in a `table` environment to carry it.
  * Nothing is changed where a caption cannot go.
@@ -1270,77 +1252,234 @@ export function escapeTyped(value: string): string {
 
 /**
  * Commands with an argument that is text to be read, not a name, a number or a formula, and
- * which of their braced arguments that is.
+ * which of their braced arguments that is. It is always their last.
  */
 const PROSE = new Map<string, number>([
   ...[
     "textbf", "textit", "emph", "texttt", "textsc", "textrm", "textsf", "textmd", "textup", "textsl", "textnormal", "underline", "mbox", "footnote", "caption",
     "makecell", "thead", "fbox", "makebox", "framebox", "shortstack", "textsuperscript", "textsubscript", "uppercase", "MakeUppercase", "MakeLowercase",
-    "hyperref", "enquote", "sout", "uline", "hl", "rlap", "llap", "hbox", "centerline", "tnote",
+    "hyperref", "enquote", "sout", "uline", "hl", "rlap", "llap", "hbox", "centerline", "tnote", "text", "intertext", "uwave", "xout", "st", "textls",
+    "tablefootnote", "footnotetext", "marginpar", "thanks", "textoverline", "ul", "MakeTextUppercase", "MakeTextLowercase", "textcircled", "tabularnote",
+    "multirowcell",
   ].map((name): [string, number] => [name, 1]),
-  ...["href", "textcolor", "colorbox", "parbox", "rotatebox", "raisebox", "foreignlanguage", "scalebox"].map((name): [string, number] => [name, 2]),
-  ...["multicolumn", "multirow", "resizebox"].map((name): [string, number] => [name, 3]),
+  ...["href", "textcolor", "colorbox", "parbox", "rotatebox", "raisebox", "foreignlanguage", "scalebox", "captionof", "pbox", "adjustbox"].map(
+    (name): [string, number] => [name, 2],
+  ),
+  ...["multicolumn", "multirow", "resizebox", "fcolorbox"].map((name): [string, number] => [name, 3]),
 ]);
 /** Declarations, which take no argument: braces written after one are just a group of text. */
 const DECLARATIONS = new Set([
   "tiny", "scriptsize", "footnotesize", "small", "normalsize", "large", "Large", "LARGE", "huge", "Huge", "bfseries", "mdseries", "itshape", "slshape",
   "scshape", "upshape", "ttfamily", "sffamily", "rmfamily", "normalfont", "centering", "raggedright", "raggedleft", "em", "bf", "it", "tt", "rm", "sf", "sc",
 ]);
+/** Commands that take no argument and no options: a [ or { after one is text. */
+const NO_ARGS = new Set([
+  "LaTeX", "TeX", "LaTeXe", "today", "ldots", "dots", "textbackslash", "textasciitilde", "textasciicircum", "newline", "linebreak", "par", "noindent",
+  "hfill", "vfill", "quad", "qquad", "S", "P", "copyright", "dag", "ddag", "textregistered", "texttrademark", "textcopyright", "textdegree", "euro",
+  "texteuro", "pounds", "textbullet", "slash", "xspace", "ss", "aa", "AA", "o", "O", "ae", "AE", "oe", "OE",
+]);
+/** Commands whose arguments are names, numbers or formulas, and how many braced ones they take. */
+const NAMES = new Map<string, number>([
+  ...["label", "ref", "eqref", "pageref", "autoref", "cref", "Cref", "nameref", "cite", "citep", "citet", "citeauthor", "citeyear", "parencite", "textcite",
+    "autocite", "url", "nolinkurl", "includegraphics", "vspace", "hspace", "color", "si", "num", "ang", "input", "include", "hyperlink", "hypertarget",
+    "phantom", "hphantom", "vphantom", "unit", "qty"].map((name): [string, number] => [name, 1]),
+  ...["rule", "SI", "setlength", "addtolength", "setcounter", "addtocounter"].map((name): [string, number] => [name, 2]),
+]);
 
-/**
- * Whether the end of `text` is a place where prose is written: the top level, a plain group,
- * or the text argument of a command known to take prose. Inside the argument or the options of
- * any other command it is not, because there an underscore is part of a name, a unit or a
- * formula and must be left as it is typed.
- */
-function inProse(text: string): boolean {
-  const open: { ch: string; at: number }[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === "\\") i++;
-    else if (ch === "{") open.push({ ch, at: i });
-    else if (ch === "[" && /\\[a-zA-Z@]+\*?(?:\{[^{}]*\}|\[[^\]]*\])*$/.test(text.slice(0, i))) open.push({ ch, at: i });
-    else if ((ch === "}" || ch === "]") && open.length && open[open.length - 1].ch === (ch === "}" ? "{" : "[")) open.pop();
-  }
-  // Every group the text is inside must be one that holds prose.
-  return open.every((group) => {
-    if (group.ch === "[") return false;
-    const owner = /\\([a-zA-Z@]+)\*?((?:\[[^\]]*\]|\{[^{}]*\})*)$/.exec(text.slice(0, group.at));
-    if (!owner || (DECLARATIONS.has(owner[1]) && owner[2] === "")) return true;
-    // Which braced argument of the command this group is.
-    const nth = (owner[2].match(/\{[^{}]*\}/g) ?? []).length + 1;
-    return PROSE.get(owner[1]) === nth;
-  });
+/** The command just before `at`, with the arguments written so far: its name and how many braced ones. */
+function ownerOf(text: string, at: number): { name: string; braced: number; args: string } | null {
+  const m = /\\([a-zA-Z@]+)\*?((?:\s*\[[^\]]*\]|\s*\{[^{}]*\})*)\s*$/.exec(text.slice(Math.max(0, at - 400), at));
+  return m ? { name: m[1], braced: (m[2].match(/\{[^{}]*\}/g) ?? []).length, args: m[2] } : null;
 }
 
-/** For each character of `text`, whether it stands in mathematics opened with $, $$, \( or \[. */
+/** How many braced arguments a command takes, when it is one this module knows. */
+const arity = (name: string) => PROSE.get(name) ?? NAMES.get(name) ?? (NO_ARGS.has(name) || DECLARATIONS.has(name) ? 0 : undefined);
+
+/** Whether a [ after the command and arguments before it opens its options. */
+function opensOptions(owner: { name: string; braced: number } | null): boolean {
+  if (!owner) return false;
+  const most = arity(owner.name);
+  // A command this module does not know may take options anywhere.
+  return most === undefined || (most > 0 && owner.braced < most);
+}
+
+/** Whether a { after the command and arguments before it opens a group that holds prose. */
+function opensProse(owner: { name: string; braced: number; args: string } | null): boolean {
+  if (!owner) return true;
+  const most = arity(owner.name);
+  // A group past the last argument a command takes is just a group of text.
+  if (most !== undefined && owner.braced >= most) return true;
+  return PROSE.get(owner.name) === owner.braced + 1;
+}
+
+/**
+ * For each place in `text` (one more than it has characters), whether it is a place where
+ * prose is written: the top level, a plain group, or the text argument of a command known to
+ * take prose. Inside the argument or the options of any other command it is not, because there
+ * an underscore is part of a name, a unit or a formula and must be left as it is typed.
+ */
+function proseAt(text: string): Uint8Array {
+  const out = new Uint8Array(text.length + 1);
+  const open: { ch: string; prose: boolean }[] = [];
+  let notProse = 0;
+  for (let i = 0; i < text.length; i++) {
+    out[i] = notProse === 0 ? 1 : 0;
+    const ch = text[i];
+    if (ch === "\\") {
+      out[i + 1] = out[i];
+      i++;
+    } else if (ch === "{" || (ch === "[" && opensOptions(ownerOf(text, i)))) {
+      const prose = ch === "{" && opensProse(ownerOf(text, i));
+      open.push({ ch, prose });
+      if (!prose) notProse++;
+    } else if ((ch === "}" || ch === "]") && open.length && open[open.length - 1].ch === (ch === "}" ? "{" : "[")) {
+      if (!open.pop()!.prose) notProse--;
+    }
+  }
+  out[text.length] = notProse === 0 ? 1 : 0;
+  return out;
+}
+
+/** Commands whose argument is text again, inside a formula. */
+const TEXT_IN_MATH = /^(?:text|textrm|textit|textbf|textsf|texttt|textnormal|textup|mbox|hbox|intertext|emph)$/;
+
+/**
+ * For each place in `text` (one more than it has characters), what it stands in: 0 for text,
+ * 1 for a formula in the line ($…$ or \(…\)), 2 for a display ($$…$$ or \[…\]). The argument of
+ * \text and the like inside a formula is text again.
+ */
 function mathAt(text: string): Uint8Array {
   const out = new Uint8Array(text.length + 1);
-  let math = false;
-  /** The formula open now was opened with a single $. */
-  let inline = false;
+  const open: string[] = [];
+  const top = () => open[open.length - 1];
+  const mode = () => {
+    for (let k = open.length - 1; k >= 0; k--) {
+      const o = open[k];
+      if (o === "text") return 0;
+      if (o === "$" || o === "\\)") return 1;
+      if (o === "$$" || o === "\\]") return 2;
+    }
+    return 0;
+  };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === "\\") {
-      const next = text[i + 1];
-      if (next === "(" || next === "[" || next === ")" || next === "]") {
-        math = next === "(" || next === "[";
-        inline = false;
+      const next = text[i + 1] ?? "";
+      if (next === "(" || next === "[") {
+        open.push(next === "(" ? "\\)" : "\\]");
+        out[i] = out[i + 1] = mode();
+        i++;
+        continue;
       }
-      out[i] = out[i + 1] = math ? 1 : 0;
-      i++;
+      if ((next === ")" || next === "]") && top() === `\\${next}`) {
+        out[i] = out[i + 1] = mode();
+        open.pop();
+        i++;
+        continue;
+      }
+      const name = /^[a-zA-Z@]+/.exec(text.slice(i + 1, i + 40))?.[0];
+      if (!name) {
+        out[i] = out[i + 1] = mode();
+        i++;
+        continue;
+      }
+      let at = i + 1 + name.length;
+      if (mode() > 0 && TEXT_IN_MATH.test(name)) {
+        while (text[at] === " ") at++;
+        if (text[at] === "{") {
+          for (let k = i; k <= at; k++) out[k] = mode();
+          open.push("text");
+          i = at;
+          continue;
+        }
+      }
+      for (let k = i; k < i + 1 + name.length; k++) out[k] = mode();
+      i += name.length;
     } else if (ch === "$") {
       // A $ closes $…$ even with another straight after it: $x$$y$ is two formulas. Two
       // together otherwise open or close a display, just as one does a formula in the line.
-      const double: boolean = !(math && inline) && text[i + 1] === "$";
-      if (double) out[i++] = 1;
-      out[i] = 1;
-      inline = !math && !double;
-      math = !math;
-    } else out[i] = math ? 1 : 0;
+      if (top() === "$") {
+        out[i] = 1;
+        open.pop();
+      } else if (text[i + 1] === "$") {
+        if (top() === "$$") open.pop();
+        else open.push("$$");
+        out[i] = out[i + 1] = 2;
+        i++;
+      } else {
+        open.push("$");
+        out[i] = 1;
+      }
+    } else if (ch === "{") {
+      out[i] = mode();
+      open.push("{");
+    } else if (ch === "}") {
+      out[i] = mode();
+      if (top() === "{" || top() === "text") open.pop();
+    } else out[i] = mode();
   }
-  out[text.length] = math ? 1 : 0;
+  out[text.length] = mode();
   return out;
+}
+
+/**
+ * What stops text going into a caption, or into a cell, as it stands, said for the user; null
+ * when nothing does. Its braces must match and it must end no group early; its mathematics must
+ * be closed and in the line, since a display cannot stand in a cell or a caption; and it must
+ * have no character on its own that LaTeX would act on: a bare % anywhere, an & outside an
+ * environment, or a #, _ or ^ written in prose outside mathematics.
+ */
+export function cellProblem(text: string): string | null {
+  let depth = 0;
+  let dollars = 0;
+  let envs = 0;
+  const math = mathAt(text);
+  const prose = proseAt(text);
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\\") {
+      // A backslash with nothing after it would take the closing brace for itself.
+      if (i + 1 >= text.length) return "It ends in a backslash on its own; write a backslash as \\textbackslash{}.";
+      if (text.startsWith("\\begin{", i)) envs++;
+      if (text.startsWith("\\end{", i)) envs--;
+      i++;
+    } else if (ch === "{") depth++;
+    else if (ch === "}" && --depth < 0) return "A closing brace } has no opening brace { to match it.";
+    else if (ch === "%") return "A % on its own would start a comment; write it as \\%.";
+    else if (ch === "$") dollars++;
+    else if (ch === "&" && envs <= 0) return "An & on its own would end the cell; write it as \\&.";
+    else if (math[i] === 0 && prose[i]) {
+      if (ch === "#") return "A # on its own does not print; write it as \\#.";
+      if (ch === "_") return "An underscore in text must be written \\_, or put in a formula as $a_1$.";
+      if (ch === "^") {
+        const word = /\S*$/.exec(text.slice(0, i))![0] + /^\S*/.exec(text.slice(i))![0];
+        return `A ^ outside a formula does not print. For a power write $${word}$; for the sign itself, \\textasciicircum{}.`;
+      }
+    }
+  }
+  if (depth > 0) return "An opening brace { is not closed with }.";
+  if (math.includes(2)) return "A display formula ($$…$$ or \\[…\\]) cannot go in a table cell or a caption; write it in the line, as $…$.";
+  // Mathematics left open would swallow whatever comes after.
+  if (math[text.length] !== 0 || dollars % 2 !== 0) return "A $ starts a formula that is not closed; write a dollar sign as \\$.";
+  return null;
+}
+
+/** Whether text can be a caption, or a cell, as it stands (see `cellProblem`). */
+export function soundCaption(caption: string): boolean {
+  return cellProblem(caption) === null;
+}
+
+/**
+ * Whether a formula in `text` looks like a sum of money written with plain dollar signs, as in
+ * "from $5 to $10": it compiles, but sets the words between as mathematics.
+ */
+export function looksLikeMoney(text: string): boolean {
+  const math = mathAt(text);
+  for (const m of text.matchAll(/(?<!\\)\$(?!\$)([^$]*)(?<!\\)\$/g)) {
+    if (math[m.index] !== 1) continue;
+    if (/^\s*\d[\d.,]*\s+[a-zA-Z]{2,}/.test(m[1])) return true;
+  }
+  return false;
 }
 
 /**
@@ -1388,6 +1527,13 @@ export function escapeInserted(before: string, after: string): string {
   const keptAfter = new Int32Array(m).fill(-1);
   for (let j = 1; j < m; j++) keptBefore[j] = from[j - 1] >= 0 ? from[j - 1] : keptBefore[j - 1];
   for (let j = m - 2; j >= 0; j--) keptAfter[j] = from[j + 1] >= 0 ? from[j + 1] : keptAfter[j + 1];
+  // Where each character of the new text stands, worked out once: escaping only adds or takes
+  // away backslashes before & % # _, which changes neither.
+  const mathMap = mathAt(after);
+  const proseMap = proseAt(after);
+  // Where each character of `before` that was kept now is.
+  const posOf = new Int32Array(n).fill(-1);
+  for (let j = 0; j < m; j++) if (from[j] >= 0) posOf[from[j]] = j;
   let out = "";
   for (let j = 0; j < m; j++) {
     const ch = after[j];
@@ -1397,13 +1543,16 @@ export function escapeInserted(before: string, after: string): string {
       // There before. A backslash whose character has been deleted goes with it ...
       const orphan = ch === "\\" && !escapedIn(before, i) && SPECIAL.includes(before[i + 1] ?? " ") && keptAfter[j] !== i + 1;
       if (orphan) continue;
-      // ... and a character whose backslash has been deleted gets it back.
-      out += SPECIAL.includes(ch) && escapedIn(before, i) && keptBefore[j] !== i - 1 && !escaped ? `\\${ch}` : ch;
+      // ... and a character whose backslash has been deleted gets it back. Not when all that
+      // was typed between the two is backslashes: that is a command being typed in front of
+      // the escape, such as \, before \%.
+      const lost = SPECIAL.includes(ch) && escapedIn(before, i) && !escaped;
+      const typedInFront = i >= 1 && keptBefore[j] === i - 1 && /^\\*$/.test(after.slice(posOf[i - 1] + 1, j));
+      out += lost && !typedInFront ? `\\${ch}` : ch;
       continue;
     }
-    // Where the text stands is only worked out for the characters it matters to.
-    const math = (ch === "&" || ch === "_") && mathAt(out)[out.length] === 1;
-    const bare = !escaped && (ch === "%" || ch === "#" || (ch === "&" && !math) || (ch === "_" && !math && inProse(out)));
+    const math = mathMap[j] > 0;
+    const bare = !escaped && (ch === "%" || ch === "#" || (ch === "&" && !math) || (ch === "_" && !math && proseMap[j] === 1));
     out += bare ? `\\${ch}` : ch;
   }
   return out;
@@ -1450,8 +1599,12 @@ export function tableFromCopied(copied: Copied[][]): Table | null {
     let c = 0;
     for (const at of row) {
       while (taken[r][c]) c++;
-      const w = Math.max(1, Math.min(50, at.colSpan ?? 1));
-      const h = Math.max(1, Math.min(rowCount - r, at.rowSpan ?? 1));
+      // Spans that run into cells already placed, as malformed copied HTML can have, are cut
+      // back to the room there is.
+      let w = Math.max(1, Math.min(50, at.colSpan ?? 1));
+      while (w > 1 && taken[r].slice(c, c + w).some(Boolean)) w--;
+      let h = Math.max(1, Math.min(rowCount - r, at.rowSpan ?? 1));
+      while (h > 1 && taken[r + h - 1].slice(c, c + w).some(Boolean)) h--;
       for (let dr = 0; dr < h; dr++) for (let dc = 0; dc < w; dc++) taken[r + dr][c + dc] = true;
       placed.push({ r, c, at, w, h });
       c += w;

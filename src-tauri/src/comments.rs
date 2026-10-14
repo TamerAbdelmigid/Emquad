@@ -137,13 +137,14 @@ pub fn load(project: &Project) -> Result<Vec<Comment>> {
     }
     match serde_json::from_slice::<Stored>(&fs::read(&path)?) {
         Ok(mut stored) => {
-            // Written before places were timed: the last change of any kind is the best guess.
+            // Written before places were timed: placed when it was made, as a copy from a
+            // bundle is taken to be, so both copies of one comment get the same time.
             for c in stored
                 .comments
                 .iter_mut()
                 .filter(|c| c.placed_at.is_empty())
             {
-                c.placed_at = c.updated_at.clone();
+                c.placed_at = c.created_at.clone();
             }
             Ok(stored.comments)
         }
@@ -833,7 +834,10 @@ mod tests {
         let untimed = raw.replace(&timed, "\"placedAt\": \"\"");
         fs::write(p.data_dir().join(FILE), untimed).unwrap();
         let loaded = load(&p).unwrap();
-        assert_eq!(loaded[0].placed_at, loaded[0].updated_at);
+        assert_eq!(loaded[0].placed_at, loaded[0].created_at);
+        // The same time as the same file brings when it comes in a bundle.
+        let carried = from_bundle(&fs::read(p.data_dir().join(FILE)).unwrap());
+        assert_eq!(carried[0].placed_at, loaded[0].placed_at);
     }
 
     #[test]
