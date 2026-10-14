@@ -14,6 +14,17 @@ let onLearn: (word: string) => void = () => {};
 
 const plain = (word: string) => word.replace(/’/g, "'");
 
+type Raw = Promise<{ default: string }>;
+/** The dictionaries that ship with the app, each loaded only when it is first chosen. */
+const DICTIONARIES: Record<string, () => [Raw, Raw]> = {
+  "en-US": () => [import("../../../node_modules/dictionary-en/index.aff?raw"), import("../../../node_modules/dictionary-en/index.dic?raw")],
+  "en-GB": () => [import("../../../node_modules/dictionary-en-gb/index.aff?raw"), import("../../../node_modules/dictionary-en-gb/index.dic?raw")],
+  fr: () => [import("../../../node_modules/dictionary-fr/index.aff?raw"), import("../../../node_modules/dictionary-fr/index.dic?raw")],
+  es: () => [import("../../../node_modules/dictionary-es/index.aff?raw"), import("../../../node_modules/dictionary-es/index.dic?raw")],
+  nl: () => [import("../../../node_modules/dictionary-nl/index.aff?raw"), import("../../../node_modules/dictionary-nl/index.dic?raw")],
+  ru: () => [import("../../../node_modules/dictionary-ru/index.aff?raw"), import("../../../node_modules/dictionary-ru/index.dic?raw")],
+};
+
 /**
  * Make `language` the one that is checked, with the user's own words accepted too. Loading a
  * dictionary takes a moment the first time, so it is only done when spelling is switched on.
@@ -27,12 +38,7 @@ export async function loadSpelling(language: string, ownWords: string[], learn: 
     return;
   }
   if (language !== loaded || !checker) {
-    const british = language === "en-GB";
-    const [{ default: nspell }, aff, dic] = await Promise.all([
-      import("nspell"),
-      british ? import("../../../node_modules/dictionary-en-gb/index.aff?raw") : import("../../../node_modules/dictionary-en/index.aff?raw"),
-      british ? import("../../../node_modules/dictionary-en-gb/index.dic?raw") : import("../../../node_modules/dictionary-en/index.dic?raw"),
-    ]);
+    const [{ default: nspell }, aff, dic] = await Promise.all([import("nspell"), ...(DICTIONARIES[language] ?? DICTIONARIES["en-US"])()]);
     checker = nspell(aff.default, dic.default);
     loaded = language;
   }

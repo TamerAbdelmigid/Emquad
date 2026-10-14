@@ -35,6 +35,7 @@ macro_rules! handlers {
             commands::project_search,
             commands::project_set_main,
             commands::project_set_engine,
+            commands::project_set_spellcheck,
             commands::engines_available,
             commands::ui_state_save,
             commands::file_read,
@@ -72,6 +73,7 @@ macro_rules! handlers {
             commands::comment_delete,
             commands::comments_reanchor,
             commands::dictionary_add,
+            commands::dictionary_remove,
             commands::project_image,
             $($extra),*
         ]

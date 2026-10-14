@@ -70,6 +70,7 @@ export const api = {
   settingsUpdate: (patch: { displayName?: string; compileOnSave?: boolean; editorFontSize?: number; theme?: string; spellcheck?: string; recentSymbols?: string[] }) =>
     invoke<Settings>("settings_update", patch),
   dictionaryAdd: (word: string) => invoke<Settings>("dictionary_add", { word }),
+  dictionaryRemove: (word: string) => invoke<Settings>("dictionary_remove", { word }),
   startupFile: () => invoke<string | null>("startup_file"),
 
   projectCreate: (parentDir: string, name: string, template: string) =>
@@ -82,6 +83,7 @@ export const api = {
     invoke<SearchResult>("project_search", { query, matchCase }),
   projectSetMain: (path: string) => invoke<ProjectInfo>("project_set_main", { path }),
   projectSetEngine: (engine: string) => invoke<ProjectInfo>("project_set_engine", { engine }),
+  projectSetSpellcheck: (language: string) => invoke<ProjectInfo>("project_set_spellcheck", { language }),
   enginesAvailable: () => invoke<Engines>("engines_available"),
   uiStateSave: (json: string) => invoke<void>("ui_state_save", { json }),
 

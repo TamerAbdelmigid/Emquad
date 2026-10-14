@@ -59,6 +59,18 @@ importers:
       dictionary-en-gb:
         specifier: 3.0.0
         version: 3.0.0
+      dictionary-es:
+        specifier: 4.0.0
+        version: 4.0.0
+      dictionary-fr:
+        specifier: 3.0.0
+        version: 3.0.0
+      dictionary-nl:
+        specifier: 2.0.0
+        version: 2.0.0
+      dictionary-ru:
+        specifier: 3.0.0
+        version: 3.0.0
       katex:
         specifier: ^0.19.0
         version: 0.19.0
@@ -893,6 +905,18 @@ packages:
 
   dictionary-en@4.0.0:
     resolution: {integrity: sha512-3NHnE1uq33ZE/CIwaZ6gqxa4BnglHnxeAcTM0GJ7cmtRGcvX9InMK/IqLtYcUMFCUpUNgybH+DzkqdgAo3F1zg==}
+
+  dictionary-es@4.0.0:
+    resolution: {integrity: sha512-8J3IYdaHYmkojxqhB+DneQpek6N/s3MwbVk3bPNGQSTBT5kxJtmbuiT0LSDP0Al6K9Vevo1sjspG8AGP9Yvxiw==}
+
+  dictionary-fr@3.0.0:
+    resolution: {integrity: sha512-fhDRX1cRyHPA69GJg8R4XgNYgSQvbNHj3kr5UqvEG1OS5pJqH6P3GbO7wpTCwvr5KMQ0NxGIsXps9P5NyXRVEg==}
+
+  dictionary-nl@2.0.0:
+    resolution: {integrity: sha512-BJRu3jT52mEjDunbpC9Y1UiQJy22VUuA/N6s2Oc5KuN+hHS3MDCoTQiyjifePd2rlHtZSy0fGZaB0qXiCGh7Vw==}
+
+  dictionary-ru@3.0.0:
+    resolution: {integrity: sha512-tigem0CDnNpxEciW6ktwVH3wWB4FYpuvpwA6IR6UlF7bVu2kez6vOejVNyZgBX1TJIjuYTCTuLxzg/YOls2mRQ==}
 
   dom-accessibility-api@0.5.16:
     resolution: {integrity: sha512-X7BJ2yElsnOJ30pZF4uIIDfBEVgF4XEBxL9Bxhy6dnrm5hkzqmsWHGTiHqRiITNhMyFLyAiWndIJP7Z1NTteDg==}
@@ -2292,6 +2316,14 @@ snapshots:
   dictionary-en-gb@3.0.0: {}
 
   dictionary-en@4.0.0: {}
+
+  dictionary-es@4.0.0: {}
+
+  dictionary-fr@3.0.0: {}
+
+  dictionary-nl@2.0.0: {}
+
+  dictionary-ru@3.0.0: {}
 
   dom-accessibility-api@0.5.16: {}
 

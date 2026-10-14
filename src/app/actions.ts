@@ -49,6 +49,8 @@ async function enter(opened: OpenedProject) {
     focusBundle: null,
     settings: await api.settingsGet(),
   });
+  // The project may check its spelling in a language of its own.
+  void applySpelling();
   let remembered: { tabs?: string[]; active?: string | null; filesWidth?: number; split?: number } = {};
   try {
     remembered = JSON.parse(opened.uiState ?? "{}");
@@ -91,6 +93,7 @@ export async function closeProject() {
   setComments([]);
   stopLsp();
   store().set({ root: null, info: null, tree: [], tabs: [], active: null, view: "start", settings: await api.settingsGet() });
+  void applySpelling();
 }
 
 export const refreshTree = () => guard(async () => store().set({ tree: await api.projectTree() }));
@@ -458,13 +461,15 @@ export function symbolUsed(id: string) {
 export async function applySpelling() {
   const settings = store().settings;
   if (!settings) return;
+  // The project's own language when it has one, the app's otherwise.
+  const language = store().info?.spellcheck || settings.spellcheck;
   await guard(async () => {
-    await loadSpelling(settings.spellcheck, settings.dictionary, (word) => {
+    await loadSpelling(language, settings.dictionary, (word) => {
       void guard(async () => {
         store().set({ settings: await api.dictionaryAdd(word) });
         await applySpelling();
       });
     });
-    buffers.setSpelling(settings.spellcheck !== "off");
+    buffers.setSpelling(language !== "off");
   });
 }

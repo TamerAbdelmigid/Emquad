@@ -20,6 +20,9 @@ pub struct ProjectInfo {
     pub name: String,
     pub main_file: String,
     pub engine: String,
+    /// The language this project's spelling is checked in, or "" for the app's own choice.
+    #[serde(default)]
+    pub spellcheck: String,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -304,6 +307,18 @@ impl Project {
         self.save_info()
     }
 
+    /// Check this project's spelling in `language`, or in the app's language when it is "".
+    pub fn set_spellcheck(&mut self, language: &str) -> Result<()> {
+        if !language.is_empty() && !crate::settings::SPELLCHECK.contains(&language) {
+            return Err(Error::app(
+                "bad_language",
+                format!("{language:?} is not a language Emquad checks"),
+            ));
+        }
+        self.info.spellcheck = language.to_string();
+        self.save_info()
+    }
+
     /// Create a new project folder from a template. The folder must not already hold files.
     pub fn create(dir: &Path, name: &str, template: &str) -> Result<Project> {
         if dir.exists() && fs::read_dir(dir)?.next().is_some() {
@@ -359,6 +374,7 @@ impl Project {
                 name: name.to_string(),
                 main_file: String::new(),
                 engine: "auto".into(),
+                spellcheck: String::new(),
             }),
         };
         if project.info.main_file.is_empty() || !project.root.join(&project.info.main_file).exists()
@@ -665,6 +681,21 @@ mod tests {
         assert_eq!(files, ["main.tex"]);
         let reopened = Project::open(&dir).unwrap();
         assert_eq!(reopened.info.project_id, p.info.project_id);
+    }
+
+    #[test]
+    fn a_projects_own_spelling_language_is_validated_and_remembered() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        assert_eq!(p.info.spellcheck, "");
+        p.set_spellcheck("fr").unwrap();
+        assert_eq!(Project::open(&p.root).unwrap().info.spellcheck, "fr");
+        assert!(p.set_spellcheck("klingon").is_err());
+        p.set_spellcheck("").unwrap();
+        assert_eq!(Project::open(&p.root).unwrap().info.spellcheck, "");
+        // A project.json from before has no language of its own.
+        fs::write(p.data_dir().join("project.json"), r#"{"formatVersion":1,"projectId":"x","name":"p","mainFile":"main.tex","engine":"auto"}"#).unwrap();
+        assert_eq!(Project::open(&p.root).unwrap().info.spellcheck, "");
     }
 
     #[test]

@@ -260,6 +260,22 @@ pub fn project_set_engine(state: State<AppState>, engine: String) -> Result<Proj
     Ok(project.info.clone())
 }
 
+#[tauri::command(async)]
+pub fn project_set_spellcheck(state: State<AppState>, language: String) -> Result<ProjectInfo> {
+    let mut guard = state.project.lock().unwrap();
+    let project = guard
+        .as_mut()
+        .ok_or_else(|| Error::app("no_project", "No project is open"))?;
+    project.set_spellcheck(&language)?;
+    Ok(project.info.clone())
+}
+
+/// Take a word out of the user's own dictionary.
+#[tauri::command(async)]
+pub fn dictionary_remove(state: State<AppState>, word: String) -> Result<Settings> {
+    Settings::update(&state.config_dir, |s| s.dictionary.retain(|w| w != &word))
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]

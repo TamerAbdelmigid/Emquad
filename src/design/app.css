@@ -322,3 +322,10 @@ dialog input[type=radio]{width:17px;height:17px;accent-color:var(--acc)}
 .sym-big{display:grid;place-items:center;width:56px;height:56px;flex:none;border-radius:8px;background:var(--scr-line);font-size:24px;overflow:hidden}
 .sym-big .sym-tex .katex{font-size:1.5em}
 .sym-pkg{margin-top:2px;color:var(--scr-dim);font-size:11.5px}
+.own-words{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.own-words-title{font-size:12px;color:var(--mu)}
+.own-words ul{display:flex;flex-wrap:wrap;gap:4px;margin:0;padding:0;list-style:none;max-height:120px;overflow:auto}
+.own-words li{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 8px;border-radius:999px;background:var(--on-bg);font-size:12px}
+.own-words li button{width:18px;height:18px;border-radius:50%;line-height:1;color:var(--mu)}
+.own-words li button:hover{background:var(--acc);color:#fff}
+.own-words-empty{margin:4px 0 0;font-size:12px;color:var(--mu)}

@@ -436,6 +436,7 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
                 name: manifest.project.name.clone(),
                 main_file: manifest.project.main_file.clone(),
                 engine: manifest.project.engine.clone(),
+                spellcheck: String::new(),
             },
         };
         let history = History::open(&project)?;

@@ -58,7 +58,7 @@ impl Default for Settings {
 static LOCK: Mutex<()> = Mutex::new(());
 
 pub const THEMES: [&str; 3] = ["fieldwork", "glass", "onyx"];
-pub const SPELLCHECK: [&str; 3] = ["off", "en-US", "en-GB"];
+pub const SPELLCHECK: [&str; 7] = ["off", "en-US", "en-GB", "fr", "es", "nl", "ru"];
 /// How many recently used symbols are kept.
 pub const RECENT_SYMBOLS: usize = 20;
 

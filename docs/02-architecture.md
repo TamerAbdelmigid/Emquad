@@ -15,7 +15,7 @@
 | Completion and outline | Built in: a project index of labels and citation keys (Rust) and a completion source (TypeScript). With **texlab** present, completion, hover, definitions, references and rename come from it through `@codemirror/lsp-client` | The app works without the language server and gains from it when installed |
 | Visual mode | CodeMirror decorations, with **KaTeX** for mathematics and PDF.js for PDF figures | Draws the plain source as a document without changing it; `visualModel.ts` decides what to draw and is tested on its own |
 | Table editor | A pure grid model (`tableModel.ts`) with a CodeMirror widget over it (`tableEditor.ts`) | The `.tex` source is the only truth: the model reads a `tabular`, an action changes the grid, and the result is written back as one editor change. Reading refuses anything it could not write back exactly |
-| Spell check | **nspell** with the Hunspell `dictionary-en` and `dictionary-en-gb` word lists, loaded on demand | Runs in the page with no network and no native code; `spellModel.ts` decides which words are prose and is tested on its own |
+| Spell check | **nspell** with the Hunspell word lists for English (US and UK), French, Spanish, Dutch and Russian, each loaded when first chosen | Runs in the page with no network and no native code; `spellModel.ts` decides which words are prose and is tested on its own. Word lists that nspell takes too long to load (Portuguese, Polish) or that are offered only under the GPL (German, Italian) are left out |
 | Comments | A Rust module over `.emquad/comments.json`; placement by quoted text in `commentAnchor.ts` | Keeps remarks out of source files, and lets them travel and merge in bundles |
 | History storage | **libgit2** through the Rust `git2` crate | Versions, ancestry and the common-ancestor lookup; no system git required |
 | Comparison and merge | The Rust `similar` crate, with a three-way pass in `diff.rs` | Review needs every hunk classified and individually rejectable, which a ready-made merge does not expose |
@@ -34,7 +34,7 @@ Pin exact versions of every dependency and of the two sidecar binaries when scaf
 
 - **texlab** is GPL-3.0. It must remain a separate executable that the app starts and talks to over a pipe; do not link it into the app.
 - **libgit2** is GPL-2.0 with a linking exception that permits linking from software under other licenses.
-- Tectonic, CodeMirror, PDF.js, Tauri, React, `git2`, `zip` and nspell are under permissive licenses. The English word lists are under MIT and BSD terms.
+- Tectonic, CodeMirror, PDF.js, Tauri, React, `git2`, `zip` and nspell are under permissive licenses. The word lists are under MIT, BSD and MPL terms; a word list offered only under the GPL is not shipped.
 - LaTeX package files that a bundle carries keep their own licences, mostly the LaTeX Project Public License, which permits passing them on unchanged.
 - No Overleaf source code is used. Overleaf is AGPL; the app only follows its layout conventions.
 
@@ -170,6 +170,8 @@ A diagnostic is `{ severity, file, line, message }`.
 | `comment_add(path, anchor, text)` / `comment_reply(id, text)` / `comment_resolve(id, resolved)` / `comment_delete(id)` | the updated list |
 | `comments_reanchor(moved)` | the updated list, after the editor reports where edited passages now are |
 | `dictionary_add(word)` | settings, with the word added to the user's own dictionary |
+| `dictionary_remove(word)` | settings, with the word taken out of the user's own dictionary |
+| `project_set_spellcheck(language)` | project info, with the language this project is checked in ("" for the app's) |
 
 **LSP**
 

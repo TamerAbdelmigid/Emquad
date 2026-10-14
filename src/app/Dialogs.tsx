@@ -24,9 +24,13 @@ const COMPILERS: { id: string; label: string; note: string; needs: "tectonic" | 
 ];
 
 const SPELLING = [
-  { id: "en-US", label: "English (US)", note: "color, organize" },
-  { id: "en-GB", label: "English (UK)", note: "colour, organise" },
-  { id: "off", label: "Off", note: "no words are underlined" },
+  { id: "en-US", label: "English (US)" },
+  { id: "en-GB", label: "English (UK)" },
+  { id: "fr", label: "French" },
+  { id: "es", label: "Spanish" },
+  { id: "nl", label: "Dutch" },
+  { id: "ru", label: "Russian" },
+  { id: "off", label: "Off" },
 ];
 
 const megabytes = (bytes: number) => `${Math.max(1, Math.round(bytes / (1 << 20)))} MB`;
@@ -281,6 +285,38 @@ function LogsDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** The words the user has added to the dictionary, each with a way to take it out again. */
+function OwnWords() {
+  const words = useStore((s) => s.settings?.dictionary ?? []);
+  const set = useStore((s) => s.set);
+  if (!words.length) return <p className="own-words-empty">Words you add to the dictionary from the spelling menu are listed here.</p>;
+  return (
+    <div className="own-words">
+      <span className="own-words-title">Your words</span>
+      <ul aria-label="Words you added to the dictionary">
+        {[...words].sort((a, b) => a.localeCompare(b)).map((word) => (
+          <li key={word}>
+            {word}
+            <button
+              type="button"
+              aria-label={`Take ${word} out of the dictionary`}
+              title="Take it out of the dictionary"
+              onClick={() =>
+                void guard(async () => {
+                  set({ settings: await api.dictionaryRemove(word) });
+                  await applySpelling();
+                })
+              }
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => void; firstRun?: boolean }) {
   const settings = useStore((s) => s.settings);
   const set = useStore((s) => s.set);
@@ -290,6 +326,7 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   const [theme, setTheme] = useState(settings?.theme ?? "fieldwork");
   const [spellcheck, setSpellcheck] = useState(settings?.spellcheck ?? "en-US");
   const info = useStore((s) => s.info);
+  const [projectSpelling, setProjectSpelling] = useState(info?.spellcheck ?? "");
   const [engine, setEngine] = useState(info?.engine ?? "auto");
   const [engines, setEngines] = useState<Engines | null>(null);
   useEffect(() => {
@@ -303,8 +340,9 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
   const submit = () =>
     guard(async () => {
       set({ settings: await api.settingsUpdate({ displayName: name, compileOnSave, editorFontSize: fontSize, theme, spellcheck }) });
-      void applySpelling();
       if (info && engine !== info.engine) set({ info: await api.projectSetEngine(engine) });
+      if (info && projectSpelling !== info.spellcheck) set({ info: await api.projectSetSpellcheck(projectSpelling) });
+      void applySpelling();
       onClose();
     });
   return (
@@ -347,13 +385,30 @@ export function SettingsDialog({ onClose, firstRun = false }: { onClose: () => v
             </fieldset>
             <fieldset>
               <legend>Spelling</legend>
-              {SPELLING.map((l) => (
-                <label className="ck" key={l.id}>
-                  <input id={`spell-${l.id}`} type="radio" name="spellcheck" checked={spellcheck === l.id} onChange={() => setSpellcheck(l.id)} />
-                  <span>{l.label}</span>
-                  <small>{l.note}</small>
-                </label>
-              ))}
+              <div className="f">
+                <label htmlFor="set-spell">Check spelling in</label>
+                <select id="set-spell" value={spellcheck} onChange={(e) => setSpellcheck(e.target.value)}>
+                  {SPELLING.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {info && (
+                <div className="f">
+                  <label htmlFor="set-spell-project">For this project</label>
+                  <select id="set-spell-project" value={projectSpelling} onChange={(e) => setProjectSpelling(e.target.value)}>
+                    <option value="">The same as above</option>
+                    {SPELLING.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <OwnWords />
             </fieldset>
             {info && (
               <fieldset>

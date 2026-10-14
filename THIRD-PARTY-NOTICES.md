@@ -29,6 +29,10 @@ Tectonic downloads LaTeX packages, classes and fonts from its package bundle whe
 | Zustand | MIT | https://github.com/pmndrs/zustand |
 | nspell | MIT | https://github.com/wooorm/nspell |
 | English word lists (`dictionary-en`, `dictionary-en-gb`), from SCOWL and the Hunspell en_US and en_GB dictionaries | MIT and BSD | https://github.com/wooorm/dictionaries |
+| French word list (`dictionary-fr`), from Dicollecte's Hunspell dictionary | MPL-2.0 | https://github.com/wooorm/dictionaries/tree/main/dictionaries/fr |
+| Spanish word list (`dictionary-es`), from the LibreOffice Spanish dictionary; offered under GPL-3.0, LGPL-3.0 or MPL-1.1, and used here under MPL-1.1 | MPL-1.1 | https://github.com/wooorm/dictionaries/tree/main/dictionaries/es |
+| Dutch word list (`dictionary-nl`), from OpenTaal; offered under BSD-3-Clause or CC-BY-3.0, and used here under BSD-3-Clause | BSD-3-Clause | https://github.com/wooorm/dictionaries/tree/main/dictionaries/nl |
+| Russian word list (`dictionary-ru`), by Alexander Lebedev | BSD-3-Clause | https://github.com/wooorm/dictionaries/tree/main/dictionaries/ru |
 
 The exact versions are in `pnpm-lock.yaml` and `src-tauri/Cargo.lock`. To list every Rust dependency with its licence, run `cargo tree --format "{p} {l}"` in `src-tauri`; for the JavaScript ones, `pnpm licenses list`.
 
