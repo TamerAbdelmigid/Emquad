@@ -20,21 +20,38 @@ let root = "";
 const handlers = new Set<(message: string) => void>();
 /** Opens a project file in the editor and gives its view; set by the app. */
 let display: (path: string) => Promise<EditorView | null> = async () => null;
+/** The project's paths as the app already spells them: its open tabs, then its files. */
+let knownPaths: () => readonly string[] = () => [];
 
 /** How the app puts a project file in front of the user when the server points into it. */
-export function setDisplay(open: (path: string) => Promise<EditorView | null>) {
+export function setDisplay(open: (path: string) => Promise<EditorView | null>, known: () => readonly string[]) {
   display = open;
+  knownPaths = known;
 }
 
-/** The project path a file URI from the server names, or null for a file outside the project. */
-export function pathFromUri(projectRoot: string, uri: string): string | null {
+/**
+ * The project path a file URI from the server names, or null for a file outside the project.
+ * File names on Windows ignore case, and the server keeps the spelling of the `\input` that
+ * led it there, so the path is given as the app already spells it when it knows the file:
+ * otherwise the same file would open in two tabs, each saving over the other.
+ */
+export function pathFromUri(projectRoot: string, uri: string, known: readonly string[] = []): string | null {
+  const parts = (u: string) => {
+    try {
+      return decodeURIComponent(u).replace(/^file:\/\/\/?/, "").replace(/\\/g, "/").split("/");
+    } catch {
+      return null;
+    }
+  };
+  const base = parts(fileUri(projectRoot, ""))?.filter((p) => p !== "");
+  const target = parts(uri);
+  if (!base || !target || target.length <= base.length) return null;
   // The server may write the drive letter in either case, and its colon encoded or not.
-  const plain = (u: string) => decodeURIComponent(u).replace(/^file:\/\/\/?/, "").replace(/\\/g, "/").toLowerCase();
-  const base = plain(fileUri(projectRoot, "")).replace(/\/$/, "");
-  const target = decodeURIComponent(uri).replace(/^file:\/\/\/?/, "").replace(/\\/g, "/");
-  if (!target.toLowerCase().startsWith(`${base}/`)) return null;
-  const rel = target.slice(base.length + 1);
-  return rel.split("/").some((part) => part === ".." || part === "") ? null : rel;
+  if (!base.every((part, i) => part.toUpperCase() === target[i].toUpperCase())) return null;
+  const rest = target.slice(base.length);
+  if (rest.some((part) => part === "" || part === "." || part === "..")) return null;
+  const rel = rest.join("/");
+  return known.find((path) => path.toUpperCase() === rel.toUpperCase()) ?? rel;
 }
 
 /**
@@ -80,7 +97,7 @@ class ProjectWorkspace extends Workspace {
   }
 
   async displayFile(uri: string): Promise<EditorView | null> {
-    const path = pathFromUri(root, uri);
+    const path = pathFromUri(root, uri, knownPaths());
     return path === null ? null : display(path);
   }
 }

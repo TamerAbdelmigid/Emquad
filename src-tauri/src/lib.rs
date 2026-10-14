@@ -147,7 +147,16 @@ pub fn run() {
                 window.state::<AppState>().end_session(window.label());
             }
         })
-        .on_page_load(e2e::on_page_load);
+        .on_page_load(|webview, payload| {
+            // A page that starts again (a reload) starts with nothing open, so nothing is left
+            // running for it or holding its project.
+            if payload.event() == tauri::webview::PageLoadEvent::Started
+                && let Some(state) = webview.try_state::<AppState>()
+            {
+                state.end_session(webview.label());
+            }
+            e2e::on_page_load(webview, payload);
+        });
     #[cfg(any(debug_assertions, feature = "e2e"))]
     let builder = builder.invoke_handler(handlers!(e2e::e2e_log, e2e::e2e_exit));
     #[cfg(not(any(debug_assertions, feature = "e2e")))]

@@ -92,6 +92,17 @@ describe("the table widget", () => {
     expect(doc()).toContain("&   R\\&D \\\\");
   });
 
+  it("keeps brackets typed at the start of a row from being read as an option of what is before them", () => {
+    open(`${PREAMBLE}\\begin{tabular}{ll}\n\\rowcolor{gray} a & b \\\\\nc & d \\\\\n\\end{tabular}\n\\end{document}\n`);
+    click(td(0, 0));
+    type(box()!, "[1] Smith");
+    expect(doc()).toContain("\\rowcolor{gray} {}[1] Smith & b \\\\");
+    press(box()!, "Escape");
+    click(td(1, 0));
+    type(box()!, "[2] Jones");
+    expect(doc()).toContain("\\\\\n{}[2] Jones & d \\\\");
+  });
+
   it("moves between cells with Tab, and adds a row after the last", () => {
     open();
     click(td(1, 1));

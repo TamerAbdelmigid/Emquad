@@ -162,7 +162,8 @@ const W = String.raw`[ \t\r\n]*`;
 const BOUNDARY_ITEM = new RegExp(
   String.raw`^${W}(?:\\(hline)(?![a-zA-Z@])|\\(toprule|midrule|bottomrule)(?![a-zA-Z@])(?:${W}\[([^\]]*)\])?|\\cline${W}\{${W}(\d+)${W}-${W}(\d+)${W}\}|\\cmidrule(?![a-zA-Z@])(?:${W}\[([^\]]*)\])?(?:${W}\(([^)]*)\))?${W}\{${W}(\d+)${W}-${W}(\d+)${W}\}|\\addlinespace(?![a-zA-Z@])(?:${W}\[([^\]]*)\])?)`,
 );
-const ROW_COLOR = new RegExp(String.raw`^${W}(\\rowcolor(?:${W}\[[^\]]*\])?${W}\{[^{}]*\})`);
+/** A row colour, with the overhangs colortbl reads in brackets after it. */
+const ROW_COLOR = new RegExp(String.raw`^${W}(\\rowcolor(?:${W}\[[^\]]*\])?${W}\{[^{}]*\}(?:${W}\[[^\]]*\]){0,2})`);
 const RULE_ANYWHERE = /\\(?:hline|cline|toprule|midrule|bottomrule|cmidrule|addlinespace|rowcolor)(?![a-zA-Z@])/;
 const no = (reason: string): Parsed => ({ ok: false, reason });
 
@@ -353,6 +354,8 @@ function readTable(source: string, withRanges = false): Parsed | Read {
         if (/^[ \t\r\n]*\*/.test(after)) return no("It keeps rows together with \\\\*");
         // As LaTeX reads it, brackets after a line end, even on the next line, are the space after it.
         const gap = /^[ \t\r\n]*\[([^\]]*)\]/.exec(after);
+        // So are brackets after a comment there, which the grid cannot keep apart.
+        if (!gap && /^(?:[ \t\r\n]|%[^\n]*\n)*\[/.test(after)) return no("Brackets after a comment after a line end are read as the space after it");
         const chunk = current();
         if (gap) {
           chunk.gap = gap[1];

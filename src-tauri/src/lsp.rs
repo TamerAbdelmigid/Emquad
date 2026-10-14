@@ -8,6 +8,8 @@ use crate::error::{Error, Result};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
 pub struct Server {
@@ -15,10 +17,14 @@ pub struct Server {
     /// Messages for the server. A separate thread writes them, so a server that stops reading
     /// can never block the app.
     outbox: mpsc::Sender<String>,
+    /// Set when the app stops the server itself, so that is not reported as the server
+    /// stopping: by then a new server may be running for the next project.
+    stopping: Arc<AtomicBool>,
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
+        self.stopping.store(true, Ordering::SeqCst);
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -70,7 +76,8 @@ pub fn frame(message: &str) -> Vec<u8> {
 
 impl Server {
     /// Start texlab in the project folder. `on_message` is called, on its own thread, with each
-    /// JSON message the server sends; `on_close` once, when the server stops talking.
+    /// JSON message the server sends; `on_close` once, when the server stops talking of its
+    /// own accord (not when it is stopped by dropping it).
     pub fn start(
         exe: &Path,
         project_root: &Path,
@@ -88,13 +95,20 @@ impl Server {
             .map_err(|e| Error::app("lsp_failed", format!("Could not start texlab: {e}")))?;
         let mut stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
+        let stopping = Arc::new(AtomicBool::new(false));
+        let stopped = stopping.clone();
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
             while let Ok(Some(message)) = read_message(&mut reader) {
+                if stopped.load(Ordering::SeqCst) {
+                    return;
+                }
                 trace("<-", &message);
                 on_message(message);
             }
-            on_close();
+            if !stopped.load(Ordering::SeqCst) {
+                on_close();
+            }
         });
         let (outbox, inbox) = mpsc::channel::<String>();
         std::thread::spawn(move || {
@@ -108,7 +122,11 @@ impl Server {
                 }
             }
         });
-        Ok(Server { child, outbox })
+        Ok(Server {
+            child,
+            outbox,
+            stopping,
+        })
     }
 
     /// Queue a message for the server. Returns at once.

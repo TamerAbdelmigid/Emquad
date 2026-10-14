@@ -252,6 +252,45 @@ struct Recorder {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+/// A recorder given up on before it finished, for instance when the compile could not be
+/// started, still stops serving.
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// The most bytes one request may ask for: more than any single package file, so a request for
+/// more is not a compile's.
+const MAX_RANGE: u64 = 64 << 20;
+
+/// The longest a compile that checks packages may take before it is stopped and counted as
+/// failing. A first compile that builds its format takes about a minute.
+const CHECK_DEADLINE: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Run a compile that checks packages, stopping it if it goes on past the deadline. Whether it
+/// finished and succeeded.
+fn run_checked(command: &mut Command, deadline: std::time::Duration) -> bool {
+    let Ok(mut child) = crate::compile::quiet(command).spawn() else {
+        return false;
+    };
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if started.elapsed() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50))
+            }
+            _ => {
+                crate::compile::kill_tree(child.id());
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
+
 impl Recorder {
     /// Serve the files of one digest of a store, on a port of this computer's own address only.
     fn start(digest: &str, files: &[(String, PathBuf, u64)]) -> Result<Recorder> {
@@ -380,6 +419,19 @@ fn answer(
     if !path.ends_with("/bundle.tar") {
         return send(&mut stream, "404 Not Found", "", b"", false);
     }
+    if range.is_some_and(|(a, b)| a <= b && b - a >= MAX_RANGE) {
+        asked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(String::new());
+        return send(
+            &mut stream,
+            "416 Range Not Satisfiable",
+            &format!("Content-Range: bytes */{total}\r\n"),
+            b"",
+            false,
+        );
+    }
     let Some((from, to)) = range.filter(|(a, b)| a <= b && *b < total) else {
         // The whole bundle is never needed; its size is all that is asked for.
         let length = format!("Content-Length: {total}\r\n");
@@ -468,9 +520,7 @@ pub fn used(tectonic: &Path, project: &Project, entries: &[Entry]) -> Option<Vec
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let ok = crate::compile::quiet(&mut command)
-        .status()
-        .is_ok_and(|s| s.success());
+    let ok = run_checked(&mut command, CHECK_DEADLINE);
     let asked = recorder.finish();
     if !ok || asked.contains("") || asked.is_empty() {
         return None;
@@ -522,8 +572,7 @@ pub fn verify(tectonic: &Path, project: &Project, entries: &[Entry]) -> Result<V
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let done = crate::compile::quiet(&mut command).status();
-    if !copies.is_empty() && done.is_ok_and(|s| s.success()) {
+    if !copies.is_empty() && run_checked(&mut command, CHECK_DEADLINE) {
         return Ok(Verified {
             entries: copies,
             _scratch: scratch,
@@ -717,6 +766,51 @@ pub(crate) mod tests {
         );
         let asked = recorder.finish();
         assert_eq!(asked.into_iter().collect::<Vec<_>>(), ["b.sty"]);
+
+        // A request for more than any compile needs is refused, and spoils the record.
+        let recorder = Recorder::start(DIGEST, &files).unwrap();
+        let huge = ask(
+            recorder.port,
+            "GET /bundle.tar HTTP/1.1\r\nRange: bytes=0-999999999999\r\n\r\n",
+        );
+        assert!(huge.is_empty());
+        assert!(recorder.finish().contains(""));
+
+        // One given up on stops serving.
+        let recorder = Recorder::start(DIGEST, &files).unwrap();
+        let port = recorder.port;
+        drop(recorder);
+        let mut refused = false;
+        for _ in 0..100 {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_err() {
+                refused = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(refused);
+    }
+
+    #[test]
+    fn a_check_that_runs_too_long_is_stopped_and_fails() {
+        #[cfg(windows)]
+        let mut command = {
+            let mut c = Command::new("cmd");
+            c.args(["/C", "ping -n 30 127.0.0.1 >NUL"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let mut command = {
+            let mut c = Command::new("sleep");
+            c.arg("30");
+            c
+        };
+        let started = std::time::Instant::now();
+        assert!(!run_checked(
+            &mut command,
+            std::time::Duration::from_millis(300)
+        ));
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
     pub const DIGEST: &str = "6ffe055852f8faf66c0acbe1a7fb27f87b869a90bad1204f3bf4d9683f597c7c";

@@ -137,6 +137,15 @@ describe("reading a table", () => {
 });
 
 describe("tables written in other ways", () => {
+  it("reads brackets as LaTeX does: after a row colour as its overhangs, after a comment after a line end as space", () => {
+    const colored = parseTable("\\begin{tabular}{ll}\n\\rowcolor{gray}[0pt][0pt] a & b \\\\\n\\end{tabular}");
+    expect(colored.ok && colored.table.rows[0][0].tex).toBe("a");
+    expect(parseTable("\\begin{tabular}{ll}\na & b \\\\ % note\n[1] Smith & d \\\\\n\\end{tabular}").ok).toBe(false);
+    // Brackets the line end does not take are a cell's text.
+    const plain = parseTable("\\begin{tabular}{ll}\n\\hline\n[1] Smith & d \\\\\n\\end{tabular}");
+    expect(plain.ok && plain.table.rows[0][0].tex).toBe("[1] Smith");
+  });
+
   /** Read, check it writes back as itself, and give the table. */
   const kept = (source: string): Table => {
     const t = read(source);

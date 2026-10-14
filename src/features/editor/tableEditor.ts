@@ -627,7 +627,10 @@ class Controller {
     const at = this.head;
     if (!input || !at) return;
     // Only what was just typed is escaped. What the cell already held is left as written.
-    const escaped = escapeInserted(this.typed, input.value);
+    let escaped = escapeInserted(this.typed, input.value);
+    // A row's first cell that starts with [ would be read by LaTeX as an option of what comes
+    // before it (a line end, a row colour, a rule), so typing one there puts {} in front.
+    if (at.c === 0 && /^\s*\[/.test(escaped) && !/^\s*\[/.test(this.typed)) escaped = escaped.replace(/^(\s*)\[/, "$1{}[");
     this.typed = escaped;
     if (escaped !== input.value) {
       const caret = (input.selectionStart ?? 0) + (escaped.length - input.value.length);

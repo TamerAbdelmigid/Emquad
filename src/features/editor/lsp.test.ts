@@ -23,6 +23,17 @@ describe("pathFromUri", () => {
     expect(pathFromUri("E:\\thesis", "file:///E:/other/main.tex")).toBeNull();
     expect(pathFromUri("E:\\thesis", "file:///E:/thesis2/main.tex")).toBeNull();
     expect(pathFromUri("E:\\thesis", "file:///E:/thesis/../x.tex")).toBeNull();
+    expect(pathFromUri("E:\\thesis", "file:///E:/thesis/./x.tex")).toBeNull();
+    expect(pathFromUri("E:\\thesis", "file:///E:/thesis//x.tex")).toBeNull();
+    expect(pathFromUri("E:\\thesis", "file:///E:/thesis/100%.tex")).toBeNull();
+  });
+  it("gives a file the app knows as the app spells it", () => {
+    const known = ["main.tex", "chapters/Intro.tex"];
+    expect(pathFromUri("E:\\thesis", "file:///E:/Thesis/Chapters/intro.tex", known)).toBe("chapters/Intro.tex");
+    expect(pathFromUri("E:\\thesis", "file:///E:/thesis/chapters/new.tex", known)).toBe("chapters/new.tex");
+  });
+  it("is not thrown off by letters that change length when their case changes", () => {
+    expect(pathFromUri("C:\\İstanbul", "file:///C:/%C4%B0stanbul/ch.tex")).toBe("ch.tex");
   });
 });
 

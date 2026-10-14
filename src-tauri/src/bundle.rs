@@ -78,6 +78,9 @@ pub struct Extras<'a> {
     pub packages: Option<&'a crate::packages::Verified>,
     /// The project's comments, as stored.
     pub comments: Option<Vec<u8>>,
+    /// Asked once the bundle is written and before it is put in place: an error leaves
+    /// whatever was at the destination as it was.
+    pub keep_if: Option<&'a dyn Fn() -> Result<()>>,
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -172,6 +175,9 @@ pub fn export(
             std::io::copy(&mut fs::File::open(&entry.path)?, &mut zip)?;
         }
         zip.finish()?;
+    }
+    if let Some(keep_if) = extras.keep_if {
+        keep_if()?;
     }
     tmp.persist(dest).map_err(|e| Error::Io(e.error))?;
     Ok(manifest)
@@ -415,21 +421,28 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
         .collect();
     let folder = folder.trim().trim_matches('.');
     let dest = parent_dir.join(if folder.is_empty() { "project" } else { folder });
-    if dest.exists() && fs::read_dir(&dest)?.next().is_some() {
-        return Err(Error::app(
+    let not_empty = || {
+        Error::app(
             "not_empty",
             format!("{} already exists and is not empty", dest.display()),
-        ));
+        )
+    };
+    if dest.exists() && fs::read_dir(&dest)?.next().is_some() {
+        return Err(not_empty());
     }
     let scratch = tempfile::tempdir()?;
     extract(path, scratch.path())?;
     let (head, pack) = validate(scratch.path(), &manifest)?;
 
-    let existed = dest.exists();
-    fs::create_dir_all(&dest)?;
-    let build = || -> Result<Project> {
+    // The project is made beside the folder it is meant for and moved there whole, so an
+    // import that fails never touches the folder the user chose, or anything put in it.
+    fs::create_dir_all(parent_dir)?;
+    let staging = tempfile::Builder::new()
+        .prefix(".emquad-import-")
+        .tempdir_in(parent_dir)?;
+    let build = |root: &Path| -> Result<Project> {
         let project = Project {
-            root: dest.clone(),
+            root: root.to_path_buf(),
             info: ProjectInfo {
                 format_version: FORMAT_VERSION,
                 project_id: manifest.project.id.clone(),
@@ -453,26 +466,30 @@ pub fn import_new(path: &Path, parent_dir: &Path) -> Result<Project> {
         take_extras(&project, scratch.path())?;
         Ok(project)
     };
-    let project = build();
-    if project.is_err() {
-        if existed {
-            // The folder was empty when the import began, so all that is in it now came from
-            // this import: it is emptied again, and the folder the user chose is kept.
-            if let Ok(entries) = fs::read_dir(&dest) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let _ = if entry.file_type().is_ok_and(|t| t.is_dir()) {
-                        fs::remove_dir_all(&path)
-                    } else {
-                        fs::remove_file(&path)
-                    };
-                }
-            }
-        } else {
-            let _ = fs::remove_dir_all(&dest);
-        }
+    let info = build(staging.path())?.info;
+    // An empty folder already there gives way; one that is not empty by now stays as it is.
+    let existed = dest.exists();
+    if existed {
+        fs::remove_dir(&dest).map_err(|_| not_empty())?;
     }
-    project
+    let staged = staging.keep();
+    let mut moved = fs::rename(&staged, &dest);
+    // A virus scanner may still be looking at a file just written; it lets go shortly.
+    for _ in 0..20 {
+        if moved.is_ok() || dest.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        moved = fs::rename(&staged, &dest);
+    }
+    if let Err(e) = moved {
+        let _ = fs::remove_dir_all(&staged);
+        if existed {
+            let _ = fs::create_dir(&dest);
+        }
+        return Err(e.into());
+    }
+    Ok(Project { root: dest, info })
 }
 
 #[cfg(test)]
@@ -510,6 +527,23 @@ mod tests {
             .map(|(n, b)| (n.as_str(), b.as_slice()))
             .collect();
         write_zip(dst, &borrowed);
+    }
+
+    #[test]
+    fn a_bundle_refused_at_the_last_check_leaves_the_file_that_was_there() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (a, ha) = new_project(&tmp.path().join("a"));
+        let file = tmp.path().join("paper.emquad");
+        fs::write(&file, "an older bundle").unwrap();
+        let refuse = || Err(Error::app("changed_during_export", "changed"));
+        let extras = Extras {
+            keep_if: Some(&refuse),
+            ..Extras::default()
+        };
+        let err = export(&a, &ha, &author("Tamer"), &file, "", &extras).unwrap_err();
+        assert_eq!(err.code(), "changed_during_export");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "an older bundle");
+        assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 2);
     }
 
     #[test]
@@ -583,6 +617,7 @@ mod tests {
             pdf: false,
             packages: Some(&carried),
             comments: comments::for_bundle(&a).unwrap(),
+            ..Extras::default()
         };
         let manifest = export(&a, &ha, &me, &file, "", &extras).unwrap();
         assert!(manifest.includes.packages && manifest.includes.comments);
@@ -621,6 +656,7 @@ mod tests {
             pdf: false,
             packages: Some(&carried),
             comments: comments::for_bundle(&b).unwrap(),
+            ..Extras::default()
         };
         export(&b, &hb, &lina, &reply, "", &extras).unwrap();
         let before = read_all(&a);
@@ -751,7 +787,8 @@ mod tests {
                 !fresh.join("paper").exists(),
                 "{what}: no half-made project is left"
             );
-            // Into a folder that is there already and empty: it is left there, and empty.
+            // Into a folder that is there already and empty: it is left there, and empty, and
+            // nothing of the attempt is left beside it.
             let parent = tmp.path().join(format!("empty{n}"));
             fs::create_dir_all(parent.join("paper")).unwrap();
             assert!(import_new(&bad, &parent).is_err(), "{what}");
@@ -760,6 +797,7 @@ mod tests {
                     && fs::read_dir(parent.join("paper")).unwrap().next().is_none(),
                 "{what}: an empty folder chosen for the project is left empty"
             );
+            assert_eq!(fs::read_dir(&parent).unwrap().count(), 1, "{what}");
         }
 
         // Comments that are not what they should be are dropped; the work still arrives.

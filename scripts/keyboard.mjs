@@ -114,6 +114,18 @@ await key("Escape");
 await sleep(300);
 await check((await focusName()) === "Settings", "Escape closes it and gives the keyboard back to the Settings button");
 
+// A dialog opened from a menu gives the keyboard back to the menu's button.
+await evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Help').focus(); true");
+await key("Enter");
+await key("ArrowDown");
+await check((await focusName()) === "Settings…", "the arrow keys reach Settings… in the Help menu");
+await key("Enter");
+await sleep(300);
+await check(await focusIn("dialog[open]"), "Enter on it opens Settings");
+await key("Escape");
+await sleep(300);
+await check((await focusName()) === "Help", "Escape closes it and gives the keyboard back to the Help menu's button");
+
 // The symbol panel.
 await evaluate("document.querySelector('.sym-btn').focus(); true");
 await key("Enter");

@@ -79,6 +79,7 @@ fn a_bundle_with_its_packages_compiles_offline_from_the_projects_own_store() {
         pdf: false,
         packages: Some(&checked),
         comments: None,
+        ..Extras::default()
     };
     let manifest =
         bundle::export(&a, &History::open(&a).unwrap(), &me, &file, "", &extras).unwrap();

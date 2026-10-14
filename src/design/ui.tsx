@@ -94,6 +94,9 @@ export function Menu({
                 disabled={item.disabled}
                 onClick={() => {
                   setOpen(false);
+                  // The keyboard goes back to the menu's button first, so a dialog the item
+                  // opens gives it back there rather than to an item that is gone.
+                  ref.current?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
                   item.run();
                 }}
               >

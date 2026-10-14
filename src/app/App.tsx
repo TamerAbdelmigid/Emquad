@@ -17,6 +17,7 @@ import { History } from "../features/history/History";
 import { Preview } from "../features/preview/Preview";
 import { Start } from "../features/start/Start";
 import { api } from "../ipc/api";
+import type { TreeNode } from "../ipc/bindings/TreeNode";
 import { type Layout, store, useStore } from "../state/store";
 import { Dialogs, SettingsDialog } from "./Dialogs";
 import * as act from "./actions";
@@ -49,10 +50,16 @@ export function App() {
     });
     setHandlers({ save: () => void act.saveAndMaybeCompile(), compile: () => void act.compile(), comment: act.startComment });
     // Go to definition into a file that is not open opens it.
-    setDisplay(async (path) => {
-      await act.openFile(path, undefined, true);
-      return buffers.showNow(path);
-    });
+    setDisplay(
+      async (path) => {
+        await act.openFile(path, undefined, true);
+        return buffers.showNow(path);
+      },
+      () => {
+        const files = (nodes: TreeNode[]): string[] => nodes.flatMap((n) => (n.isDir ? files(n.children) : [n.path]));
+        return [...store().tabs.map((t) => t.path), ...files(store().tree)];
+      },
+    );
     // Clicking a commented passage shows its comment.
     setCommentPick((id) => {
       store().set({ comment: id, filesOpen: true, sidePanel: "comments" });
@@ -73,6 +80,10 @@ export function App() {
       listen("lsp://closed", () => {
         stopLsp();
         store().set({ languageServer: false });
+      }),
+      // Closing the window saves what is not saved yet.
+      here.onCloseRequested(async (e) => {
+        if (!(await act.mayCloseWindow().catch(() => true))) e.preventDefault();
       }),
     ];
     return () => off.forEach((p) => void p.then((stop) => stop()));

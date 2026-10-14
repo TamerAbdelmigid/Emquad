@@ -28,6 +28,17 @@ pub struct AppState {
     pub startup_file: Mutex<Option<String>>,
     /// What each window has open, by the window's label.
     pub sessions: Mutex<HashMap<String, Arc<Session>>>,
+    /// The project each window has open, or is opening, by the window's label. Taken in one
+    /// step with the check that no other window has it, so two windows can never both open it.
+    claims: Mutex<HashMap<String, Claim>>,
+}
+
+/// A window's hold on a project.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Claim {
+    /// The project's folder, as the file system names it.
+    pub root: PathBuf,
+    pub project_id: String,
 }
 
 /// What one window has open: its project, and what runs for it.
@@ -54,6 +65,7 @@ impl AppState {
             sidecar_dirs,
             startup_file: Mutex::new(startup_file),
             sessions: Mutex::new(HashMap::new()),
+            claims: Mutex::new(HashMap::new()),
         }
     }
 
@@ -67,14 +79,27 @@ impl AppState {
             .clone()
     }
 
-    /// The window is gone: so is what it had open, its language server and watcher with it.
+    /// The window is gone, or its page has started again: so is what it had open, its compile,
+    /// language server and watcher with it.
     pub fn end_session(&self, label: &str) {
+        self.claims
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(label);
         let gone = self
             .sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(label);
         if let Some(session) = gone {
+            if let Some(pid) = session
+                .compile_pid
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+            {
+                compile::kill_tree(pid);
+            }
             session
                 .language_server
                 .lock()
@@ -88,28 +113,80 @@ impl AppState {
         }
     }
 
-    /// The label of another window that has the project in `root` open, if one does.
-    pub fn open_elsewhere(&self, label: &str, root: &Path) -> Option<String> {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions
+    /// Claim the project in `root` for the window `label`. Refused, with the label of the
+    /// window that has it, when another window has the same folder open, or one inside or
+    /// around it, since the two would then write the same files. On success, returns the
+    /// window's previous claim, for [`AppState::restore_claim`] if opening then fails.
+    pub fn claim(
+        &self,
+        label: &str,
+        root: &Path,
+        project_id: &str,
+    ) -> std::result::Result<Option<Claim>, String> {
+        // Resolved before the lock is taken: a slow folder must not hold up other windows.
+        let root = resolved(root);
+        let mut claims = self.claims.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(other) = claims
             .iter()
-            .filter(|(other, _)| other.as_str() != label)
-            .find(|(_, s)| {
-                s.project
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .as_ref()
-                    .is_some_and(|p| same_folder(&p.root, root))
+            .find(|(other, held)| {
+                other.as_str() != label
+                    && (held.root.starts_with(&root) || root.starts_with(&held.root))
             })
+            .map(|(other, _)| other.clone())
+        {
+            return Err(other);
+        }
+        let claim = Claim {
+            root,
+            project_id: project_id.to_string(),
+        };
+        Ok(claims.insert(label.to_string(), claim))
+    }
+
+    /// Put back the claim a window had before a project that then failed to open.
+    pub fn restore_claim(&self, label: &str, previous: Option<Claim>) {
+        let mut claims = self.claims.lock().unwrap_or_else(|e| e.into_inner());
+        match previous {
+            Some(claim) => claims.insert(label.to_string(), claim),
+            None => claims.remove(label),
+        };
+    }
+
+    /// The label of a window other than `label` that has the project with this identity open.
+    pub fn window_with(&self, label: &str, project_id: &str) -> Option<String> {
+        self.claims
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(other, held)| other.as_str() != label && held.project_id == project_id)
             .map(|(other, _)| other.clone())
     }
 }
 
-/// Whether two paths name the same folder, however they are written.
-fn same_folder(a: &Path, b: &Path) -> bool {
-    match (fs::canonicalize(a), fs::canonicalize(b)) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => a == b,
+/// A folder as the file system names it, so that two ways of writing it compare equal. For one
+/// that is not there yet, its nearest parent that is, followed by the rest.
+fn resolved(path: &Path) -> PathBuf {
+    let mut rest = Vec::new();
+    let mut at = path;
+    loop {
+        if let Ok(real) = fs::canonicalize(at) {
+            return rest.iter().rev().fold(real, |p, part| p.join(part));
+        }
+        match (at.parent(), at.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_os_string());
+                at = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// Bring another window of the app to the front.
+fn show_window(app: &AppHandle, label: &str) {
+    if let Some(there) = app.get_webview_window(label) {
+        let _ = there.unminimize();
+        let _ = there.set_focus();
     }
 }
 
@@ -154,16 +231,31 @@ fn activate(
     project: Project,
 ) -> Result<OpenedProject> {
     // One project in one window: opening it in a second would let two windows write it.
-    if let Some(other) = state.open_elsewhere(window.label(), &project.root) {
-        if let Some(there) = app.get_webview_window(&other) {
-            let _ = there.unminimize();
-            let _ = there.set_focus();
+    let previous = match state.claim(window.label(), &project.root, &project.info.project_id) {
+        Ok(previous) => previous,
+        Err(other) => {
+            show_window(app, &other);
+            return Err(Error::app(
+                "open_elsewhere",
+                "This project, or a folder inside or around it, is open in another Emquad window, which is now in front.",
+            ));
         }
-        return Err(Error::app(
-            "open_elsewhere",
-            "This project is open in another Emquad window, which is now in front.",
-        ));
+    };
+    let opened = start_project(app, window, state, session, project);
+    if opened.is_err() {
+        state.restore_claim(window.label(), previous);
     }
+    opened
+}
+
+/// Everything that runs for an open project, started once the window has claimed it.
+fn start_project(
+    app: &AppHandle,
+    window: &tauri::Window,
+    state: &AppState,
+    session: &Session,
+    project: Project,
+) -> Result<OpenedProject> {
     Settings::update(&state.config_dir, |s| s.remember(&project))?;
 
     let root = project.root.clone();
@@ -344,6 +436,7 @@ pub fn project_close(window: tauri::Window, state: State<AppState>) {
     *session.watcher.lock().unwrap() = None;
     *session.language_server.lock().unwrap() = None;
     *session.project.lock().unwrap() = None;
+    state.restore_claim(window.label(), None);
 }
 
 #[tauri::command(async)]
@@ -784,6 +877,17 @@ pub fn bundle_export(
             _ => packages::verify(&tectonic, &p, &all)?,
         });
     }
+    // Looked at before the bundle takes its place, so a bundle refused here never replaces a
+    // file that was there; files that cannot be looked at count as changed.
+    let unchanged = || -> Result<()> {
+        match &checked {
+            Some(before) if p.fingerprint().ok().as_ref() != Some(before) => Err(Error::app(
+                "changed_during_export",
+                "A file in the project changed while the bundle was being checked, so the bundle was not kept. Export it again.",
+            )),
+            _ => Ok(()),
+        }
+    };
     let extras = bundle::Extras {
         pdf: include_pdf,
         packages: carried.as_ref(),
@@ -792,25 +896,16 @@ pub fn bundle_export(
         } else {
             None
         },
+        keep_if: Some(&unchanged),
     };
-    let manifest = bundle::export(
+    bundle::export(
         &p,
         &History::open(&p)?,
         &author(&state)?,
         Path::new(&dest),
         &note,
         &extras,
-    )?;
-    if let Some(checked) = checked
-        && p.fingerprint()? != checked
-    {
-        let _ = std::fs::remove_file(&dest);
-        return Err(Error::app(
-            "changed_during_export",
-            "A file in the project changed while the bundle was being checked, so the bundle was not kept. Export it again.",
-        ));
-    }
-    Ok(manifest)
+    )
 }
 
 /// A project that has just been given packages by a bundle compiles from its own store from
@@ -829,6 +924,7 @@ fn top_up_packages(state: &AppState, project: &Project) {
 
 #[tauri::command(async)]
 pub fn bundle_inspect(
+    app: AppHandle,
     window: tauri::Window,
     state: State<AppState>,
     path: String,
@@ -837,6 +933,17 @@ pub fn bundle_inspect(
     let manifest = bundle::read_manifest(Path::new(&path))?;
     let open = session.project.lock().unwrap().clone();
     let matches_open_project = open.is_some_and(|p| p.info.project_id == manifest.project.id);
+    // A bundle for a project another window has open goes to that window.
+    if !matches_open_project
+        && let Some(other) = state.window_with(window.label(), &manifest.project.id)
+    {
+        show_window(&app, &other);
+        let _ = app.emit_to(other.as_str(), "app://open-bundle", &path);
+        return Err(Error::app(
+            "open_elsewhere",
+            "This bundle's project is open in another Emquad window, which now has the bundle.",
+        ));
+    }
     let known_path = Settings::load(&state.config_dir)?
         .recent
         .into_iter()
@@ -1028,26 +1135,71 @@ mod tests {
         let state = AppState::new(tmp.path().join("config"), Vec::new(), None);
         let a = Project::create(&tmp.path().join("a"), "a", "article").unwrap();
         let b = Project::create(&tmp.path().join("b"), "b", "article").unwrap();
+        let id = |p: &Project| p.info.project_id.clone();
         *state.session("main").project.lock().unwrap() = Some(a.clone());
         *state.session("w-1").project.lock().unwrap() = Some(b.clone());
+        assert_eq!(state.claim("main", &a.root, &id(&a)), Ok(None));
+        assert_eq!(state.claim("w-1", &b.root, &id(&b)), Ok(None));
         // Each window sees its own project.
         assert_eq!(current(&state.session("main")).unwrap().root, a.root);
         assert_eq!(current(&state.session("w-1")).unwrap().root, b.root);
         assert!(current(&state.session("w-2")).is_err());
-        // A project open in one window is found from any other, however its path is written.
+        // A project open in one window is refused to any other, however its path is written,
+        // and so is a folder inside or around it.
         assert_eq!(
-            state.open_elsewhere("w-2", &a.root),
-            Some("main".to_string())
+            state.claim("w-2", &a.root, &id(&a)),
+            Err("main".to_string())
         );
-        assert_eq!(state.open_elsewhere("main", &a.root), None);
         let roundabout = tmp.path().join("b").join("..").join("a");
         assert_eq!(
-            state.open_elsewhere("w-1", &roundabout),
-            Some("main".to_string())
+            state.claim("w-2", &roundabout, "x"),
+            Err("main".to_string())
         );
+        assert_eq!(
+            state.claim("w-2", &a.root.join("figures"), "x"),
+            Err("main".to_string())
+        );
+        assert_eq!(state.claim("w-2", tmp.path(), "x"), Err("main".to_string()));
+        assert_eq!(state.window_with("w-2", &id(&a)), Some("main".to_string()));
+        assert_eq!(state.window_with("main", &id(&a)), None);
+        // The window that has it may open it again; a failed switch puts the old claim back.
+        let held = state.claim("main", &a.root, &id(&a)).unwrap();
+        assert_eq!(held.as_ref().map(|c| c.project_id.clone()), Some(id(&a)));
+        let c = Project::create(&tmp.path().join("c"), "c", "article").unwrap();
+        let before = state.claim("main", &c.root, &id(&c)).unwrap();
+        state.restore_claim("main", before);
+        assert_eq!(
+            state.claim("w-2", &a.root, &id(&a)),
+            Err("main".to_string())
+        );
+        assert_eq!(state.claim("w-2", &c.root, &id(&c)), Ok(None));
+        state.restore_claim("w-2", None);
         // A closed window takes its project with it.
         state.end_session("main");
-        assert_eq!(state.open_elsewhere("w-2", &a.root), None);
+        assert_eq!(state.claim("w-2", &a.root, &id(&a)), Ok(None));
         assert!(current(&state.session("main")).is_err());
+    }
+
+    #[test]
+    fn two_windows_opening_one_project_at_once_cannot_both_have_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = Arc::new(AppState::new(tmp.path().join("config"), Vec::new(), None));
+        let a = Project::create(&tmp.path().join("a"), "a", "article").unwrap();
+        for _ in 0..50 {
+            let winners: usize = (0..8)
+                .map(|n| {
+                    let (state, root, id) =
+                        (state.clone(), a.root.clone(), a.info.project_id.clone());
+                    std::thread::spawn(move || state.claim(&format!("w-{n}"), &root, &id).is_ok())
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|t| usize::from(t.join().unwrap()))
+                .sum();
+            assert_eq!(winners, 1);
+            for n in 0..8 {
+                state.end_session(&format!("w-{n}"));
+            }
+        }
     }
 }

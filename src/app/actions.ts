@@ -70,7 +70,11 @@ async function enter(opened: OpenedProject) {
   store().set({ pdfVersion: store().pdfVersion + 1 });
 }
 
-export const openProject = (dir: string) => guard(async () => enter(await api.projectOpen(dir)));
+// Unsaved edits are saved before another project is opened: once it is, a save would go to it.
+export const openProject = async (dir: string) => {
+  if (!(await saveAll())) return;
+  await guard(async () => enter(await api.projectOpen(dir)));
+};
 
 export async function chooseAndOpenProject() {
   const dir = await openDialog({ directory: true, title: "Open a project folder" });
@@ -80,10 +84,20 @@ export async function chooseAndOpenProject() {
 export async function createProject(name: string, template: string) {
   const parent = await openDialog({ directory: true, title: "Choose where to create the project" });
   if (typeof parent !== "string") return;
+  if (!(await saveAll())) return;
   await guard(async () => {
     await enter(await api.projectCreate(parent, name, template));
     store().set({ dialog: null });
   });
+}
+
+/**
+ * Whether the window may close: its unsaved edits are saved first, and if they cannot be, the
+ * user decides.
+ */
+export async function mayCloseWindow(): Promise<boolean> {
+  if (await saveAll().catch(() => false)) return true;
+  return confirm("Close without saving?", "Some changes could not be saved, and will be lost if this window closes.", "Close anyway", true);
 }
 
 export async function closeProject() {

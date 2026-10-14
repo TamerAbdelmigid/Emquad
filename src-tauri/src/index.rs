@@ -7,6 +7,7 @@ use regex::Regex;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::{Component, Path, Prefix};
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Default, Serialize, TS)]
@@ -122,6 +123,20 @@ fn citations(text: &str, out: &mut BTreeMap<String, Citation>) {
     }
 }
 
+/// Whether a name a document gives for a file points at another computer or a device: a
+/// network share (`//host/share`, `\\host\share`) or a Windows device or verbatim path. Only
+/// looking such a name up can make Windows contact the computer and offer it the user's
+/// credentials, so a project someone sent must never get the app to do that.
+fn names_another_computer(name: &str) -> bool {
+    let unc = |s: &str| {
+        s.starts_with("//") || s.starts_with("\\\\") || s.starts_with("/\\") || s.starts_with("\\/")
+    };
+    unc(name)
+        || Path::new(name)
+            .components()
+            .any(|c| matches!(c, Component::Prefix(p) if !matches!(p.kind(), Prefix::Disk(_))))
+}
+
 /// The largest `.bib` file outside the project that is read for its references.
 const MAX_OUTSIDE_BIB: u64 = 8 << 20;
 
@@ -207,6 +222,9 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| project.root.clone());
     for name in named_bibs {
+        if names_another_computer(&name) {
+            continue;
+        }
         let with_ext = if name.to_ascii_lowercase().ends_with(".bib") {
             name.clone()
         } else {
@@ -295,6 +313,34 @@ mod tests {
         // Only .bib files, and only those the document names.
         fs::write(tmp.path().join("secret.txt"), "@book{leak, title={x}}").unwrap();
         p.write_file("main.tex", "\\bibliography{../secret.txt}\n")
+            .unwrap();
+        assert!(build(&p).unwrap().cite_keys.is_empty());
+    }
+
+    #[test]
+    fn a_bib_file_on_another_computer_is_never_looked_up() {
+        for name in [
+            "//host/share/refs",
+            "\\\\host\\share\\refs",
+            "/\\host/share/refs",
+            "\\\\?\\UNC\\host\\share\\refs",
+            "\\\\?\\C:\\refs",
+            "\\\\.\\pipe\\refs",
+        ] {
+            assert!(names_another_computer(name), "{name}");
+        }
+        for name in [
+            "refs",
+            "../shared",
+            "C:/bib/refs",
+            "/home/me/refs",
+            "C:\\bib\\refs",
+        ] {
+            assert!(!names_another_computer(name), "{name}");
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        p.write_file("main.tex", "\\bibliography{//host.invalid/share/refs}\n")
             .unwrap();
         assert!(build(&p).unwrap().cite_keys.is_empty());
     }
