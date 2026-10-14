@@ -11,6 +11,9 @@ describe("telling a formula from text", () => {
     expect(at("a $x$ |b")).toBe(false);
     expect(at("a $$x|$$ b")).toBe(true);
     expect(at("a $$x$$ |b")).toBe(false);
+    expect(at("see $x$$\\alpha$ and |")).toBe(false);
+    expect(at("$x$$y|$ z")).toBe(true);
+    expect(at("$x$$y$ |z")).toBe(false);
     expect(at("a \\(x|\\) b")).toBe(true);
     expect(at("a \\[x\\] |b")).toBe(false);
     expect(at("\\begin{equation}\n  x = |\n\\end{equation}")).toBe(true);
@@ -31,6 +34,8 @@ describe("telling a formula from text", () => {
     expect(at("a % $ not a formula\nb |")).toBe(false);
     expect(at("\\begin{verbatim}\n$x\n\\end{verbatim}\n|")).toBe(false);
     expect(at("a \\\\ $x|$")).toBe(true);
+    expect(at("\\verb|$| and |")).toBe(false);
+    expect(at("\\verb+a+ $x|$")).toBe(true);
   });
 });
 

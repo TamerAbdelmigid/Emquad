@@ -33,7 +33,7 @@ import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
 import { type Insertion, type Sym, insertion, mathAt } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
-import { ensurePackage } from "./tableModel";
+import { ensurePackage, packageNotice } from "./tableModel";
 import { forgetPictures, redrawVisual, visualMode } from "./visual";
 
 const states = new Map<string, EditorState>();
@@ -402,8 +402,8 @@ export const buffers = {
           shift = need.insert.length;
         } else changes.push(need);
         store().notify(`Added \\usepackage{${ins.pkg}} to the preamble. What you chose needs it.`);
-      } else if (need === "no-preamble") {
-        store().notify(`This needs \\usepackage{${ins.pkg}}. This file has no preamble, so add it to your main file's.`, true);
+      } else if (typeof need !== "object" && need !== "present") {
+        store().notify(packageNotice(ins.pkg, need)!, true);
       }
     }
     const from = range.from + shift + ins.before.length;

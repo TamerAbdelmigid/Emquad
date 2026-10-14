@@ -38,6 +38,8 @@ import {
   merge,
   needsBooktabs,
   needsMultirow,
+  newTable,
+  packageNotice,
   parseTable,
   pasteCells,
   setAlign,
@@ -184,9 +186,6 @@ const escapeHtml = (text: string) => text.replace(/[&<>"]/g, (ch) => ({ "&": "&a
 interface Target {
   controller: Controller;
   at: At;
-  /** The text selected in the cell being typed in, or -1 when cells were selected instead. */
-  start: number;
-  end: number;
 }
 let target: Target | null = null;
 /** A copy asked for from the table's menu, which the copy event that follows is for. */
@@ -207,6 +206,8 @@ class Controller {
   /** What the box being typed in held before the last keystroke. */
   private typed = "";
   private menu: HTMLElement | null = null;
+  /** Stops the open menu listening for the editor's scrolling. */
+  private unmenu: (() => void) | null = null;
   /** The control that opened the menu, which gets the keyboard back when it closes. */
   private menuFrom: HTMLElement | null = null;
   /** Packages that what was put in the cell being typed in needs. */
@@ -238,16 +239,37 @@ class Controller {
     this.dom.addEventListener("contextmenu", (e) => this.onContextMenu(e));
     this.dom.addEventListener("keydown", (e) => this.onKeyDown(e));
     this.dom.addEventListener("focusout", (e) => {
-      if (!this.dom.contains(e.relatedTarget as Node | null) && !this.menu) this.leave();
+      const to = e.relatedTarget as Node | null;
+      if (!this.dom.contains(to) && !this.menu) this.leave(to);
     });
     this.render();
   }
 
-  /** The keyboard has left the table altogether: end the edit of a cell, and remember where it was. */
-  private leave() {
-    const [input, head] = [this.input, this.head];
-    if (head) target = { controller: this, at: head, start: input ? (input.selectionStart ?? input.value.length) : -1, end: input ? (input.selectionEnd ?? input.value.length) : -1 };
+  /**
+   * The keyboard has left the table for `to`. Gone to the tool bar, a menu or the Symbol
+   * panel, it is coming back with something for this table: the cell being typed in stays
+   * open, text not yet complete and all, and this table is what the tools act on. Gone
+   * anywhere else, the edit of the cell ends.
+   */
+  private leave(to: Node | null) {
+    const head = this.head;
+    if (head && (to as HTMLElement | null)?.closest?.(TOOLS)) {
+      target = { controller: this, at: head };
+      return;
+    }
+    if (target?.controller === this) target = null;
     this.stopEditing(false);
+  }
+
+  /** The tools are done with this table: end the edit of a cell unless the keyboard is back in it. */
+  release() {
+    if (!this.dom.contains(document.activeElement)) this.stopEditing(false);
+  }
+
+  /** The widget is going: so are its menu and any hold the tools have on it. */
+  dispose() {
+    this.closeMenu();
+    if (target?.controller === this) target = null;
   }
 
   /** The source changed under the table: by one of its own actions, by undo, or from outside. */
@@ -598,35 +620,39 @@ class Controller {
     if (ins.pkg) this.wanted.add(ins.pkg);
     this.byTool = true;
     this.onType();
+    // Not written while the text is not yet complete; the next keystroke is ordinary typing.
+    this.byTool = false;
+    input.focus({ preventScroll: true });
   }
 
-  /** Bold or Italic from a tool: on the text selected in the cell, or on the selected cells. */
-  format(name: string, where: { at: At; start: number; end: number } | null) {
+  /** The box of the cell `at` if it is open, else a new one for it. */
+  private boxFor(at: At): HTMLInputElement | null {
+    const cell = anchorOf(this.table, at.r, at.c);
+    if (this.input && this.head && this.head.r === cell.r && this.head.c === cell.c) return this.input;
+    this.edit(cell);
+    const input = this.input as HTMLInputElement | null;
+    if (input) input.setSelectionRange(input.value.length, input.value.length);
+    return input;
+  }
+
+  /** Bold or Italic from a tool: on the text selected in the cell being typed in, or on the selected cells. */
+  format(name: string) {
     const input = this.input;
-    if (input && !where) return this.surround(input, input.selectionStart ?? 0, input.selectionEnd ?? 0, { before: `\\${name}{`, after: "}" });
-    if (where && where.start >= 0) {
-      this.edit(where.at);
-      if (this.input) this.surround(this.input, where.start, where.end, { before: `\\${name}{`, after: "}" });
-      return;
-    }
+    if (input) return this.surround(input, input.selectionStart ?? 0, input.selectionEnd ?? 0, { before: `\\${name}{`, after: "}" });
     const rect = this.rect();
     if (rect) this.act(toggleStyle(this.table, rect, name), "keep");
   }
 
-  /** A symbol or a piece of LaTeX from a tool: into the cell, where its text cursor was or at its end. */
-  insert(make: (inMath: boolean, next: string) => Insertion, where: { at: At; start: number; end: number }) {
-    this.edit(where.at);
-    const input = this.input;
+  /**
+   * A symbol or a piece of LaTeX from a tool: into the cell being typed in, where its text
+   * cursor is, or at the end of the selected cell.
+   */
+  insert(make: (inMath: boolean, next: string) => Insertion) {
+    if (!this.head) return;
+    const input = this.boxFor(this.head);
     if (!input) return;
-    const [s, e] = where.start >= 0 ? [where.start, where.end] : [input.value.length, input.value.length];
+    const [s, e] = [input.selectionStart ?? input.value.length, input.selectionEnd ?? input.value.length];
     this.surround(input, s, e, make(mathAt(input.value, s), input.value.slice(e, e + 1)));
-  }
-
-  /** Where typing in this table would go now: the text selected in the cell, or the current cell's end. */
-  here(): { at: At; start: number; end: number } | null {
-    const [input, head] = [this.input, this.head];
-    if (!head) return null;
-    return input ? { at: head, start: input.selectionStart ?? input.value.length, end: input.selectionEnd ?? input.value.length } : { at: head, start: -1, end: -1 };
   }
 
   // ---------- changing the source ----------
@@ -666,9 +692,9 @@ class Controller {
       if (typeof need === "object") {
         changes.push(need);
         added.push(name);
-      } else if (need === "no-preamble" && !this.warned.has(name)) {
+      } else if (need !== "present" && !this.warned.has(name)) {
         this.warned.add(name);
-        store().notify(`This needs \\usepackage{${name}}, and this file has no preamble to add it to. Add it to your main file's preamble.`, true);
+        store().notify(packageNotice(name, need)!, true);
       }
     }
     this.wanted.clear();
@@ -711,7 +737,7 @@ class Controller {
     if (action === "selectTable") return this.select({ r: 0, c: 0 }, last);
     const style = STYLES[action];
     if (style) return void this.act(setBorders(t, style), "keep");
-    if (action === "bold" || action === "italic") return this.format(action === "bold" ? "textbf" : "textit", null);
+    if (action === "bold" || action === "italic") return this.format(action === "bold" ? "textbf" : "textit");
     if (!cur || !rect) return;
     const edge = EDGES[action];
     if (edge) return void this.act(toggleEdge(t, rect, edge), "keep");
@@ -721,6 +747,7 @@ class Controller {
     switch (action) {
       case "copy":
       case "cut":
+        this.stopEditing(false);
         return this.copy(action === "cut");
       case "selectRow":
         return this.select({ r: rect.top, c: 0 }, { r: rect.bottom, c: last.c });
@@ -829,13 +856,7 @@ class Controller {
     const data = e.clipboardData;
     const rect = this.rect();
     if (!data || !rect) return;
-    let cells: string[][] | null = null;
-    try {
-      const own: unknown = JSON.parse(data.getData(CELLS_TYPE) || "null");
-      if (Array.isArray(own) && own.every((row) => Array.isArray(row) && row.every((x) => typeof x === "string"))) cells = own as string[][];
-    } catch {
-      cells = null;
-    }
+    let cells = ownCells(data);
     const html = cells ? null : copiedFromHtml(data.getData("text/html"));
     if (html) cells = html.map((row) => row.map((cell) => escapeTex(cell.text)));
     if (!cells) {
@@ -1040,10 +1061,15 @@ class Controller {
       if (this.menu !== menu || menu.contains(to)) return;
       this.closeMenu();
       // Out of the menu and out of the table too.
-      if (!this.dom.contains(to)) this.leave();
+      if (!this.dom.contains(to)) this.leave(to);
     });
     document.body.appendChild(menu);
     this.menu = menu;
+    // Fixed on the page, it would be left behind by scrolling: it closes instead.
+    const scroller = this.view.scrollDOM;
+    const onScroll = () => this.closeMenu();
+    scroller.addEventListener("scroll", onScroll, { once: true });
+    this.unmenu = () => scroller.removeEventListener("scroll", onScroll);
     this.menuFrom = from;
     from?.setAttribute("aria-expanded", "true");
     // Keep the whole menu on screen.
@@ -1056,6 +1082,8 @@ class Controller {
   private closeMenu() {
     const menu = this.menu;
     this.menu = null;
+    this.unmenu?.();
+    this.unmenu = null;
     this.menuFrom?.setAttribute("aria-expanded", "false");
     this.menuFrom = null;
     menu?.remove();
@@ -1233,18 +1261,20 @@ function listenOnce() {
     const el = e.target as HTMLElement | null;
     if (!target || !el?.closest) return;
     if (target.controller.dom.contains(el) || el.closest(TOOLS)) return;
+    const left = target.controller;
     target = null;
+    left.release();
   };
   document.addEventListener("focusin", away, true);
   document.addEventListener("mousedown", away, true);
 }
 
 /** The table the tools act on: the one the keyboard is in, or the one it last left for them. */
-function tableTarget(): { controller: Controller; where: { at: At; start: number; end: number } | null } | null {
+function tableTarget(): Controller | null {
   const now = focusedTable();
-  if (now) return { controller: now, where: null };
+  if (now) return now;
   if (target && !target.controller.dom.isConnected) target = null;
-  return target ? { controller: target.controller, where: target } : null;
+  return target?.controller ?? null;
 }
 
 /**
@@ -1254,19 +1284,15 @@ function tableTarget(): { controller: Controller; where: { at: At; start: number
 export const tableInput = {
   /** Set the selected cells, or the selected text of a cell, in `\name`. False when no table is in use. */
   format(name: string): boolean {
-    const t = tableTarget();
-    if (!t) return false;
-    t.controller.format(name, t.where);
-    return true;
+    const table = tableTarget();
+    table?.format(name);
+    return Boolean(table);
   },
   /** Put LaTeX into the cell in use. False when no table is in use. */
   insert(make: (inMath: boolean, next: string) => Insertion): boolean {
-    const t = tableTarget();
-    if (!t) return false;
-    const where = t.where ?? t.controller.here();
-    if (!where) return false;
-    t.controller.insert(make, where);
-    return true;
+    const table = tableTarget();
+    table?.insert(make);
+    return Boolean(table);
   },
 };
 
@@ -1289,6 +1315,9 @@ export class EditableTable extends WidgetType {
     controller.update(view, this.source);
     return true;
   }
+  destroy(dom: HTMLElement) {
+    controllers.get(dom)?.dispose();
+  }
   /** The table handles its own keys and clicks; the editor around it must not act on them. */
   ignoreEvent() {
     return true;
@@ -1296,6 +1325,17 @@ export class EditableTable extends WidgetType {
 }
 
 // ---------- pasting a table ----------
+
+/** Cells copied from a table in this app, as the LaTeX they held, or null. */
+function ownCells(data: DataTransfer): string[][] | null {
+  try {
+    const own: unknown = JSON.parse(data.getData(CELLS_TYPE) || "null");
+    const ok = Array.isArray(own) && own.length > 0 && own.every((row) => Array.isArray(row) && row.length > 0 && row.every((x) => typeof x === "string"));
+    return ok ? (own as string[][]) : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The first table in copied HTML, as Word and Excel put on the clipboard. */
 export function copiedFromHtml(html: string): Copied[][] | null {
@@ -1320,8 +1360,10 @@ export const tablePaste: Extension = EditorView.domEventHandlers({
     const data = event.clipboardData;
     if (!data) return false;
     const plain = data.getData("text/plain");
-    const copied = copiedFromHtml(data.getData("text/html")) ?? copiedFromPlain(plain);
-    const table = copied && copied.flat().length > 1 ? tableFromCopied(copied) : null;
+    // Cells copied here are LaTeX already and go in as they were; others are escaped.
+    const own = ownCells(data);
+    const copied = own ? null : (copiedFromHtml(data.getData("text/html")) ?? copiedFromPlain(plain));
+    const table = own && own.flat().length > 1 ? pasteCells(newTable(own.length, Math.max(...own.map((row) => row.length))), 0, 0, own) : copied && copied.flat().length > 1 ? tableFromCopied(copied) : null;
     // Offered only if it can be written as a table this editor would read back the same.
     if (!table || !parseTable(writeTable(table)).ok) return false;
     event.preventDefault();

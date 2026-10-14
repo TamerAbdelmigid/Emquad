@@ -587,10 +587,14 @@ export function toggleBorders(table: Table): Table {
   return fixRules(t);
 }
 
-/** Give every cell with a description of its own the bars the table now has beside it. */
-function respec(t: Table): Table {
+/**
+ * Give cells with a description of their own the bars the table now has beside them: every
+ * such cell, or only those on vertical boundary `only`.
+ */
+function respec(t: Table, only?: number): Table {
   t.rows.forEach((row) =>
     row.forEach((at, c) => {
+      if (only !== undefined && !(only === 0 && c === 0) && c + at.colSpan !== only) return;
       if (at.spec) at.spec = (c === 0 && t.vrules[0] ? "|" : "") + (/[lcr]/.exec(at.spec)?.[0] ?? t.aligns[c]) + (t.vrules[c + at.colSpan] ? "|" : "");
     }),
   );
@@ -659,8 +663,9 @@ export function toggleEdge(table: Table, block: Rect, edge: Edge): Table {
   const rect = expandRect(t, block);
   const on = !hasEdge(t, rect, edge);
   if (edge === "left" || edge === "right") {
-    t.vrules[edge === "left" ? rect.left : rect.right + 1] = on;
-    return fixRules(respec(t));
+    const b = edge === "left" ? rect.left : rect.right + 1;
+    t.vrules[b] = on;
+    return fixRules(respec(t, b));
   }
   const b = edge === "top" ? rect.top : rect.bottom + 1;
   const was = t.hrules[b];
@@ -780,7 +785,15 @@ export function tableRemoval(text: string, from: number, to: number): Change {
     }
   };
   let [start, stop] = [from, to];
-  for (let level = 0; level < 3; level++) {
+  for (let level = 0; level < 4; level++) {
+    // A box that held nothing else, such as \resizebox{\linewidth}{!}{…}: left empty it
+    // would not compile.
+    const box = /\\(?:resizebox\*?|scalebox|adjustbox|makebox|framebox|fbox|parbox|mbox)\s*(?:\[[^\]]*\]\s*)*(?:\{[^{}]*\}\s*)*\{\s*$/.exec(text.slice(0, start));
+    const shut = /^\s*\}/.exec(text.slice(stop));
+    if (box && shut) {
+      [start, stop] = [box.index, stop + shut[0].length];
+      continue;
+    }
     const opener = [...text.slice(0, start).matchAll(/\\begin\{(table\*?|center)\}(?:\[[^\]]*\])?/g)].pop();
     if (!opener) break;
     const close = `\\end{${opener[1]}}`;
@@ -814,7 +827,7 @@ export interface Change {
  * What to add to a document so that it loads the multirow package: a change to make, "present"
  * when it already does, or "no-preamble" when this file has no preamble to add it to.
  */
-export function ensureMultirow(text: string): Change | "present" | "no-preamble" {
+export function ensureMultirow(text: string): PackageNeed {
   return ensurePackage(text, "multirow");
 }
 
@@ -823,26 +836,44 @@ export function ensureMultirow(text: string): Change | "present" | "no-preamble"
  * document classes that load it themselves.
  */
 const PROVIDED: Record<string, { packages: string[]; classes?: RegExp }> = {
-  amssymb: { packages: ["unicode-math", "newtxmath", "newpxmath", "stix", "stix2", "mathabx", "libertinust1math", "mtpro2"] },
+  amssymb: { packages: ["unicode-math", "newtxmath", "newpxmath", "stix", "stix2", "mathabx", "libertinust1math", "mtpro2", "txfonts", "pxfonts", "kpfonts", "mathdesign"] },
   amsmath: { packages: ["mathtools", "physics", "empheq"], classes: /^ams(?:art|book|proc)$/ },
 };
 
+/**
+ * What adding a package comes to: the change to make, or why there is none. "present": the
+ * document loads it, or something that provides it. "no-preamble": this file has none, being
+ * included by another. "elsewhere": the preamble reads another file, which may load it or
+ * something that clashes with it, so it is left to the user.
+ */
+export type PackageNeed = Change | "present" | "no-preamble" | "elsewhere";
+
 /** The same for any package: what to add so that the document loads `name`. */
-export function ensurePackage(text: string, name: string): Change | "present" | "no-preamble" {
-  const begin = text.indexOf("\\begin{document}");
-  const preamble = begin < 0 ? text : text.slice(0, begin);
-  const uncommented = preamble.replace(/(?<!\\)%.*$/gm, "");
+export function ensurePackage(text: string, name: string): PackageNeed {
+  // Judged on the text with comments and verbatim blanked out, every character in its place:
+  // a \begin{document} in a comment is not where the document begins.
+  const { clean } = uncommented(text);
+  const begin = clean.indexOf("\\begin{document}");
+  const preamble = begin < 0 ? clean : clean.slice(0, begin);
   const also = PROVIDED[name] ?? { packages: [] };
   const names = [name, ...also.packages].map((n) => n.replace(/[-]/g, "\\-")).join("|");
-  if (new RegExp(`\\\\(?:usepackage|RequirePackage)\\s*(?:\\[[^\\]]*\\])?\\s*\\{[^}]*(?<![\\w-])(?:${names})(?![\\w-])[^}]*\\}`).test(uncommented)) return "present";
-  const klass = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/.exec(uncommented);
+  if (new RegExp(`\\\\(?:usepackage|RequirePackage)\\s*(?:\\[[^\\]]*\\])?\\s*\\{[^}]*(?<![\\w-])(?:${names})(?![\\w-])[^}]*\\}`).test(preamble)) return "present";
+  const klass = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/.exec(preamble);
   if (klass && also.classes?.test(klass[1].trim())) return "present";
   if (begin < 0 || !klass) return "no-preamble";
+  if (/\\(?:input|include|import|subimport|InputIfFileExists)(?![a-zA-Z@])/.test(preamble)) return "elsewhere";
   // On a line of its own just before the document starts: the one place in a preamble that
   // is never inside a condition or a group.
   const at = text.lastIndexOf("\n", begin) + 1;
   const lead = text.slice(at, begin);
   return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: `\\usepackage{${name}}\n` } : { from: begin, to: begin, insert: `\n\\usepackage{${name}}\n` };
+}
+
+/** What to tell the user when a package could not be added for them, or null when it could. */
+export function packageNotice(name: string, need: PackageNeed): string | null {
+  if (need === "no-preamble") return `This needs \\usepackage{${name}}, and this file has no preamble to add it to. Add it to your main file's preamble.`;
+  if (need === "elsewhere") return `This needs \\usepackage{${name}}. Your preamble reads another file, which may load it already, so it was not added: check, and add it if it is missing.`;
+  return null;
 }
 
 /** Environments that can carry a caption. */
@@ -1270,18 +1301,24 @@ function inProse(text: string): boolean {
 function mathAt(text: string): Uint8Array {
   const out = new Uint8Array(text.length + 1);
   let math = false;
+  /** The formula open now was opened with a single $. */
+  let inline = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (ch === "\\") {
       const next = text[i + 1];
       if (next === "(" || next === "[") math = true;
       if (next === ")" || next === "]") math = false;
+      inline = false;
       out[i] = out[i + 1] = math ? 1 : 0;
       i++;
     } else if (ch === "$") {
-      // Two together open or close a display, just as one does a formula in the line.
-      if (text[i + 1] === "$") out[i++] = 1;
+      // A $ closes $…$ even with another straight after it: $x$$y$ is two formulas. Two
+      // together otherwise open or close a display, just as one does a formula in the line.
+      const double: boolean = !(math && inline) && text[i + 1] === "$";
+      if (double) out[i++] = 1;
       out[i] = 1;
+      inline = !math && !double;
       math = !math;
     } else out[i] = math ? 1 : 0;
   }

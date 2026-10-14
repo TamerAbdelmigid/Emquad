@@ -270,6 +270,14 @@ export function mathAt(text: string, pos: number): boolean {
         continue;
       }
       const name = /^[a-zA-Z@]+\*?/.exec(text.slice(i + 1, i + 40))![0];
+      if (/^(?:verb|lstinline|Verb)\*?$/.test(name)) {
+        // Verbatim in a line, up to the same mark again: nothing in it is LaTeX.
+        const mark = text[i + 1 + name.length];
+        const close = mark ? text.indexOf(mark, i + 2 + name.length) : -1;
+        if (close < 0 || close >= end) return math();
+        i = close;
+        continue;
+      }
       const env = name === "begin" || name === "end" ? /^\{([^{}]*)\}/.exec(text.slice(i + 1 + name.length, i + 80)) : null;
       if (env && name === "begin" && VERBATIM.test(env[1])) {
         const close = text.indexOf(`\\end{${env[1]}}`, i);
@@ -295,11 +303,14 @@ export function mathAt(text: string, pos: number): boolean {
     else if (ch === "}") {
       if (top() === "}") open.pop();
     } else if (ch === "$") {
-      const double = text[i + 1] === "$";
-      const mark = double ? "$$" : "$";
-      if (top() === mark) open.pop();
-      else open.push({ kind: "math", close: mark });
-      if (double) i++;
+      // Inside $…$ a dollar always closes it, even when another follows at once: $x$$y$ is
+      // two formulas, not one and the start of a display.
+      if (top() === "$") open.pop();
+      else if (text[i + 1] === "$") {
+        if (top() === "$$") open.pop();
+        else open.push({ kind: "math", close: "$$" });
+        i++;
+      } else open.push({ kind: "math", close: "$" });
     }
   }
   return math();

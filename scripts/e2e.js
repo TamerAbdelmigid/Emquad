@@ -586,11 +586,21 @@
 
       // Symbols: written as the place they go needs, into the cell being typed in or the text.
       drag(td(1, 0), td(1, 0));
+      const original = box().value;
+      type(box(), `${original} $`);
       store().set({ symbols: true });
       const search = await until("the symbol panel", () => $(".sym-search"));
       await ok(document.activeElement === search && $$(".sym-grid button").length > 10, "the Symbol panel opens with the keyboard in its search box");
-      type(search, "fraction");
+      type(search, "alpha");
       press(search, "Enter");
+      await until("alpha in the cell", () => box()?.value === `${original} $\\alpha `);
+      await ok(box().classList.contains("bad") && document.activeElement === box(), "a symbol chosen while a formula is half typed in a cell goes into it, as part of the formula, and nothing typed is lost");
+      type(box(), `${original} $\\alpha$`);
+      await ok(tabular().includes(`${original} $\\alpha$`), "and the cell is written once the formula is closed");
+      type(box(), original);
+      store().set({ symbols: true });
+      type(await until("the symbol panel", () => $(".sym-search")), "fraction");
+      press($(".sym-search"), "Enter");
       await until("the fraction in the cell", () => tabular().includes("$\\frac{}{}$"));
       await ok(box()?.closest("td") === td(1, 0) && !$(".sym-pop"), "a structure chosen while typing in a cell goes into that cell, as a formula");
       await until("the symbol remembered", async () => (await invoke("settings_get")).recentSymbols[0] === "\\frac{…}{}");
@@ -646,6 +656,16 @@
       await click("Cancel");
       await until("the plain text", () => src().includes("2025\t50%"));
       await ok(true, "declining pastes the plain text instead");
+      const ours = new DataTransfer();
+      ours.setData("application/x-emquad-cells", JSON.stringify([["\\textbf{a}", "$x^2$"]]));
+      ours.setData("text/html", "<table><tr><td>\\textbf{a}</td><td>$x^2$</td></tr></table>");
+      ours.setData("text/plain", "\\textbf{a}\t$x^2$");
+      buffers.goToLine(5);
+      $(".cm-content").dispatchEvent(new ClipboardEvent("paste", { clipboardData: ours, bubbles: true, cancelable: true }));
+      await until("the paste question for our cells", () => text("dialog[open]").includes("1 row and 2 columns"));
+      await click("Paste as table");
+      await until("our cells", () => src().includes("\\textbf{a} & $x^2$ \\\\"));
+      await ok(!src().includes("textbackslash"), "cells copied from a table here paste into the text as the LaTeX they held");
 
       // The size picker.
       buffers.goToLine(5);

@@ -334,6 +334,11 @@ describe("borders", () => {
     const edged = toggleEdge(t, { top: 1, left: 1, bottom: 1, right: 1 }, "right");
     expect(edged.rows[0][0].spec).toBe("c|");
     expect(read(writeTable(edged))).toEqual(edged);
+    // One that does not touch the line keeps its description as written.
+    const three = read("\\begin{tabular}{lll}\n\\multicolumn{1}{c}{H} & b & c \\\\\n\\end{tabular}");
+    const right = toggleEdge(three, { top: 0, left: 2, bottom: 0, right: 2 }, "right");
+    expect(right.rows[0][0].spec).toBe("c");
+    expect(toggleEdge(three, { top: 0, left: 0, bottom: 0, right: 0 }, "right").rows[0][0].spec).toBe("c|");
   });
 });
 
@@ -414,6 +419,14 @@ describe("deleting a table", () => {
     expect(remove(`A\n${centred}B`)).toBe("A\nB");
   });
 
+  it("takes a box that held only the table, and the float around it", () => {
+    const float = `\\begin{table}[t]\n\\centering\n\\resizebox{\\linewidth}{!}{\n${table}}\n\\caption{C}\n\\end{table}\n`;
+    expect(remove(`A\n${float}B`)).toBe("A\nB");
+    expect(remove(`A \\fbox{${table}} B`)).toBe("A  B");
+    // A box with other text in it keeps that text, and the box.
+    expect(remove(`\\fbox{Key: ${table}}`)).toBe("\\fbox{Key: }");
+  });
+
   it("leaves a float that holds something else as well", () => {
     const float = `\\begin{table}\n\\centering\n${table}\n\\includegraphics{x}\n\\end{table}`;
     expect(remove(float)).toBe("\\begin{table}\n\\centering\n\\includegraphics{x}\n\\end{table}");
@@ -442,6 +455,20 @@ describe("adding a package", () => {
     expect(ensurePackage(DOC.replace("graphicx", "amsmath,amssymb"), "amssymb")).toBe("present");
     expect(ensurePackage(DOC.replace("graphicx", "booktabs"), "booktabs")).toBe("present");
     expect(ensurePackage("\\section{A part}\n", "booktabs")).toBe("no-preamble");
+    expect(ensurePackage(DOC.replace("graphicx", "txfonts"), "amssymb")).toBe("present");
+  });
+
+  it("is not fooled by a comment that mentions the start of the document", () => {
+    const doc = "\\documentclass{article}\n% Packages go before \\begin{document} here\n\\usepackage{amsmath}\n\\begin{document}\nHi\n\\end{document}\n";
+    expect(ensurePackage(doc, "amsmath")).toBe("present");
+    const change = ensurePackage(doc, "amssymb");
+    expect(change).toEqual({ from: doc.indexOf("\\begin{document}\nHi"), to: doc.indexOf("\\begin{document}\nHi"), insert: "\\usepackage{amssymb}\n" });
+    expect(ensurePackage("\\documentclass{article}\n% \\usepackage{amssymb}\n\\begin{document}\n", "amssymb")).not.toBe("present");
+  });
+
+  it("leaves it to the user when the preamble reads another file", () => {
+    expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{preamble}"), "amssymb")).toBe("elsewhere");
+    expect(ensurePackage(DOC.replace("\\usepackage{graphicx}", "\\input{preamble}\n\\usepackage{amssymb}"), "amssymb")).toBe("present");
   });
 });
 
@@ -733,6 +760,9 @@ describe("the text around a table", () => {
     expect(soundCaption("open \\( never closed")).toBe(false);
     expect(soundCaption("$a$$")).toBe(false);
     expect(soundCaption("$$a$")).toBe(false);
+    expect(soundCaption("$x$$y$")).toBe(true);
+    expect(soundCaption("$x$$y$$z$")).toBe(true);
+    expect(escapeInserted("$x$$y$", "$x$$y_1$ a_b")).toBe("$x$$y_1$ a\\_b");
   });
 
   it("finds the smallest change between two versions of a table", () => {

@@ -16,6 +16,7 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 - **Commit `a5f3145`** fixes the two findings of the ninth review of the table editor (below). It passed `pnpm verify`, the end-to-end script, the release smoke test and the installed-copy test, but no independent reviewer has read it. The ninth review's verdict, on `23ec40a`, was "blocking defects found". A review of `a5f3145` alone, scoped to `escapeInserted`, `inProse`, `soundCaption` and `PROSE` in `src/features/editor/tableModel.ts`, would close this.
 - **Commit `13c5737`** (the last tidy-up of comments and packages) was likewise verified but not re-reviewed after the second review of that work.
+- **The fixes to the review of the table tools and symbols** (the commit after `0e87df0` on `feat/word-like-editing`) passed every automated check but have not been reviewed again.
 
 ## Table editor: noted in review, not fixed
 
@@ -60,6 +61,16 @@ All in `src/features/editor/tableModel.ts` unless another file is named. None of
 - **Leaving a cell that is marked as not yet valid** discards what was typed there and shows a notice. It could keep the box open instead.
 - **Undo while typing in a cell** keeps the view where it is, but the text cursor of the document is elsewhere, so the status line shows that position.
 - **No test drives the widget except the end-to-end script.** The model is unit-tested; the controller is not.
+
+## Table tools and symbols: noted, not fixed
+
+From the work on word-processor-style editing (branch `feat/word-like-editing`). The review of its first commit found ten defects; all ten were fixed, each with a test.
+
+- **A symbol put straight after a formula** starts a formula of its own: with the cursor just after `$n$`, ≥ gives `$n$$\geq$`. It compiles and prints the same, but reads untidily. It could go inside the formula before it instead.
+- **Packages loaded by a style file of the user's own** (`\usepackage{mystyle}`) are not looked into. A symbol needing `amssymb` adds it even if `mystyle.sty` loads a font package that clashes with it, such as `newtxmath`. A preamble that reads another file with `\input` is left to the user, with a message.
+- **The left and right edges** from the Borders menu draw a line the whole height of the table, since that is all a column description can say; the menu says so in its tooltips, but a user may expect only the selected cells.
+- **A matrix or `cases` in a table cell** is held back as not yet valid (an environment makes the table one the editor cannot write back), with a message saying so. It could be allowed once the reader understands environments inside cells.
+- **The Symbol panel** inserts one symbol and closes. Several in a row mean opening it again each time (Recent makes this quick).
 
 ## Bundles, comments and spelling: noted in review, not fixed
 
