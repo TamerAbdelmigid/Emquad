@@ -8,7 +8,7 @@ import { Icon, Mark, Menu } from "../design/ui";
 import { EditorPane } from "../features/editor/EditorPane";
 import { buffers, setHandlers } from "../features/editor/buffers";
 import { outline } from "../features/editor/latex";
-import { lspReceive, stopLsp } from "../features/editor/lsp";
+import { lspReceive, setDisplay, stopLsp } from "../features/editor/lsp";
 import { Files } from "../features/files/Files";
 import { Comments } from "../features/comments/Comments";
 import { setCommentPick } from "../features/editor/comments";
@@ -48,6 +48,11 @@ export function App() {
       setStartupBundle(await api.startupFile());
     });
     setHandlers({ save: () => void act.saveAndMaybeCompile(), compile: () => void act.compile(), comment: act.startComment });
+    // Go to definition into a file that is not open opens it.
+    setDisplay(async (path) => {
+      await act.openFile(path, undefined, true);
+      return buffers.showNow(path);
+    });
     // Clicking a commented passage shows its comment.
     setCommentPick((id) => {
       store().set({ comment: id, filesOpen: true, sidePanel: "comments" });

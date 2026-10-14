@@ -348,6 +348,13 @@ export const buffers = {
     if (state) view.focus();
   },
 
+  /** Show an open file now, and give the editor that shows it. */
+  showNow(path: string): EditorView | null {
+    if (!states.has(path) && path !== shownPath) return null;
+    buffers.show(path);
+    return view;
+  },
+
   goToLine(line: number) {
     if (!view) return;
     const target = view.state.doc.line(Math.max(1, Math.min(line, view.state.doc.lines)));

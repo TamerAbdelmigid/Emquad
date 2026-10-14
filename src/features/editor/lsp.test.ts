@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { fileUri, sanitize } from "./lsp";
+import { fileUri, pathFromUri, sanitize } from "./lsp";
 
 describe("fileUri", () => {
   it("encodes awkward names and keeps the drive letter", () => {
@@ -11,6 +11,18 @@ describe("fileUri", () => {
   });
   it("keeps the server of a network share as the host", () => {
     expect(fileUri("\\\\server\\share\\proj", "main.tex")).toBe("file://server/share/proj/main.tex");
+  });
+});
+
+describe("pathFromUri", () => {
+  it("gives the project path a server URI names, however the drive is written", () => {
+    expect(pathFromUri("E:\\My Papers\\thesis", "file:///E:/My%20Papers/thesis/sections/intro.tex")).toBe("sections/intro.tex");
+    expect(pathFromUri("E:\\My Papers\\thesis", "file:///e%3A/My%20Papers/thesis/main.tex")).toBe("main.tex");
+  });
+  it("names nothing outside the project", () => {
+    expect(pathFromUri("E:\\thesis", "file:///E:/other/main.tex")).toBeNull();
+    expect(pathFromUri("E:\\thesis", "file:///E:/thesis2/main.tex")).toBeNull();
+    expect(pathFromUri("E:\\thesis", "file:///E:/thesis/../x.tex")).toBeNull();
   });
 });
 

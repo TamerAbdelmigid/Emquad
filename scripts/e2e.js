@@ -128,6 +128,29 @@
       // Put the buffer back as it is on disk, so the test text is not compiled.
       b.replace("main.tex", (await invoke("file_read", { path: "main.tex" })).text);
       await until("the buffer to be clean again", () => !$(".stab.on .dot"));
+      if (withServer) {
+        // Go to definition opens the file the definition is in, though it is not open.
+        await invoke("file_write", { path: "defs.tex", text: "\\section{Defined}\\label{sec:defined}\n" });
+        b.goToLine(18);
+        b.insert("\\input{defs}\n\\ref{sec:def", "ined}\n");
+        const f12 = () => $(".cm-content").dispatchEvent(new KeyboardEvent("keydown", { key: "F12", bubbles: true, cancelable: true }));
+        let tries = 0;
+        await until(
+          "the file the label is defined in",
+          () => {
+            // Asked again every second and a half, while the server reads the new file.
+            if (store().active !== "defs.tex" && tries++ % 15 === 0) f12();
+            return store().active === "defs.tex";
+          },
+          40000,
+        );
+        await ok(text(".stab.on").includes("defs.tex"), "F12 on a reference opens the file its label is defined in");
+        await act.closeTab("defs.tex");
+        await invoke("file_delete", { path: "defs.tex" });
+        await act.openFile("main.tex");
+        b.replace("main.tex", (await invoke("file_read", { path: "main.tex" })).text);
+        await until("the buffer to be clean again", () => !$(".stab.on .dot"));
+      }
     }
 
     // --- compile
@@ -626,7 +649,7 @@
 
       // A table that cannot be written back exactly is shown, not edited.
       buffers.goToLine(5);
-      buffers.insert("\\begin{tabular}{lp{3cm}}\n a & b \\\\\n\\end{tabular}\n\n");
+      buffers.insert("\\begin{tabular}{lS}\n a & b \\\\\n\\end{tabular}\n\n");
       buffers.goToLine(1);
       const note = await until("the read-only table", () => $(".cm-v-table .cm-v-tnote"));
       await ok(/column type/.test(note.textContent) && $$(".cm-v-tedit").length === 1, "a table with a column type the editor does not know is drawn read-only, with the reason");
