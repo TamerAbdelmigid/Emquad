@@ -84,6 +84,7 @@ export const api = {
   projectSetMain: (path: string) => invoke<ProjectInfo>("project_set_main", { path }),
   projectSetEngine: (engine: string) => invoke<ProjectInfo>("project_set_engine", { engine }),
   projectSetSpellcheck: (language: string) => invoke<ProjectInfo>("project_set_spellcheck", { language }),
+  windowNew: () => invoke<void>("window_new"),
   enginesAvailable: () => invoke<Engines>("engines_available"),
   uiStateSave: (json: string) => invoke<void>("ui_state_save", { json }),
 

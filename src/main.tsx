@@ -15,9 +15,10 @@ import ReactDOM from "react-dom/client";
 import { App } from "./app/App";
 import * as act from "./app/actions";
 import { store } from "./state/store";
+import { getAllWebviewWindows } from "@tauri-apps/api/webviewWindow";
 
-// A handle for end-to-end scripts (scripts/e2e.mjs), present in development builds only.
-if (import.meta.env.DEV) Object.assign(window, { emquad: { act, store } });
+// A handle for end-to-end scripts (scripts/e2e.js), present in development builds only.
+if (import.meta.env.DEV) Object.assign(window, { emquad: { act, store, windows: async () => (await getAllWebviewWindows()).map((w) => w.label) } });
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

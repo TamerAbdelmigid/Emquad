@@ -25,7 +25,9 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 ### Code and Visual
 
-**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets, tables as tables, `\includegraphics` as the picture itself, and citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark). Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile.
+**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets, tables as tables, `\includegraphics` as the picture itself, and citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark). Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile. Pictures are also found in the folders named by `\graphicspath`, and citation names also come from a `.bib` file the document names outside the project, such as `\bibliography{../shared}`.
+
+**The toolbar acts on what is written**, in either mode. The heading menu (Tт) changes the level of the heading the cursor is in, and **Normal text** makes it ordinary text again; on a line with no heading it starts one. **B** and *I* (and Format ▸ Monospace and Emphasis) set the selection in that style, or, when it is in it already, take it out; with nothing selected, they take the group the cursor is in out of the style, or start an empty one to type in.
 
 ### Tables
 
@@ -64,22 +66,26 @@ The right-click menu also has **Cut** and **Copy**, and **Select row**, **Select
 
 **Bold, Italic and Ω from the main toolbar** act on the table you were working in: on the selected cells, or on the cell you were typing in.
 
-**Where Caption works.** A caption in the wrong place stops a document compiling, so the tool acts only on the two plain cases it can be sure of, and otherwise tells you why and changes nothing:
+**Where Caption works.** A caption in the wrong place stops a document compiling, so the tool acts where it can be sure, and otherwise tells you why and changes nothing:
 
-- a table that is a paragraph of its own (a blank line before and after) in the body of an ordinary document such as an `article`, `report` or `book`: it is put in a `table` environment with the caption under it;
-- a table directly inside a `table`, `table*`, `figure` or `subtable` environment, alone there: the caption is added after it, or the float's own caption is changed.
+- a table that is a paragraph of its own (a blank line before and after) in the body of an ordinary document such as an `article`, `report` or `book`, also when it is inside a `center` that holds only it, or follows a `\centering` or `\noindent` line: it is put in a `table` environment, with them, and the caption under it;
+- a table in a `table`, `table*`, `figure` or `subtable` environment, alone there: the caption goes at the end of the float, after any note or space under the table and before the float's `\label`; or the float's own caption is changed. Removing a caption also removes its `\label` when nothing in the document refers to it; when something does, the caption is left and you are told which reference.
 
-It leaves the caption to you, in the source, for a table inside anything else (a `minipage`, `\resizebox{…}`, mathematics, a list), in a file that another file includes, in a document whose preamble defines commands, environments or hooks that themselves begin or end an environment, where something (a note, a line break) is written straight after the table in its float, or where the float has a `\label` and you ask to remove the caption.
+It leaves the caption to you, in the source, for a table inside anything else (a `minipage`, `\resizebox{…}`, mathematics, a list), in a float that also holds a picture, where the float's label has more written after it, in a file that another file includes, in a document that uses a command of its own that begins or ends an environment, or whose preamble reads another file, redefines a float environment or changes what characters mean. A longtable writes its caption as its own first row, so the tool leaves it to the source.
 
 Every action changes your `.tex` file at once, and **Code** shows exactly what was written. Each action is one step for Undo (Ctrl+Z).
 
-**Merging down a column needs the `multirow` package**, and the book style of borders the `booktabs` package. The first time you need one, Emquad adds its `\usepackage` line just before `\begin{document}` and tells you. The same happens when you paste a table from Word or Excel that has cells merged downwards. If the file you are in has no preamble, because it is included from another file, add that line to your main file yourself; Emquad reminds you.
+**Merging down a column needs the `multirow` package**, the book style of borders the `booktabs` package, and aligning a column with a width the `array` package. The first time you need one, Emquad adds its `\usepackage` line just before `\begin{document}` and tells you. The same happens when you paste a table from Word or Excel that has cells merged downwards. If the file you are in has no preamble, because it is included from another file, add that line to your main file yourself; Emquad reminds you.
 
 **Paste from Word or Excel.** Copy a table there and paste it into the editor. Emquad asks whether to paste it as a table; merged cells are kept and characters LaTeX treats specially are escaped. Cancel pastes the plain text.
 
-**Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly is drawn with a note saying why and an **Edit source** link. Examples: a `p{3cm}` column, a table inside a table, a comment, `\verb`, a rule with a thickness such as `\midrule[2pt]`, a rule drawn straight through a merged cell, a `\multirow` over a single row, or `tabularx`. Emquad never rewrites such a table. Before accepting any table it checks that writing it out and reading it again gives the same table, and it makes the same check before every change.
+**Which tables can be edited.** `tabular`, `tabular*`, `tabularx` and `longtable`, with columns `l`, `c`, `r`, `p{…}`, `m{…}`, `b{…}` and `X` (and `>{…}`, `<{…}`, `@{…}` around them); `\hline`, `\cline`, the booktabs rules with their thicknesses, `\cmidrule`, `\addlinespace`, `\rowcolor`, a space set after a row (`\\[2pt]`), comments between rows, `\verb`, and a matrix or even another table inside a cell. Aligning a column with a width writes `>{\centering\arraybackslash}` and the like before it.
 
-When you edit a table you wrote by hand, Emquad lays its source out its own way, one row to a line. The cells, merges and rules are kept as they were.
+**Tables Emquad shows but does not edit.** A table that uses something the editor cannot write back exactly is drawn with a note saying why and an **Edit source** link. Examples: a column type such as siunitx's `S`, `*{3}{l}`, double vertical lines, `\hhline`, dashed rules, a longtable's head and foot, a comment inside a cell, or a rule drawn straight through a merged cell. Emquad never rewrites such a table. Before accepting any table it checks that writing it out and reading it again gives the same table, and it makes the same check before every change.
+
+**Your layout is kept while you type.** Typing in a cell, clearing cells, pasting into them and setting them in bold change only those cells' text, where it stands. A change to the table's shape (rows, columns, merges, borders, alignment) writes it out in Emquad's own layout, one row to a line, keeping its cells, merges, rules and descriptions. A cell written over several lines is typed in as one line, as TeX reads it.
+
+**A line beside only some rows** (from Borders ▸ Line left or right of the selection) is written in those cells' own `\multicolumn` descriptions, as LaTeX allows; beside the whole height of the table it goes in the table's own description.
 
 ### Symbols
 
@@ -101,13 +107,13 @@ Keyboard: the panel opens with the cursor in its search box; the down arrow goes
 
 ### Spelling
 
-Words Emquad does not know are underlined with a wavy line. Only prose is checked: commands, labels, file names, mathematics, comments and the preamble are left alone. Right-click an underlined word, or put the cursor in it and press Ctrl+., to choose a correction or to add the word to your own dictionary. Choose English (US), English (UK) or Off in Settings. The dictionaries are part of the app; nothing you type leaves your computer.
+Words Emquad does not know are underlined with a wavy line. Only prose is checked: commands, labels, file names, mathematics, comments and the preamble are left alone. Right-click an underlined word, or put the cursor in it and press Ctrl+., to choose a correction or to add the word to your own dictionary. In Settings, choose the language: English (US or UK), French, Spanish, Dutch, Russian, or Off; and, under **For this project**, a different language for the project that is open, kept with the project. Settings also lists the words you added, each with a × that takes it out again. The dictionaries are part of the app; nothing you type leaves your computer. The first time French is chosen it takes a few seconds to load.
 
 ### Comments
 
 Select some text and press the speech-bubble button in the toolbar (Ctrl+Alt+M), write your remark and press **Add comment**. The passage is tinted, and the comment appears in the Comments panel, opened from the speech bubble in the left rail. There you can reply, **Resolve** a comment that is dealt with, reopen it, or delete it. Click a comment to go to its passage; click a tinted passage to see its comment.
 
-Comments are kept beside your project, never inside your `.tex` files, and they follow their passage as you edit around it. They travel in bundles: your collaborator sees your comments and you see their replies when the bundle comes back.
+Comments are kept beside your project, never inside your `.tex` files, and they follow their passage as you edit around it. When the passage itself was rewritten by another program, a comment finds it again by the text either side. They travel in bundles: your collaborator sees your comments and you see their replies when the bundle comes back.
 
 ### Searching
 
@@ -149,7 +155,7 @@ Emquad has no accounts and no server. You collaborate by sending one file.
 ### Send your work
 
 1. Press **Export bundle**.
-2. Choose what else to include: the compiled PDF, your comments, and the **LaTeX packages**. With the packages included, the other person can compile with no internet at all; the bundle is larger (the dialog says by how much), and Emquad first checks that your project really does compile offline from them, which takes a few seconds. Write a note about what to look at.
+2. Choose what else to include: the compiled PDF, your comments, and the **LaTeX packages**. With the packages included, the other person can compile with no internet at all. Emquad puts in only the package files your project reads (the dialog gives the most it can add), and first checks that your project really does compile offline from them, which takes a little while. Write a note about what to look at.
 3. Choose where to save. You get one file ending in `.emquad`. Send it any way you like.
 
 Exporting saves a snapshot, so Emquad remembers exactly what you sent.
@@ -173,7 +179,7 @@ The state of your project from just before the import is always kept as a versio
 
 ## Settings
 
-The gear at the bottom of the left rail: your name, whether saving also compiles, the editor's text size, the theme (Fieldwork, Glass or Onyx), the spelling language, and the compiler for the open project.
+The gear at the bottom of the left rail: your name, whether saving also compiles, the editor's text size, the theme (Fieldwork, Glass or Onyx), the spelling language (for the app and for the open project), your own words, and the compiler for the open project.
 
 The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, or `latexmk` if Tectonic is missing. Choose **latexmk** for a document that needs your own TeX installation, for example one that relies on pdfTeX-only features. The choice is saved with the project and travels in its bundles; a compiler that is not on the computer is shown as not found, and compiling with it is refused with a message rather than silently using the other one.
 
@@ -198,6 +204,7 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Correct the misspelled word at the cursor | Ctrl+. |
 | Suggest completions | Ctrl+Space |
 | Go to definition, find references, rename | F12, Shift+F12, F2 |
+| New window, for another project | Ctrl+Shift+N |
 | Leave the editor with the keyboard | Esc, then Tab |
 | Show or hide the file panel | Ctrl+B |
 | Save snapshot | Ctrl+Shift+S |
@@ -207,7 +214,7 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 
 ## Language help
 
-When the footer of the source pane shows **texlab**, the LaTeX language server is running. Completion then knows the packages your document loads, hovering over a command or label shows information about it, F12 goes to where a label or command is defined, Shift+F12 lists where it is used, and F2 renames a label everywhere in the open file. Going to a definition in a file that is not open is not available yet.
+When the footer of the source pane shows **texlab**, the LaTeX language server is running. Completion then knows the packages your document loads, hovering over a command or label shows information about it, F12 goes to where a label or command is defined, opening the file it is in if need be, Shift+F12 lists where it is used, and F2 renames a label everywhere in the open file.
 
 ## Good to know
 
@@ -215,4 +222,4 @@ When the footer of the source pane shows **texlab**, the LaTeX language server i
 - **The compiler.** Emquad uses its bundled compiler, Tectonic. It handles most documents, but ones that depend on pdfTeX-only features or on running external programs (for example the `minted` package) may not compile. If you have a TeX installation, switch such a project to `latexmk` in Settings.
 - **Packages that came in a bundle.** A project opened from a bundle that carried LaTeX packages keeps them in its own `.emquad` folder and compiles from there. They are used by that project only.
 - **File names.** Files whose names contain `~` followed by a digit (such as `notes~1.tex`), and folders named `.git` inside the project, are left alone by Emquad: they are not listed and not saved in versions.
-- **One project and one window at a time.** Opening another project closes the current one. Starting Emquad again, or double-clicking a bundle, uses the window that is already open.
+- **A window for each project.** File ▸ New window (Ctrl+Shift+N) opens another window, for another project. A project open in one window cannot be opened in a second: Emquad brings the first forward. Starting Emquad again, or double-clicking a bundle, uses the window you used last.

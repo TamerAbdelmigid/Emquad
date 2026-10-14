@@ -14,31 +14,24 @@ The order is chosen so that the riskiest unknowns (does the compiler work on thi
 | M3 Source and PDF lookup | Done | Verified on both pdfTeX and XeTeX (Tectonic) output |
 | M4 Snapshots and History | Done | **Changes** in the editor toolbar opens History on the working copy with an undo on each change, rather than marking changes inside the editor |
 | M5 Bundles, review, merge | Done | Starting the app with a bundle as its argument is verified in a release build. The Explorer double-click itself relies on the installer's file association |
-| M6 Language intelligence and release | Done | Completion, templates, settings, resizable panels, the Windows installer with Tectonic and texlab inside, the user guide (`docs/user-guide.md`). texlab 5.26.0 adds completion that knows the packages in use, hover, go to definition, find references and rename; jumping to a definition in a file that is not open is not wired up |
+| M6 Language intelligence and release | Done | Completion, templates, settings, resizable panels, the Windows installer with Tectonic and texlab inside, the user guide (`docs/user-guide.md`). texlab 5.26.0 adds completion that knows the packages in use, hover, go to definition (opening the file it is in), find references and rename |
 
 Known limitations, none of which lose data:
 
-- The table editor edits plain `tabular` tables whose columns are `l`, `c` and `r`. A table with any other column type, a nested environment, a comment, `booktabs`' `\cmidrule`, row colours, a row gap set by hand, `\verb`, a rule with a thickness, a rule drawn through a merged cell, or `\multirow` with a width is drawn read-only and changed in its source. `tabularx`, `tabular*` and `longtable` are always read-only.
-- Editing a hand-written table rewrites it in the editor's own layout: one row to a line, cells separated by ` & `. Its cells, merges, rules and column descriptions are kept; its spacing is not.
-- A horizontal rule that merged cells cross along its whole length is forgotten: splitting those cells later does not bring it back. A rule crossed only in part is drawn around the merged cell and is whole again after a split.
-- Merging across a `booktabs` rule (`\midrule`) turns that rule into an ordinary one, because only an ordinary rule can be drawn around a merged cell.
-- Spaces at the ends of a cell that TeX ignores (space, tab, line end) are not kept when a table is rewritten; characters that print, such as a no-break space, are.
-- The Caption tool is cautious on purpose, and refuses more often than it strictly must. It works for a table that is a paragraph of its own in the body of a document whose class is on a short list of ordinary ones, or directly in a `table`, `table*`, `figure` or `subtable` float (optionally inside `center`), alone there. Anywhere else it refuses and points to the source: in a file with no `\begin{document}` of its own, inside braces, brackets, mathematics or another environment, in a document whose preamble contains any command that begins or ends an environment or group (which includes most home-made environments), where something is written straight after the table in its float, where verbatim text cannot be followed to its end, and where a float's caption belongs to something else in it. It will not remove a caption from a float that has a `\label`. Definitions in files brought in with `\input` are not seen.
-- A cell written over several source lines is read as one line; a table with a blank line inside a cell is read-only.
-- A vertical line drawn from the Borders menu runs the whole height of the table, because a LaTeX column description cannot say otherwise. A line above or below part of a row is a `\cline`, so in the book style it is an ordinary thin rule rather than `\cmidrule`.
-- Splitting an ordinary cell into rows, and merging down a column, need the `multirow` package, and the book style of borders the `booktabs` package. The app adds it to the preamble of the file being edited; when that file has no preamble (it is included by another), it says so and the user adds it to the main file. The same goes for `amssymb` and `amsmath` when a symbol needs them.
-- A matrix or `cases` chosen from the symbol panel while typing in a table cell is held back, because an environment inside a cell makes the table one the editor cannot write back. Write it in the source, or outside the table.
-- A cell holds one line of LaTeX. A line break inside a cell has to be written as LaTeX allows inside `l`, `c` and `r` columns, which is to say not at all without another package.
+- The table editor reads `tabular`, `tabular*`, `tabularx` and `longtable` tables with columns `l`, `c`, `r`, `p{…}`, `m{…}`, `b{…}` and `X`, with `>{…}`, `<{…}`, `@{…}` and `!{…}` around them; `\hline`, `\cline`, the booktabs rules with their thicknesses, `\cmidrule`, `\addlinespace`, `\rowcolor`, row gaps, comments between rows, `\verb`, and environments (a matrix, a table) inside cells. Anything else is drawn read-only and changed in its source: another column type (such as siunitx's `S`, or `*{3}{l}`), double vertical rules, `\hhline`, dashed rules, `\specialrule`, a longtable's head and foot, `\\*`, a comment or a blank line inside a cell, verbatim environments in a cell, and a rule drawn through a merged cell.
+- Typing in cells, clearing them, pasting into them and setting them in bold or italic change only those cells' text, where it stands. Any change to the table's shape (rows, columns, merges, borders, alignment) writes the table out in the editor's own layout: one row to a line. Its cells, merges, rules and descriptions are kept; its spacing is not, nor spaces at the ends of a cell that TeX ignores.
+- A horizontal rule that merged cells cross along its whole length comes back when they are split only in a table ruled between all its rows; otherwise it has to be drawn again.
+- A cell written over several lines keeps its lines until it is typed in: the box shows it as one line, as TeX reads it, and writes it so.
+- The Caption tool still refuses where it cannot be sure the document will compile, and says why: inside braces, brackets, mathematics, a minipage or a list; in a float that also holds a picture or a part with a caption of its own; where the float's label has more written after it; in a document whose body uses a command of its own that begins or ends an environment, or a macro with delimited arguments; where the preamble reads another file (other than `glyphtounicode`), redefines a float environment or changes `\catcode`; and in a file with no preamble of its own. What a class or a style file defines is not read.
+- Packages a table or a symbol needs (`multirow`, `booktabs`, `array`, `amssymb`, `amsmath`) are added to the preamble of the file being edited. When that file has none, or its preamble reads another file that may load them, the app says so and leaves it to the user.
 
-- A bundle's LaTeX packages are every package file the sender's computer holds for the compiler's source, not only the ones the document uses, so the bundle can be larger than strictly needed. The export dialog shows the size.
-- Spelling is English only (US or UK), and one language applies to every project.
-- Exporting with LaTeX packages checks them against the files as saved at that moment. A file saved by another program during the few seconds between the check and the writing of the bundle is not re-checked.
-- When a bundle is opened into an existing empty folder and its packages or comments cannot be installed, the files already written there are left for the user to remove.
-- A comment whose words were all deleted or rewritten outside the app is listed without a place in the text.
-- Visual mode draws `tabular`, `tabularx`, `tabular*` and `longtable` as plain grids: column alignment, vertical rules and merged rows are not shown. Figures are PNG, JPEG, GIF, WebP and PDF; `\graphicspath` is not followed. Citation names come from `.bib` files in the project.
+- A bundle's LaTeX packages are the files compiling its project reads, found with the compiler. When that cannot be told, the whole store goes in, as before; the export dialog shows the largest it can be.
+- Spelling covers English (US and UK), French, Spanish, Dutch and Russian, one language for the app and, if wanted, one for each project. German and Italian are not offered: their word lists are under the GPL only. Portuguese and Polish were tried and left out, because the spelling engine takes from 8 seconds to several minutes to load them. The first load of French pauses the editor for about three seconds.
+- A comment whose words and the text either side of them were all rewritten outside the app is listed without a place in the text.
+- Visual mode draws a table it cannot edit as a plain grid. Figures are PNG, JPEG, GIF, WebP and PDF, found as written or in the `\graphicspath` folders inside the project. Citation names come from `.bib` files in the project and from `.bib` files the document names elsewhere.
 
 - A file in the user's folder whose name contains `~` followed by a digit (such as `chapter~1.tex`), or a folder named `.git` below the top level, is ignored by the app: it is not listed and not stored in versions. The rule behind this is in `03-bundles-and-history.md`.
-- One window only: starting Emquad while it is open, including by double-clicking a bundle, brings the open window forward and hands it the file.
+- Each window has one project open. A project open in one window cannot be opened in a second; trying brings the first forward. Starting Emquad while it is open, including by double-clicking a bundle, brings the window used last forward and hands it the file.
 - If one side turned a folder into a file of the same name while the other added files inside it, Finish merge fails and puts everything back each time, until a decision in the review is changed. The message does not yet say which decision.
 - A bundle made on Linux that holds two folders differing only in capital letters is rejected on Windows with a message about its files not matching its history, rather than one that names the real cause.
 - On macOS, file names with invisible Unicode characters have not been examined for the aliasing that the file-name rule guards against on Windows.
@@ -178,15 +171,12 @@ Evidence: `pnpm verify` (unit, property and real-compile tests), `scripts/e2e.js
 
 ## After version 1
 
-Done since the first release: the table editor (with mouse selection, row and column handles, formatting, border styles and edges, and copy and paste of cells), the symbol panel, visual mode (with tables, figures and citations), the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab, LaTeX packages inside bundles, spell check, comments.
+Done since the first release: the table editor (with mouse selection, row and column handles, formatting, border styles and edges on part of the table, copy and paste of cells, and the wider range of tables listed above), the symbol panel, visual mode (with tables, figures and citations, and a toolbar that acts on what is written), the `latexmk` engine with a per-project setting, editing a conflict by hand, project-wide search, the Glass and Onyx themes, texlab (go to definition opens the file it is in), LaTeX packages inside bundles (only those the project reads), spell check in six languages with a language per project, comments, and a window per project.
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.
 
-1. **Signing the installer** (see `docs/releasing.md`).
-2. **macOS and Linux builds.**
-3. **Visual mode, further**: toolbar actions that act on the drawn document; table columns with a width (`p{…}`) and `\cmidrule` in the table editor.
-4. **Smaller offline bundles**: carry only the package files the document used. This needs the compiler to report them.
-5. **More spelling languages**, and a language per project.
+1. **Signing the installer** (see `docs/releasing.md`). The owner chose on 14 October 2026 to stay unsigned for now.
+2. **macOS and Linux builds.** Left for later by the owner on 14 October 2026; they cannot be built or tried on the Windows development machine.
 
 ## Working agreements
 

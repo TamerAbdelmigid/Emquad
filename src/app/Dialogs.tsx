@@ -58,6 +58,7 @@ const SHORTCUTS: [string, string][] = [
   ["Open History", "Ctrl+Shift+H"],
   ["Export bundle", "Ctrl+Shift+E"],
   ["Import bundle", "Ctrl+Shift+I"],
+  ["New window, for another project", "Ctrl+Shift+N"],
 ];
 
 export function Dialogs() {

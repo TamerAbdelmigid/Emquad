@@ -1,7 +1,7 @@
 import { redo, undo } from "@codemirror/commands";
 import { startCompletion } from "@codemirror/autocomplete";
 import { openSearchPanel } from "@codemirror/search";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Mark, Menu } from "../design/ui";
@@ -58,6 +58,9 @@ export function App() {
       store().set({ comment: id, filesOpen: true, sidePanel: "comments" });
       buffers.showComment(id);
     });
+    // Each window hears only what is meant for it: its own compile, files and language server.
+    const here = getCurrentWebviewWindow();
+    const listen = here.listen.bind(here);
     const off = [
       listen<string>("compile://log", (e) => {
         const log = store().log;
@@ -134,6 +137,7 @@ export function App() {
       else if (e.shiftKey && key === "h") run(() => openHistory());
       else if (e.shiftKey && key === "e") run(() => set({ dialog: "export" }));
       else if (e.shiftKey && key === "i") run(() => void act.importBundle());
+      else if (e.shiftKey && key === "n") run(() => void act.guard(() => api.windowNew()));
       else if (e.altKey && key === "j") run(() => void act.jumpToPdf());
       else if (!e.shiftKey && key === "b") run(() => set({ filesOpen: !store().filesOpen }));
       else if (!e.shiftKey && key === "enter") run(() => void act.compile());
@@ -232,6 +236,7 @@ export function App() {
                   "separator",
                   { label: "New project…", run: () => set({ dialog: "newProject" }) },
                   { label: "Open another folder…", run: () => void act.chooseAndOpenProject() },
+                  { label: "New window", hint: "Ctrl+Shift+N", run: () => void act.guard(() => api.windowNew()) },
                   { label: "Close project", run: () => void act.closeProject() },
                 ]}
               />

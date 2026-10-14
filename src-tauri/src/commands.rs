@@ -14,25 +14,103 @@ use crate::settings::Settings;
 use crate::synctex::{PdfRect, SourcePos, SyncTex};
 use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use ts_rs::TS;
 
 pub struct AppState {
     pub config_dir: PathBuf,
     pub sidecar_dirs: Vec<PathBuf>,
+    /// A `.emquad` file the app was started with.
+    pub startup_file: Mutex<Option<String>>,
+    /// What each window has open, by the window's label.
+    pub sessions: Mutex<HashMap<String, Arc<Session>>>,
+}
+
+/// What one window has open: its project, and what runs for it.
+#[derive(Default)]
+pub struct Session {
     pub project: Mutex<Option<Project>>,
     /// Process id of the compile in flight, if any.
     pub compile_pid: Arc<Mutex<Option<u32>>>,
     /// Held for the length of a compile so only one runs at a time.
     pub compile_lock: Mutex<()>,
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
-    /// A `.emquad` file the app was started with.
-    pub startup_file: Mutex<Option<String>>,
     /// texlab, running for the open project, when it is installed.
     pub language_server: Mutex<Option<crate::lsp::Server>>,
+}
+
+impl AppState {
+    pub fn new(
+        config_dir: PathBuf,
+        sidecar_dirs: Vec<PathBuf>,
+        startup_file: Option<String>,
+    ) -> AppState {
+        AppState {
+            config_dir,
+            sidecar_dirs,
+            startup_file: Mutex::new(startup_file),
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// The session of the window with this label, begun when it is first asked for.
+    pub fn session(&self, label: &str) -> Arc<Session> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(label.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// The window is gone: so is what it had open, its language server and watcher with it.
+    pub fn end_session(&self, label: &str) {
+        let gone = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(label);
+        if let Some(session) = gone {
+            session
+                .language_server
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            session
+                .watcher
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+        }
+    }
+
+    /// The label of another window that has the project in `root` open, if one does.
+    pub fn open_elsewhere(&self, label: &str, root: &Path) -> Option<String> {
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions
+            .iter()
+            .filter(|(other, _)| other.as_str() != label)
+            .find(|(_, s)| {
+                s.project
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_ref()
+                    .is_some_and(|p| same_folder(&p.root, root))
+            })
+            .map(|(other, _)| other.clone())
+    }
+}
+
+/// Whether two paths name the same folder, however they are written.
+fn same_folder(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -59,8 +137,8 @@ pub struct BundleInfo {
     pub known_path: Option<String>,
 }
 
-fn current(state: &AppState) -> Result<Project> {
-    state
+fn current(session: &Session) -> Result<Project> {
+    session
         .project
         .lock()
         .unwrap()
@@ -68,11 +146,30 @@ fn current(state: &AppState) -> Result<Project> {
         .ok_or_else(|| Error::app("no_project", "No project is open"))
 }
 
-fn activate(app: &AppHandle, state: &AppState, project: Project) -> Result<OpenedProject> {
+fn activate(
+    app: &AppHandle,
+    window: &tauri::Window,
+    state: &AppState,
+    session: &Session,
+    project: Project,
+) -> Result<OpenedProject> {
+    // One project in one window: opening it in a second would let two windows write it.
+    if let Some(other) = state.open_elsewhere(window.label(), &project.root) {
+        if let Some(there) = app.get_webview_window(&other) {
+            let _ = there.unminimize();
+            let _ = there.set_focus();
+        }
+        return Err(Error::app(
+            "open_elsewhere",
+            "This project is open in another Emquad window, which is now in front.",
+        ));
+    }
     Settings::update(&state.config_dir, |s| s.remember(&project))?;
 
     let root = project.root.clone();
+    let label = window.label().to_string();
     let handle = app.clone();
+    let to = label.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else { return };
         let paths: Vec<String> = event
@@ -83,32 +180,33 @@ fn activate(app: &AppHandle, state: &AppState, project: Project) -> Result<Opene
             .filter(|p| !p.starts_with(DATA_DIR) && !p.starts_with(".git/") && !p.is_empty())
             .collect();
         if !paths.is_empty() {
-            let _ = handle.emit("project://changed", paths);
+            let _ = handle.emit_to(to.as_str(), "project://changed", paths);
         }
     })
     .map_err(|e| Error::app("watch_failed", e.to_string()))?;
     watcher
         .watch(&project.root, RecursiveMode::Recursive)
         .map_err(|e| Error::app("watch_failed", e.to_string()))?;
-    *state.watcher.lock().unwrap() = Some(watcher);
+    *session.watcher.lock().unwrap() = Some(watcher);
 
     // One language server per open project; the previous project's is stopped by replacing it.
     let server = crate::lsp::find(&state.sidecar_dirs).and_then(|exe| {
         let (messages, closed) = (app.clone(), app.clone());
+        let (to_messages, to_closed) = (label.clone(), label.clone());
         crate::lsp::Server::start(
             &exe,
             &project.root,
             move |message| {
-                let _ = messages.emit("lsp://message", message);
+                let _ = messages.emit_to(to_messages.as_str(), "lsp://message", message);
             },
             move || {
-                let _ = closed.emit("lsp://closed", ());
+                let _ = closed.emit_to(to_closed.as_str(), "lsp://closed", ());
             },
         )
         .ok()
     });
     let language_server = server.is_some();
-    *state.language_server.lock().unwrap() = server;
+    *session.language_server.lock().unwrap() = server;
 
     let opened = OpenedProject {
         root: project.root.to_string_lossy().into_owned(),
@@ -117,8 +215,24 @@ fn activate(app: &AppHandle, state: &AppState, project: Project) -> Result<Opene
         ui_state: fs::read_to_string(project.data_dir().join("state.json")).ok(),
         language_server,
     };
-    *state.project.lock().unwrap() = Some(project);
+    *session.project.lock().unwrap() = Some(project);
     Ok(opened)
+}
+
+// ---------- windows ----------
+
+/// Open another window, at the start screen, for another project. Asynchronous: on Windows a
+/// window built while the main thread waits for the command would never finish.
+#[tauri::command(async)]
+pub fn window_new(app: AppHandle) -> Result<()> {
+    let label = format!("w-{}", uuid::Uuid::new_v4().simple());
+    tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::App("index.html".into()))
+        .title("Emquad")
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(1180.0, 700.0)
+        .build()
+        .map_err(|e| Error::app("window_failed", e.to_string()))?;
+    Ok(())
 }
 
 // ---------- settings ----------
@@ -189,11 +303,13 @@ pub fn startup_file(state: State<AppState>) -> Option<String> {
 #[tauri::command(async)]
 pub fn project_create(
     app: AppHandle,
+    window: tauri::Window,
     state: State<AppState>,
     parent_dir: String,
     name: String,
     template: String,
 ) -> Result<OpenedProject> {
+    let session = state.session(window.label());
     let name = name.trim();
     if name.is_empty() || name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
         return Err(Error::app(
@@ -202,43 +318,65 @@ pub fn project_create(
         ));
     }
     let project = Project::create(&Path::new(&parent_dir).join(name), name, &template)?;
-    activate(&app, &state, project)
+    activate(&app, &window, &state, &session, project)
 }
 
 #[tauri::command(async)]
-pub fn project_open(app: AppHandle, state: State<AppState>, dir: String) -> Result<OpenedProject> {
-    activate(&app, &state, Project::open(Path::new(&dir))?)
+pub fn project_open(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<AppState>,
+    dir: String,
+) -> Result<OpenedProject> {
+    let session = state.session(window.label());
+    activate(
+        &app,
+        &window,
+        &state,
+        &session,
+        Project::open(Path::new(&dir))?,
+    )
 }
 
 #[tauri::command(async)]
-pub fn project_close(state: State<AppState>) {
-    *state.watcher.lock().unwrap() = None;
-    *state.language_server.lock().unwrap() = None;
-    *state.project.lock().unwrap() = None;
+pub fn project_close(window: tauri::Window, state: State<AppState>) {
+    let session = state.session(window.label());
+    *session.watcher.lock().unwrap() = None;
+    *session.language_server.lock().unwrap() = None;
+    *session.project.lock().unwrap() = None;
 }
 
 #[tauri::command(async)]
-pub fn project_tree(state: State<AppState>) -> Result<Vec<TreeNode>> {
-    current(&state)?.tree()
+pub fn project_tree(window: tauri::Window, state: State<AppState>) -> Result<Vec<TreeNode>> {
+    let session = state.session(window.label());
+    current(&session)?.tree()
 }
 
 #[tauri::command(async)]
 pub fn project_search(
+    window: tauri::Window,
     state: State<AppState>,
     query: String,
     match_case: bool,
 ) -> Result<crate::project::SearchResult> {
-    current(&state)?.search(&query, match_case)
+    let session = state.session(window.label());
+    current(&session)?.search(&query, match_case)
 }
 
 #[tauri::command(async)]
-pub fn project_index(state: State<AppState>) -> Result<ProjectIndex> {
-    index::build(&current(&state)?)
+pub fn project_index(window: tauri::Window, state: State<AppState>) -> Result<ProjectIndex> {
+    let session = state.session(window.label());
+    index::build(&current(&session)?)
 }
 
 #[tauri::command(async)]
-pub fn project_set_main(state: State<AppState>, path: String) -> Result<ProjectInfo> {
-    let mut guard = state.project.lock().unwrap();
+pub fn project_set_main(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+) -> Result<ProjectInfo> {
+    let session = state.session(window.label());
+    let mut guard = session.project.lock().unwrap();
     let project = guard
         .as_mut()
         .ok_or_else(|| Error::app("no_project", "No project is open"))?;
@@ -251,8 +389,13 @@ pub fn project_set_main(state: State<AppState>, path: String) -> Result<ProjectI
 }
 
 #[tauri::command(async)]
-pub fn project_set_engine(state: State<AppState>, engine: String) -> Result<ProjectInfo> {
-    let mut guard = state.project.lock().unwrap();
+pub fn project_set_engine(
+    window: tauri::Window,
+    state: State<AppState>,
+    engine: String,
+) -> Result<ProjectInfo> {
+    let session = state.session(window.label());
+    let mut guard = session.project.lock().unwrap();
     let project = guard
         .as_mut()
         .ok_or_else(|| Error::app("no_project", "No project is open"))?;
@@ -261,8 +404,13 @@ pub fn project_set_engine(state: State<AppState>, engine: String) -> Result<Proj
 }
 
 #[tauri::command(async)]
-pub fn project_set_spellcheck(state: State<AppState>, language: String) -> Result<ProjectInfo> {
-    let mut guard = state.project.lock().unwrap();
+pub fn project_set_spellcheck(
+    window: tauri::Window,
+    state: State<AppState>,
+    language: String,
+) -> Result<ProjectInfo> {
+    let session = state.session(window.label());
+    let mut guard = session.project.lock().unwrap();
     let project = guard
         .as_mut()
         .ok_or_else(|| Error::app("no_project", "No project is open"))?;
@@ -293,33 +441,57 @@ pub fn engines_available(state: State<AppState>) -> Engines {
 }
 
 #[tauri::command(async)]
-pub fn ui_state_save(state: State<AppState>, json: String) -> Result<()> {
+pub fn ui_state_save(window: tauri::Window, state: State<AppState>, json: String) -> Result<()> {
+    let session = state.session(window.label());
     atomic_write(
-        &current(&state)?.data_dir().join("state.json"),
+        &current(&session)?.data_dir().join("state.json"),
         json.as_bytes(),
     )
 }
 
 #[tauri::command(async)]
-pub fn file_read(state: State<AppState>, path: String) -> Result<FileContent> {
-    current(&state)?.read_file(&path)
+pub fn file_read(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+) -> Result<FileContent> {
+    let session = state.session(window.label());
+    current(&session)?.read_file(&path)
 }
 
 #[tauri::command(async)]
-pub fn file_write(state: State<AppState>, path: String, text: String) -> Result<()> {
-    current(&state)?.write_file(&path, &text)
+pub fn file_write(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+    text: String,
+) -> Result<()> {
+    let session = state.session(window.label());
+    current(&session)?.write_file(&path, &text)
 }
 
 #[tauri::command(async)]
-pub fn file_create(state: State<AppState>, path: String, is_dir: bool) -> Result<Vec<TreeNode>> {
-    let p = current(&state)?;
+pub fn file_create(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+    is_dir: bool,
+) -> Result<Vec<TreeNode>> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     p.create_entry(&path, is_dir)?;
     p.tree()
 }
 
 #[tauri::command(async)]
-pub fn file_rename(state: State<AppState>, from: String, to: String) -> Result<Vec<TreeNode>> {
-    let p = current(&state)?;
+pub fn file_rename(
+    window: tauri::Window,
+    state: State<AppState>,
+    from: String,
+    to: String,
+) -> Result<Vec<TreeNode>> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     p.rename(&from, &to)?;
     // Comments stay with the file they are about. Losing track of them is not worth failing
     // a rename that has already happened.
@@ -328,19 +500,26 @@ pub fn file_rename(state: State<AppState>, from: String, to: String) -> Result<V
 }
 
 #[tauri::command(async)]
-pub fn file_delete(state: State<AppState>, path: String) -> Result<Vec<TreeNode>> {
-    let p = current(&state)?;
+pub fn file_delete(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+) -> Result<Vec<TreeNode>> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     p.delete(&path)?;
     p.tree()
 }
 
 #[tauri::command(async)]
 pub fn file_import(
+    window: tauri::Window,
     state: State<AppState>,
     sources: Vec<String>,
     dest_dir: String,
 ) -> Result<Vec<TreeNode>> {
-    let p = current(&state)?;
+    let session = state.session(window.label());
+    let p = current(&session)?;
     let sources: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
     p.import_files(&sources, &dest_dir)?;
     p.tree()
@@ -349,23 +528,32 @@ pub fn file_import(
 // ---------- compile ----------
 
 #[tauri::command(async)]
-pub fn compile_run(app: AppHandle, state: State<AppState>) -> Result<BuildOutput> {
-    let project = current(&state)?;
+pub fn compile_run(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<AppState>,
+) -> Result<BuildOutput> {
+    let session = state.session(window.label());
+    let project = current(&session)?;
     // A new request replaces a compile already in flight.
-    compile_cancel(state.clone());
-    let _one_at_a_time = state.compile_lock.lock().unwrap_or_else(|e| e.into_inner());
+    compile_cancel(window.clone(), state.clone());
+    let _one_at_a_time = session
+        .compile_lock
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let engine = compile::pick_engine(&project.info.engine, &state.sidecar_dirs)?;
-    let _ = app.emit("compile://started", engine.name());
+    let _ = app.emit_to(window.label(), "compile://started", engine.name());
     let on_log = |line: &str| {
-        let _ = app.emit("compile://log", line);
+        let _ = app.emit_to(window.label(), "compile://log", line);
     };
-    let output = compile::run(&project, engine.as_ref(), &state.compile_pid, &on_log)?;
+    let output = compile::run(&project, engine.as_ref(), &session.compile_pid, &on_log)?;
     Ok(output)
 }
 
 #[tauri::command(async)]
-pub fn compile_cancel(state: State<AppState>) {
-    if let Some(pid) = state.compile_pid.lock().unwrap().take() {
+pub fn compile_cancel(window: tauri::Window, state: State<AppState>) {
+    let session = state.session(window.label());
+    if let Some(pid) = session.compile_pid.lock().unwrap().take() {
         compile::kill_tree(pid);
     }
 }
@@ -373,8 +561,13 @@ pub fn compile_cancel(state: State<AppState>) {
 /// A picture of the project, for drawing figures in visual mode. `path` is what the source
 /// names, which may leave the extension out, as LaTeX allows.
 #[tauri::command(async)]
-pub fn project_image(state: State<AppState>, path: String) -> Result<tauri::ipc::Response> {
-    let p = current(&state)?;
+pub fn project_image(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+) -> Result<tauri::ipc::Response> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     let found = p
         .find_image(&path)?
         .ok_or_else(|| Error::app("no_image", format!("There is no picture called {path}")))?;
@@ -382,16 +575,18 @@ pub fn project_image(state: State<AppState>, path: String) -> Result<tauri::ipc:
 }
 
 #[tauri::command(async)]
-pub fn pdf_read(state: State<AppState>) -> Result<tauri::ipc::Response> {
-    let bytes = fs::read(compile::pdf_path(&current(&state)?))
+pub fn pdf_read(window: tauri::Window, state: State<AppState>) -> Result<tauri::ipc::Response> {
+    let session = state.session(window.label());
+    let bytes = fs::read(compile::pdf_path(&current(&session)?))
         .map_err(|_| Error::app("no_pdf", "There is no PDF yet. Compile the document first."))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
 /// Save a copy of the compiled PDF wherever the user chose.
 #[tauri::command(async)]
-pub fn pdf_save(state: State<AppState>, dest: String) -> Result<()> {
-    fs::copy(compile::pdf_path(&current(&state)?), dest)
+pub fn pdf_save(window: tauri::Window, state: State<AppState>, dest: String) -> Result<()> {
+    let session = state.session(window.label());
+    fs::copy(compile::pdf_path(&current(&session)?), dest)
         .map_err(|_| Error::app("no_pdf", "There is no PDF yet. Compile the document first."))?;
     Ok(())
 }
@@ -410,18 +605,26 @@ fn synctex(project: &Project) -> Result<SyncTex> {
 }
 
 #[tauri::command(async)]
-pub fn synctex_forward(state: State<AppState>, file: String, line: u32) -> Result<Option<PdfRect>> {
-    Ok(synctex(&current(&state)?)?.forward(&file, line))
+pub fn synctex_forward(
+    window: tauri::Window,
+    state: State<AppState>,
+    file: String,
+    line: u32,
+) -> Result<Option<PdfRect>> {
+    let session = state.session(window.label());
+    Ok(synctex(&current(&session)?)?.forward(&file, line))
 }
 
 #[tauri::command(async)]
 pub fn synctex_inverse(
+    window: tauri::Window,
     state: State<AppState>,
     page: u32,
     x: f64,
     y: f64,
 ) -> Result<Option<SourcePos>> {
-    Ok(synctex(&current(&state)?)?.inverse(page, x, y))
+    let session = state.session(window.label());
+    Ok(synctex(&current(&session)?)?.inverse(page, x, y))
 }
 
 // ---------- history ----------
@@ -431,14 +634,20 @@ fn author(state: &AppState) -> Result<crate::history::Author> {
 }
 
 #[tauri::command(async)]
-pub fn history_list(state: State<AppState>) -> Result<HistoryList> {
-    let p = current(&state)?;
+pub fn history_list(window: tauri::Window, state: State<AppState>) -> Result<HistoryList> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     History::open(&p)?.list(&p)
 }
 
 #[tauri::command(async)]
-pub fn history_snapshot(state: State<AppState>, label: String) -> Result<String> {
-    let p = current(&state)?;
+pub fn history_snapshot(
+    window: tauri::Window,
+    state: State<AppState>,
+    label: String,
+) -> Result<String> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     let label = label.trim();
     let label = if label.is_empty() { "Snapshot" } else { label };
     Ok(History::open(&p)?
@@ -463,11 +672,13 @@ fn trees(
 
 #[tauri::command(async)]
 pub fn history_changed_files(
+    window: tauri::Window,
     state: State<AppState>,
     version: String,
     against: Option<String>,
 ) -> Result<Vec<ChangedFile>> {
-    let p = current(&state)?;
+    let session = state.session(window.label());
+    let p = current(&session)?;
     let h = History::open(&p)?;
     let (old, new) = trees(&p, &h, &version, against.as_deref())?;
     h.changed_files(old, new)
@@ -475,26 +686,33 @@ pub fn history_changed_files(
 
 #[tauri::command(async)]
 pub fn history_file_diff(
+    window: tauri::Window,
     state: State<AppState>,
     version: String,
     against: Option<String>,
     path: String,
 ) -> Result<FileDiff> {
-    let p = current(&state)?;
+    let session = state.session(window.label());
+    let p = current(&session)?;
     let h = History::open(&p)?;
     let (old, new) = trees(&p, &h, &version, against.as_deref())?;
     h.file_diff(old, new, &path)
 }
 
 #[tauri::command(async)]
-pub fn history_restore(state: State<AppState>, version: String) -> Result<String> {
+pub fn history_restore(
+    window: tauri::Window,
+    state: State<AppState>,
+    version: String,
+) -> Result<String> {
+    let session = state.session(window.label());
     if version == WORKING {
         return Err(Error::app(
             "bad_version",
             "The working copy is already current",
         ));
     }
-    let p = current(&state)?;
+    let p = current(&session)?;
     Ok(History::open(&p)?
         .restore(&p, &author(&state)?, &version)?
         .to_string())
@@ -515,8 +733,9 @@ fn package_source(state: &AppState, project: &Project) -> Option<(PathBuf, PathB
 
 /// Whether this project's LaTeX packages can be put in a bundle, and how much they weigh.
 #[tauri::command(async)]
-pub fn packages_info(state: State<AppState>) -> Result<PackagesInfo> {
-    let p = current(&state)?;
+pub fn packages_info(window: tauri::Window, state: State<AppState>) -> Result<PackagesInfo> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     Ok(match package_source(&state, &p) {
         Some((_, store)) => packages::info(&packages::list(&store)?),
         None => PackagesInfo::default(),
@@ -525,6 +744,7 @@ pub fn packages_info(state: State<AppState>) -> Result<PackagesInfo> {
 
 #[tauri::command(async)]
 pub fn bundle_export(
+    window: tauri::Window,
     state: State<AppState>,
     dest: String,
     note: String,
@@ -532,9 +752,13 @@ pub fn bundle_export(
     include_packages: bool,
     include_comments: bool,
 ) -> Result<Manifest> {
-    let p = current(&state)?;
+    let session = state.session(window.label());
+    let p = current(&session)?;
     // Held from the offline check until the bundle is written, so no compile runs between.
-    let _one_at_a_time = state.compile_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let _one_at_a_time = session
+        .compile_lock
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     // The offline check compiles the files as they are now. A file another program writes
     // before the bundle is made would travel unchecked, so the files are looked at again after.
     let checked = if include_packages {
@@ -604,9 +828,14 @@ fn top_up_packages(state: &AppState, project: &Project) {
 }
 
 #[tauri::command(async)]
-pub fn bundle_inspect(state: State<AppState>, path: String) -> Result<BundleInfo> {
+pub fn bundle_inspect(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+) -> Result<BundleInfo> {
+    let session = state.session(window.label());
     let manifest = bundle::read_manifest(Path::new(&path))?;
-    let open = state.project.lock().unwrap().clone();
+    let open = session.project.lock().unwrap().clone();
     let matches_open_project = open.is_some_and(|p| p.info.project_id == manifest.project.id);
     let known_path = Settings::load(&state.config_dir)?
         .recent
@@ -622,8 +851,13 @@ pub fn bundle_inspect(state: State<AppState>, path: String) -> Result<BundleInfo
 
 /// Bring a bundle into the open project for review. Returns the bundle id.
 #[tauri::command(async)]
-pub fn bundle_import(state: State<AppState>, path: String) -> Result<String> {
-    let p = current(&state)?;
+pub fn bundle_import(
+    window: tauri::Window,
+    state: State<AppState>,
+    path: String,
+) -> Result<String> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     let imported = bundle::import_into(&p, &History::open(&p)?, Path::new(&path));
     // Also when the import was refused: an earlier bundle may have given the project a store.
     top_up_packages(&state, &p);
@@ -633,55 +867,76 @@ pub fn bundle_import(state: State<AppState>, path: String) -> Result<String> {
 #[tauri::command(async)]
 pub fn bundle_import_new(
     app: AppHandle,
+    window: tauri::Window,
     state: State<AppState>,
     path: String,
     parent_dir: String,
 ) -> Result<OpenedProject> {
+    let session = state.session(window.label());
     let project = bundle::import_new(Path::new(&path), Path::new(&parent_dir))?;
     top_up_packages(&state, &project);
-    activate(&app, &state, project)
+    activate(&app, &window, &state, &session, project)
 }
 
 #[tauri::command(async)]
-pub fn review_get(state: State<AppState>, bundle_id: String) -> Result<Review> {
-    let p = current(&state)?;
+pub fn review_get(
+    window: tauri::Window,
+    state: State<AppState>,
+    bundle_id: String,
+) -> Result<Review> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     review::get(&p, &History::open(&p)?, &author(&state)?, &bundle_id)
 }
 
 #[tauri::command(async)]
 pub fn review_decide(
+    window: tauri::Window,
     state: State<AppState>,
     bundle_id: String,
     item_id: String,
     decision: Decision,
 ) -> Result<Review> {
-    let p = current(&state)?;
+    let session = state.session(window.label());
+    let p = current(&session)?;
     review::decide(&p, &bundle_id, &item_id, decision)?;
     review::get(&p, &History::open(&p)?, &author(&state)?, &bundle_id)
 }
 
 #[tauri::command(async)]
 pub fn review_edit(
+    window: tauri::Window,
     state: State<AppState>,
     bundle_id: String,
     item_id: String,
     text: String,
 ) -> Result<Review> {
-    let p = current(&state)?;
+    let session = state.session(window.label());
+    let p = current(&session)?;
     let h = History::open(&p)?;
     review::edit(&p, &h, &bundle_id, &item_id, &text)?;
     review::get(&p, &h, &author(&state)?, &bundle_id)
 }
 
 #[tauri::command(async)]
-pub fn review_finish(state: State<AppState>, bundle_id: String) -> Result<String> {
-    let p = current(&state)?;
+pub fn review_finish(
+    window: tauri::Window,
+    state: State<AppState>,
+    bundle_id: String,
+) -> Result<String> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     Ok(review::finish(&p, &History::open(&p)?, &author(&state)?, &bundle_id)?.to_string())
 }
 
 #[tauri::command(async)]
-pub fn review_cancel(state: State<AppState>, bundle_id: String) -> Result<()> {
-    review::cancel(&current(&state)?, &bundle_id)
+pub fn review_cancel(
+    window: tauri::Window,
+    state: State<AppState>,
+    bundle_id: String,
+) -> Result<()> {
+    let session = state.session(window.label());
+    review::cancel(&current(&session)?, &bundle_id)
 }
 
 // ---------- language server ----------
@@ -690,49 +945,109 @@ pub fn review_cancel(state: State<AppState>, bundle_id: String) -> Result<()> {
 // ---------- comments ----------
 
 #[tauri::command(async)]
-pub fn comments_list(state: State<AppState>) -> Result<Vec<Comment>> {
-    Ok(comments::visible(comments::load(&current(&state)?)?))
+pub fn comments_list(window: tauri::Window, state: State<AppState>) -> Result<Vec<Comment>> {
+    let session = state.session(window.label());
+    Ok(comments::visible(comments::load(&current(&session)?)?))
 }
 
 #[tauri::command(async)]
 pub fn comment_add(
+    window: tauri::Window,
     state: State<AppState>,
     path: String,
     anchor: Anchor,
     text: String,
 ) -> Result<Vec<Comment>> {
-    let p = current(&state)?;
+    let session = state.session(window.label());
+    let p = current(&session)?;
     comments::add(&p, &author(&state)?, &path, anchor, &text).map(comments::visible)
 }
 
 #[tauri::command(async)]
-pub fn comment_reply(state: State<AppState>, id: String, text: String) -> Result<Vec<Comment>> {
-    let p = current(&state)?;
+pub fn comment_reply(
+    window: tauri::Window,
+    state: State<AppState>,
+    id: String,
+    text: String,
+) -> Result<Vec<Comment>> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
     comments::reply(&p, &author(&state)?, &id, &text).map(comments::visible)
 }
 
 #[tauri::command(async)]
-pub fn comment_resolve(state: State<AppState>, id: String, resolved: bool) -> Result<Vec<Comment>> {
-    comments::set_resolved(&current(&state)?, &id, resolved).map(comments::visible)
+pub fn comment_resolve(
+    window: tauri::Window,
+    state: State<AppState>,
+    id: String,
+    resolved: bool,
+) -> Result<Vec<Comment>> {
+    let session = state.session(window.label());
+    comments::set_resolved(&current(&session)?, &id, resolved).map(comments::visible)
 }
 
 #[tauri::command(async)]
-pub fn comment_delete(state: State<AppState>, id: String) -> Result<Vec<Comment>> {
-    comments::delete(&current(&state)?, &id).map(comments::visible)
+pub fn comment_delete(
+    window: tauri::Window,
+    state: State<AppState>,
+    id: String,
+) -> Result<Vec<Comment>> {
+    let session = state.session(window.label());
+    comments::delete(&current(&session)?, &id).map(comments::visible)
 }
 
 #[tauri::command(async)]
-pub fn comments_reanchor(state: State<AppState>, moved: Vec<Moved>) -> Result<Vec<Comment>> {
-    comments::reanchor(&current(&state)?, moved).map(comments::visible)
+pub fn comments_reanchor(
+    window: tauri::Window,
+    state: State<AppState>,
+    moved: Vec<Moved>,
+) -> Result<Vec<Comment>> {
+    let session = state.session(window.label());
+    comments::reanchor(&current(&session)?, moved).map(comments::visible)
 }
 
 #[tauri::command(async)]
-pub fn lsp_send(state: State<AppState>, message: String) -> Result<()> {
-    match state.language_server.lock().unwrap().as_ref() {
+pub fn lsp_send(window: tauri::Window, state: State<AppState>, message: String) -> Result<()> {
+    let session = state.session(window.label());
+    match session.language_server.lock().unwrap().as_ref() {
         Some(server) => server.send(&message),
         None => Err(Error::app(
             "lsp_missing",
             "The language server is not running",
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_window_has_its_own_session_and_one_project_is_open_in_one_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = AppState::new(tmp.path().join("config"), Vec::new(), None);
+        let a = Project::create(&tmp.path().join("a"), "a", "article").unwrap();
+        let b = Project::create(&tmp.path().join("b"), "b", "article").unwrap();
+        *state.session("main").project.lock().unwrap() = Some(a.clone());
+        *state.session("w-1").project.lock().unwrap() = Some(b.clone());
+        // Each window sees its own project.
+        assert_eq!(current(&state.session("main")).unwrap().root, a.root);
+        assert_eq!(current(&state.session("w-1")).unwrap().root, b.root);
+        assert!(current(&state.session("w-2")).is_err());
+        // A project open in one window is found from any other, however its path is written.
+        assert_eq!(
+            state.open_elsewhere("w-2", &a.root),
+            Some("main".to_string())
+        );
+        assert_eq!(state.open_elsewhere("main", &a.root), None);
+        let roundabout = tmp.path().join("b").join("..").join("a");
+        assert_eq!(
+            state.open_elsewhere("w-1", &roundabout),
+            Some("main".to_string())
+        );
+        // A closed window takes its project with it.
+        state.end_session("main");
+        assert_eq!(state.open_elsewhere("w-2", &a.root), None);
+        assert!(current(&state.session("main")).is_err());
     }
 }

@@ -17,7 +17,6 @@ pub mod templates;
 
 use commands::AppState;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 /// The command list, with room for the development-only commands of the end-to-end harness.
@@ -75,6 +74,7 @@ macro_rules! handlers {
             commands::dictionary_add,
             commands::dictionary_remove,
             commands::project_image,
+            commands::window_new,
             $($extra),*
         ]
     };
@@ -109,16 +109,23 @@ pub fn run() {
         builder
     } else {
         builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
+            // The window that was used last takes it, or the first there is.
+            let windows = app.webview_windows();
+            let window = windows
+                .values()
+                .find(|w| w.is_focused().unwrap_or(false))
+                .or_else(|| windows.get("main"))
+                .or_else(|| windows.values().next());
+            if let Some(window) = window {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
-            }
-            if let Some(path) = argv
-                .iter()
-                .skip(1)
-                .find(|a| a.to_lowercase().ends_with(".emquad"))
-            {
-                let _ = app.emit("app://open-bundle", path);
+                if let Some(path) = argv
+                    .iter()
+                    .skip(1)
+                    .find(|a| a.to_lowercase().ends_with(".emquad"))
+                {
+                    let _ = app.emit_to(window.label(), "app://open-bundle", path);
+                }
             }
         }))
     };
@@ -131,17 +138,14 @@ pub fn run() {
             let startup_file = std::env::args()
                 .nth(1)
                 .filter(|a| a.to_lowercase().ends_with(".emquad"));
-            app.manage(AppState {
-                config_dir,
-                sidecar_dirs: sidecar_dirs(app),
-                project: Mutex::new(None),
-                compile_pid: Arc::new(Mutex::new(None)),
-                compile_lock: Mutex::new(()),
-                watcher: Mutex::new(None),
-                startup_file: Mutex::new(startup_file),
-                language_server: Mutex::new(None),
-            });
+            app.manage(AppState::new(config_dir, sidecar_dirs(app), startup_file));
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // A closed window takes what it had open with it.
+            if let tauri::WindowEvent::Destroyed = event {
+                window.state::<AppState>().end_session(window.label());
+            }
         })
         .on_page_load(e2e::on_page_load);
     #[cfg(any(debug_assertions, feature = "e2e"))]
@@ -154,11 +158,17 @@ pub fn run() {
         .run(|app, event| {
             // Stop the language server with the app rather than leaving it to notice.
             if let tauri::RunEvent::Exit = event {
-                app.state::<AppState>()
-                    .language_server
+                let state = app.state::<AppState>();
+                let labels: Vec<String> = state
+                    .sessions
                     .lock()
-                    .unwrap()
-                    .take();
+                    .unwrap_or_else(|e| e.into_inner())
+                    .keys()
+                    .cloned()
+                    .collect();
+                for label in labels {
+                    state.end_session(&label);
+                }
             }
         });
 }

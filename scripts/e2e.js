@@ -767,6 +767,15 @@
     await ok(true, "and compiles the project from the packages that came with it");
     await invoke("settings_update", { displayName: "Tamer" });
 
+    // Another project can be opened in a window of its own.
+    await click("File");
+    (await until("the New window item", () => $$(".menu-item").find((i) => i.firstChild?.textContent === "New window"))).click();
+    const labels = await until("a second window", async () => {
+      const all = await window.emquad.windows();
+      return all.length === 2 ? all : null;
+    });
+    await ok(labels.includes("main") && labels.some((l) => l.startsWith("w-")), "File, New window opens a window of its own for another project");
+
     await ok(failures.length === 0, `no script errors in the page${failures.length ? `: ${failures.join(" | ")}` : ""}`);
     await log(`PASS: all ${step} checks passed`);
     await invoke("e2e_exit", { code: 0 });

@@ -12,7 +12,8 @@ use tauri::{Runtime, Webview, webview::PageLoadPayload};
 
 #[cfg(any(debug_assertions, feature = "e2e"))]
 pub fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadPayload<'_>) {
-    if payload.event() != tauri::webview::PageLoadEvent::Finished {
+    // The script drives the first window; another window it opens is left to itself.
+    if payload.event() != tauri::webview::PageLoadEvent::Finished || webview.label() != "main" {
         return;
     }
     let Ok(script_path) = std::env::var("EMQUAD_E2E") else {
