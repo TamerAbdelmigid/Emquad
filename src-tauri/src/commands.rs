@@ -1036,11 +1036,15 @@ pub fn pdf_read(window: tauri::Window, state: State<AppState>) -> Result<tauri::
 #[tauri::command(async)]
 pub fn pdf_save(window: tauri::Window, state: State<AppState>, dest: String) -> Result<()> {
     let session = state.session(window.label());
-    fs::copy(
-        compile::pdf_path(&current(&session)?),
-        pdf_destination(&dest)?,
-    )
-    .map_err(|_| Error::app("no_pdf", "There is no PDF yet. Compile the document first."))?;
+    let dest = pdf_destination(&dest)?;
+    let pdf = compiled_pdf(&current(&session)?)?;
+    // Through a temporary file beside the destination, so a failure leaves no part of one.
+    let parent = dest
+        .parent()
+        .ok_or_else(|| Error::app("bad_path", "The PDF has no folder to go in"))?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    std::io::copy(&mut fs::File::open(&pdf)?, &mut tmp)?;
+    tmp.persist(dest).map_err(|e| Error::Io(e.error))?;
     Ok(())
 }
 

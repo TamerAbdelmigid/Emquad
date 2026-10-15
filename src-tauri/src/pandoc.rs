@@ -121,7 +121,11 @@ fn version(pandoc: &Path) -> Result<(u32, u32, u32)> {
         .next()
         .and_then(|l| l.split_whitespace().nth(1))
         .unwrap_or("");
-    let mut parts = word.split('.').map(|p| p.trim().parse::<u32>().ok());
+    // The digits each part begins with: a test build is called 3.1.6-nightly or the like.
+    let mut parts = word.split('.').map(|p| {
+        let digits: String = p.trim().chars().take_while(char::is_ascii_digit).collect();
+        digits.parse::<u32>().ok()
+    });
     match (parts.next().flatten(), parts.next().flatten()) {
         (Some(major), Some(minor)) => Ok((major, minor, parts.next().flatten().unwrap_or(0))),
         _ => Err(Error::app(
@@ -364,6 +368,12 @@ mod tests {
         assert_eq!(new_enough(old).unwrap_err().code(), "old_pandoc");
         let two_dir = tmp.path().join("two");
         fs::create_dir_all(&two_dir).unwrap();
+        let nightly_dir = tmp.path().join("nightly");
+        fs::create_dir_all(&nightly_dir).unwrap();
+        assert_eq!(
+            version(&stand_in_of(&nightly_dir, 0, "3.1.6-nightly-2023")).unwrap(),
+            (3, 1, 6)
+        );
         let two = stand_in_of(&two_dir, 0, "2.19");
         assert_eq!(version(&two).unwrap(), (2, 19, 0));
         assert_eq!(new_enough(two).unwrap_err().code(), "old_pandoc");

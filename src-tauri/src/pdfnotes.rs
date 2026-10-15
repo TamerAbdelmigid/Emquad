@@ -262,7 +262,11 @@ pub fn change_notes(diffs: &[crate::history::FileDiff], since: &str, locate: Loc
                 let Some((rect, found)) = locate(&diff.path, line) else {
                     continue;
                 };
-                if found >= *new_start + count || !seen.insert((rect.page, rect.y.to_bits())) {
+                // Nor is the last line that prints, which a change after it is found at.
+                if found < *new_start
+                    || found >= *new_start + count
+                    || !seen.insert((rect.page, rect.y.to_bits()))
+                {
                     continue;
                 }
                 match runs.last_mut() {
@@ -405,9 +409,14 @@ mod tests {
 
     /// Each line of main.tex prints 14 points below the last, from 100 down, on page 1; line 50
     /// and on, on page 2. Lines 80 to 89 print nothing, as settings do, and are found at line
-    /// 90. Other files print nowhere.
+    /// 90. Nothing after line 199 prints, so those are found at 199, the last that does. Other
+    /// files print nowhere.
     fn locate(file: &str, line: u32) -> Option<(crate::synctex::PdfRect, u32)> {
-        let line = if (80..90).contains(&line) { 90 } else { line };
+        let line = if (80..90).contains(&line) {
+            90
+        } else {
+            line.min(199)
+        };
         (file == "main.tex").then_some((
             crate::synctex::PdfRect {
                 page: if line < 50 { 1 } else { 2 },
@@ -480,6 +489,8 @@ mod tests {
                 change(70, "gone for good\n", ""),
                 // A setting changed, which prints nothing: the paragraph after it is not marked.
                 change(85, "\\usepackage{old}\n", "\\usepackage{new}\n"),
+                // A line after the last that prints: the last paragraph is not marked.
+                change(250, "\\clearpage\n", "\\clearpage % end of chapter\n"),
             ],
             binary: false,
         };
