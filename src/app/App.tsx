@@ -8,6 +8,7 @@ import { Icon, Mark, Menu } from "../design/ui";
 import { EditorPane, WITH_CHAPTERS } from "../features/editor/EditorPane";
 import { buffers, setHandlers } from "../features/editor/buffers";
 import { outline } from "../features/editor/latex";
+import { onPastedPicture } from "../features/editor/paste";
 import { lspReceive, setDisplay, stopLsp } from "../features/editor/lsp";
 import { Files } from "../features/files/Files";
 import { Comments } from "../features/comments/Comments";
@@ -51,7 +52,14 @@ export function App() {
       void act.applySpelling();
       setStartupBundle(await api.startupFile());
     });
-    setHandlers({ save: () => void act.saveAndMaybeCompile(), compile: () => void act.compile(), comment: act.startComment });
+    setHandlers({
+      save: () => void act.saveAndMaybeCompile(),
+      compile: () => void act.compile(),
+      comment: act.startComment,
+      equation: () => store().set({ dialog: "equation" }),
+    });
+    // A picture pasted on its own, such as a screenshot, becomes a figure.
+    onPastedPicture((file) => void act.addPictures([{ file }]));
     // Go to definition into a file that is not open opens it.
     setDisplay(
       async (path) => {
@@ -80,6 +88,13 @@ export function App() {
       listen("lsp://closed", () => {
         stopLsp();
         store().set({ languageServer: false });
+      }),
+      // Files dragged from elsewhere: the editor shows where they will go, and takes them.
+      here.onDragDropEvent((e) => {
+        const p = e.payload;
+        if (p.type === "enter" || p.type === "over") document.body.dataset.dropping = "";
+        else delete document.body.dataset.dropping;
+        if (p.type === "drop") void act.dropFiles(p.paths, p.position.x / window.devicePixelRatio, p.position.y / window.devicePixelRatio);
       }),
       // Closing the window saves what is not saved yet.
       here.onCloseRequested(async (e) => {
@@ -284,6 +299,7 @@ export function App() {
                   { label: "Bibliography", run: () => void act.insertBibliography() },
                   { label: "Citation style…", run: () => set({ dialog: "citationStyle" }) },
                   "separator",
+                  { label: "Equation…", hint: "Alt+=", run: () => set({ dialog: "equation" }) },
                   { label: "Formula in the line", run: () => buffers.insertInline((inMath) => (inMath ? { before: "", after: "" } : { before: "$", after: "$" })) },
                   { label: "Symbol…", run: () => set({ symbols: true }) },
                 ]}

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog } from "../design/ui";
 import { type Engines, type PackagesInfo, api } from "../ipc/api";
 import { useStore } from "../state/store";
 import {
   addReference,
   applyFix,
+  applyFormula,
   applySetup,
   applySpelling,
   cite,
@@ -13,6 +14,7 @@ import {
   currentCitationStyle,
   currentSetup,
   exportBundle,
+  formulaHere,
   guard,
   helpFor,
   openFile,
@@ -21,6 +23,8 @@ import {
 import type { Setup } from "../features/editor/documentSetup";
 import type { Reference } from "../features/editor/bib";
 import { STYLES } from "../features/editor/citationStyle";
+import { type Formula, type Placement, STRUCTURES, SYMBOLS } from "../features/editor/equation";
+import { typeset } from "../features/editor/inlineTex";
 
 const TEMPLATES = [
   { id: "article", label: "Article", note: "A paper with abstract and sections" },
@@ -63,6 +67,8 @@ const SHORTCUTS: [string, string][] = [
   ["Find and replace", "Ctrl+F"],
   ["Search the project", "Ctrl+Shift+F"],
   ["Comment on the selected text", "Ctrl+Alt+M"],
+  ["Equation editor", "Alt+="],
+  ["Paste without formatting", "Ctrl+Shift+V"],
   ["In a table: next or previous cell", "Tab, Shift+Tab"],
   ["In a table: select cells", "Shift+arrow keys"],
   ["In a table: open its menu", "Shift+F10"],
@@ -96,6 +102,7 @@ export function Dialogs() {
       {dialog === "cite" && <CiteDialog onClose={close} />}
       {dialog === "reference" && <ReferenceDialog onClose={close} />}
       {dialog === "citationStyle" && <CitationStyleDialog onClose={close} />}
+      {dialog === "equation" && <EquationDialog onClose={close} />}
       {dialog === "shortcuts" && (
         <Dialog title="Keyboard shortcuts" onClose={close}>
           <dl className="keys">
@@ -512,6 +519,118 @@ function CitationStyleDialog({ onClose }: { onClose: () => void }) {
           </div>
         </form>
       )}
+    </Dialog>
+  );
+}
+
+/**
+ * A formula written with a preview of how it prints, as Word's equation editor has it: on the
+ * formula the cursor is in, or a new one.
+ */
+function EquationDialog({ onClose }: { onClose: () => void }) {
+  const [was] = useState<Formula | null>(() => formulaHere());
+  const [tex, setTex] = useState(was?.tex ?? "");
+  const [placement, setPlacement] = useState<Placement>(was?.placement ?? "inline");
+  const field = useRef<HTMLTextAreaElement>(null);
+  const preview = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = preview.current;
+    if (!el) return;
+    el.className = "eq-preview";
+    el.textContent = "";
+    if (tex.trim()) typeset(el, tex, placement !== "inline");
+  }, [tex, placement]);
+  /** Write `before` and `after` around what is selected in the field, the cursor after `before`. */
+  const put = (before: string, after = "") => {
+    const el = field.current;
+    if (!el) return;
+    const { selectionStart: from, selectionEnd: to } = el;
+    const chosen = tex.slice(from, to);
+    setTex(tex.slice(0, from) + before + chosen + after + tex.slice(to));
+    requestAnimationFrame(() => {
+      el.focus();
+      const at = from + before.length;
+      el.setSelectionRange(at, at + chosen.length);
+    });
+  };
+  return (
+    <Dialog
+      title={was ? "Change equation" : "Equation"}
+      intro="Write the formula in LaTeX, or build it with the buttons; the preview shows how it will print."
+      onClose={onClose}
+      wide
+    >
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void applyFormula(tex, placement, was);
+        }}
+      >
+        <div className="eq-tools" role="group" aria-label="Structures">
+          {STRUCTURES.map((s) => (
+            <button key={s.title} type="button" className="btn" title={s.title} aria-label={s.title} onClick={() => put(s.before, s.after)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="eq-tools" role="group" aria-label="Symbols">
+          {SYMBOLS.map(([shown, command]) => (
+            <button key={command} type="button" className="btn sym" title={command} aria-label={command} onClick={() => put(`${command} `)}>
+              {shown}
+            </button>
+          ))}
+        </div>
+        <div className="f">
+          <label htmlFor="eq-tex">Formula</label>
+          <textarea
+            id="eq-tex"
+            ref={field}
+            className="eq-tex"
+            rows={3}
+            autoFocus
+            spellCheck={false}
+            value={tex}
+            placeholder="x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"
+            onChange={(e) => setTex(e.target.value)}
+            onKeyDown={(e) => {
+              // Ctrl+Enter puts it in, as it compiles elsewhere.
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                void applyFormula(tex, placement, was);
+              }
+            }}
+          />
+        </div>
+        <div className="eq-preview-box" aria-label="Preview">
+          <div ref={preview} className="eq-preview" />
+          {!tex.trim() && <span className="eq-empty">The preview shows here.</span>}
+        </div>
+        <fieldset>
+          <legend>Set it</legend>
+          {(
+            [
+              ["inline", "In the line of text", "like $x^2$"],
+              ["display", "On a line of its own", "centred"],
+              ["numbered", "On a line of its own, numbered", "(1), to refer to"],
+            ] as [Placement, string, string][]
+          ).map(([value, label, note]) => (
+            <label className="ck" key={value}>
+              <input id={`eq-${value}`} type="radio" name="eq-placement" checked={placement === value} onChange={() => setPlacement(value)} />
+              <span>{label}</span>
+              <small>{note}</small>
+            </label>
+          ))}
+        </fieldset>
+        <div className="end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn go" disabled={!tex.trim()}>
+            {was ? "Change" : "Insert"}
+          </button>
+        </div>
+      </form>
     </Dialog>
   );
 }

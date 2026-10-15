@@ -97,6 +97,11 @@ export const api = {
   fileDelete: (path: string) => invoke<TreeNode[]>("file_delete", { path }),
   fileImport: (sources: string[], destDir: string) =>
     invoke<TreeNode[]>("file_import", { sources, destDir }),
+  /** Add a pasted picture to the project folder `dir`; the project path it was given. */
+  pictureAdd: (dir: string, name: string, bytes: Uint8Array) =>
+    invoke<string>("picture_add", bytes, { headers: { "x-dir": encodeURIComponent(dir), "x-name": encodeURIComponent(name) } }),
+  /** Copy a picture from elsewhere on disk into the project folder `dir`; the project path it was given. */
+  pictureImport: (source: string, dir: string) => invoke<string>("picture_import", { source, dir }),
 
   projectImage: (path: string) => invoke<ArrayBuffer>("project_image", { path }),
 

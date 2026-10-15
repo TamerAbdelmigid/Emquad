@@ -104,6 +104,36 @@ pub fn as_text(bytes: &[u8]) -> Option<&str> {
     std::str::from_utf8(bytes).ok()
 }
 
+/// The kinds of picture LaTeX shows, by extension.
+pub const PICTURES: [&str; 4] = ["png", "jpg", "jpeg", "pdf"];
+/// The most a picture added to a project may weigh.
+pub const MAX_PICTURE: u64 = 64 << 20;
+
+/// Copy a file to `dest` only if nothing is there, through a temporary file so that a failure
+/// never leaves part of one.
+fn copy_new(src: &Path, dest: &Path) -> Result<()> {
+    let parent = dest
+        .parent()
+        .ok_or_else(|| Error::app("bad_path", "File has no parent directory"))?;
+    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
+    std::io::copy(&mut fs::File::open(src)?, &mut tmp)?;
+    tmp.flush()?;
+    tmp.persist_noclobber(dest).map_err(|e| {
+        if e.error.kind() == std::io::ErrorKind::AlreadyExists {
+            Error::app(
+                "exists",
+                format!(
+                    "The project has {} already.",
+                    dest.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            )
+        } else {
+            Error::Io(e.error)
+        }
+    })?;
+    Ok(())
+}
+
 /// Write through a temporary file in the same directory so a failure never leaves a partial file.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path
@@ -605,19 +635,112 @@ impl Project {
         Ok(result)
     }
 
-    /// Copy files from elsewhere on disk into a project folder.
+    /// Copy files from elsewhere on disk into a project folder. A file of the project is never
+    /// replaced: if any of the names is taken, nothing is copied and the user is told which.
     pub fn import_files(&self, sources: &[PathBuf], dest_dir: &str) -> Result<()> {
         let dest = self.resolve(dest_dir)?;
-        fs::create_dir_all(&dest)?;
+        let mut names = Vec::new();
         for src in sources {
             let name = src
                 .file_name()
                 .and_then(|n| n.to_str())
                 .ok_or_else(|| Error::app("bad_path", "Source has no usable file name"))?;
             check_component(name)?;
-            fs::copy(src, dest.join(name))?;
+            names.push(name);
+        }
+        let taken: Vec<&str> = names
+            .iter()
+            .copied()
+            .filter(|name| dest.join(name).exists())
+            .collect();
+        if !taken.is_empty() {
+            return Err(Error::app(
+                "exists",
+                format!(
+                    "The project has {} already. Rename or delete it there first, so it is not replaced.",
+                    taken.join(", ")
+                ),
+            ));
+        }
+        fs::create_dir_all(&dest)?;
+        for (src, name) in sources.iter().zip(names) {
+            copy_new(src, &dest.join(name))?;
         }
         Ok(())
+    }
+
+    /// Put a picture into the folder `dir` of the project (`""` for its own), under `name` made
+    /// plain for LaTeX, or under a name like it when that one is taken by another file: never
+    /// over a file. A picture that is there already, byte for byte, is not added twice. The
+    /// project path it has.
+    pub fn add_picture(&self, dir: &str, name: &str, bytes: &[u8]) -> Result<String> {
+        let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+        let ext = ext.to_ascii_lowercase();
+        if !PICTURES.contains(&ext.as_str()) {
+            return Err(Error::app(
+                "not_picture",
+                format!("{name} is not a picture LaTeX can show. Use PNG, JPEG or PDF."),
+            ));
+        }
+        if bytes.len() as u64 > MAX_PICTURE {
+            return Err(Error::app(
+                "too_large",
+                format!("{name} is larger than 64 MB, too large for a picture in a document."),
+            ));
+        }
+        // LaTeX reads a name with spaces, dots or accents in it badly, if at all.
+        let plain: String = stem
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let plain = plain.trim_matches('-');
+        let plain = if plain.is_empty() { "picture" } else { plain };
+        let dir = dir.trim_matches('/');
+        let folder = if dir.is_empty() {
+            self.root.clone()
+        } else {
+            self.resolve(dir)?
+        };
+        fs::create_dir_all(&folder)?;
+        let mut tmp = tempfile::NamedTempFile::new_in(&folder)?;
+        tmp.write_all(bytes)?;
+        tmp.flush()?;
+        for n in 1..1000 {
+            let file = if n == 1 {
+                format!("{plain}.{ext}")
+            } else {
+                format!("{plain}-{n}.{ext}")
+            };
+            check_component(&file)?;
+            let rel = if dir.is_empty() {
+                file
+            } else {
+                format!("{dir}/{file}")
+            };
+            let path = self.resolve(&rel)?;
+            match fs::read(&path) {
+                Ok(there) if there == bytes => return Ok(rel),
+                Ok(_) => continue,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e.into()),
+            }
+            // Put in place only if nothing has the name, even a file made a moment ago.
+            match tmp.persist_noclobber(&path) {
+                Ok(_) => return Ok(rel),
+                Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => tmp = e.file,
+                Err(e) => return Err(Error::Io(e.error)),
+            }
+        }
+        Err(Error::app(
+            "exists",
+            format!("Too many pictures are called {plain} already. Rename one, then try again."),
+        ))
     }
 }
 
@@ -671,6 +794,75 @@ mod tests {
         ] {
             assert!(clean_rel(good).is_ok(), "{good} should be accepted");
         }
+    }
+
+    #[test]
+    fn a_picture_is_added_under_a_plain_name_and_never_over_another_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        assert_eq!(
+            p.add_picture("figures", "My plot (v2).PNG", b"one")
+                .unwrap(),
+            "figures/My-plot--v2.png"
+        );
+        // The same picture again is the one there; another under that name gets one of its own.
+        assert_eq!(
+            p.add_picture("figures/", "My plot (v2).png", b"one")
+                .unwrap(),
+            "figures/My-plot--v2.png"
+        );
+        assert_eq!(
+            p.add_picture("figures", "My plot (v2).png", b"two")
+                .unwrap(),
+            "figures/My-plot--v2-2.png"
+        );
+        assert_eq!(
+            fs::read(p.root.join("figures/My-plot--v2.png")).unwrap(),
+            b"one"
+        );
+        assert_eq!(
+            p.add_picture("", "ünïcode.jpg", b"x").unwrap(),
+            "n-code.jpg"
+        );
+        assert_eq!(p.add_picture("", ".png", b"x").unwrap(), "picture.png");
+        for refused in ["plot.gif", "plot", "notes.tex"] {
+            assert_eq!(
+                p.add_picture("", refused, b"x").unwrap_err().code(),
+                "not_picture"
+            );
+        }
+        assert!(p.add_picture("../out", "a.png", b"x").is_err());
+        // Nothing but the pictures was left behind.
+        let mut names: Vec<String> = fs::read_dir(p.root.join("figures"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["My-plot--v2-2.png", "My-plot--v2.png"]);
+    }
+
+    #[test]
+    fn files_added_from_disk_never_replace_the_project_s_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("main.tex"), "theirs").unwrap();
+        fs::write(outside.join("new.tex"), "new").unwrap();
+        let before = fs::read_to_string(p.root.join("main.tex")).unwrap();
+        let err = p
+            .import_files(&[outside.join("new.tex"), outside.join("main.tex")], "")
+            .unwrap_err();
+        assert_eq!(err.code(), "exists");
+        assert_eq!(fs::read_to_string(p.root.join("main.tex")).unwrap(), before);
+        // Nothing at all was copied, not even the file whose name was free.
+        assert!(!p.root.join("new.tex").exists());
+        p.import_files(&[outside.join("new.tex")], "chapters")
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(p.root.join("chapters/new.tex")).unwrap(),
+            "new"
+        );
     }
 
     #[test]

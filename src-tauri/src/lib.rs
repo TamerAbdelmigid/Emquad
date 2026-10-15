@@ -45,6 +45,8 @@ macro_rules! handlers {
             commands::file_rename,
             commands::file_delete,
             commands::file_import,
+            commands::picture_add,
+            commands::picture_import,
             commands::compile_run,
             commands::compile_cancel,
             commands::pdf_read,

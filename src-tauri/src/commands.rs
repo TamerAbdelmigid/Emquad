@@ -695,6 +695,84 @@ pub fn file_import(
     p.tree()
 }
 
+/// Text the page sent percent-encoded, as `encodeURIComponent` writes it, so that any name can
+/// travel in a header.
+fn percent_decoded(text: &str) -> Result<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = text
+                .get(i + 1..i + 3)
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+                .ok_or_else(|| Error::app("bad_path", "A name was not encoded properly"))?;
+            out.push(hex);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).map_err(|_| Error::app("bad_path", "A name was not encoded properly"))
+}
+
+/// Add a picture pasted from the clipboard to the project, under a name of its own: its bytes
+/// are the body of the request, the folder and the name it is wanted under are in its headers.
+/// The project path it was given.
+#[tauri::command(async)]
+pub fn picture_add(
+    window: tauri::Window,
+    state: State<AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(Error::app("bad_request", "The picture did not arrive"));
+    };
+    let header = |name: &str| -> Result<String> {
+        percent_decoded(
+            request
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+        )
+    };
+    let session = state.session(window.label());
+    let project = current(&session)?;
+    let path = project.add_picture(&header("x-dir")?, &header("x-name")?, bytes)?;
+    session.own_writes.record(&path, &project.resolve(&path)?);
+    Ok(path)
+}
+
+/// Copy a picture the user dropped on the window into the project, under a name of its own.
+/// The project path it was given.
+#[tauri::command(async)]
+pub fn picture_import(
+    window: tauri::Window,
+    state: State<AppState>,
+    source: String,
+    dir: String,
+) -> Result<String> {
+    let source = PathBuf::from(source);
+    let name = source
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if fs::metadata(&source)?.len() > crate::project::MAX_PICTURE {
+        return Err(Error::app(
+            "too_large",
+            format!("{name} is larger than 64 MB, too large for a picture in a document."),
+        ));
+    }
+    let bytes = fs::read(&source)?;
+    let session = state.session(window.label());
+    let project = current(&session)?;
+    let path = project.add_picture(&dir, &name, &bytes)?;
+    session.own_writes.record(&path, &project.resolve(&path)?);
+    Ok(path)
+}
+
 // ---------- compile ----------
 
 #[tauri::command(async)]

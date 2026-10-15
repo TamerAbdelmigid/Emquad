@@ -96,6 +96,12 @@ export function inGroup(text: string, pos: number): boolean {
 
 /** The text last copied or cut in the editor, which is LaTeX and is pasted back as it was. */
 let copiedHere = "";
+/** What is done with a picture pasted on its own: the app adds it to the project. */
+let pastedPicture: (file: File) => void = () => {};
+export function onPastedPicture(add: (file: File) => void) {
+  pastedPicture = add;
+}
+
 /** The next paste is of the words alone: Ctrl+Shift+V was pressed. */
 let plainNext = false;
 /** Text compared as copied: line ends and a final line break do not count. */
@@ -132,6 +138,13 @@ export const prosePaste: Extension = EditorView.domEventHandlers({
     const text = data?.getData("text/plain") ?? "";
     const plain = plainNext;
     plainNext = false;
+    // A picture on its own, such as a screenshot, is added to the project as a figure.
+    const picture = [...(data?.files ?? [])].find((f) => /^image\/(png|jpeg)$/.test(f.type));
+    if (picture && !text.trim()) {
+      event.preventDefault();
+      pastedPicture(picture);
+      return true;
+    }
     if (!text || same(text) === same(copiedHere)) return false;
     const main = view.state.selection.main;
     const doc = view.state.doc.toString();

@@ -1,9 +1,11 @@
 // What the app can do, as plain functions over the store, the editor buffers and the backend.
 // Components call these; they never talk to the backend for a multi-step action themselves.
-import { relativeTo, resolveFrom } from "./paths";
+import { relativeTo, resolveFrom } from "../shared/paths";
 import { documentStart } from "../features/editor/visualModel";
 import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, unclosedEntry } from "../features/editor/bib";
 import { citeCommand, readStyle, styleChanges } from "../features/editor/citationStyle";
+import { PICTURE, figureFor, pictureFolder } from "../features/editor/pictures";
+import { type Formula, type Placement, formulaAt, writeFormula } from "../features/editor/equation";
 import { type Setup, readSetup, setupChange } from "../features/editor/documentSetup";
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
 import { ensurePackage, packageNotice } from "../features/editor/tableModel";
@@ -290,16 +292,119 @@ export async function addReference(ref: Reference) {
     store().set({ dialog: null });
     await cite([key]);
     // A web page's address is written with \url, which the url package gives (hyperref too).
-    const main = store().info?.mainFile;
-    const text = await mainText();
-    const styles = store().index.stylePackages;
-    if (main && ref.kind === "online" && ref.url.trim() && ensurePackage(text, "hyperref", styles) !== "present") {
-      const need = ensurePackage(text, "url", styles);
-      if (typeof need !== "object") return;
-      if (buffers.has(main)) buffers.change(main, need);
-      else await api.fileWrite(main, text.slice(0, need.from) + need.insert + text.slice(need.to));
-      store().notify(`Added \\usepackage{url} to the settings at the top of ${main}, to print the web address.`);
+    if (ref.kind === "online" && ref.url.trim() && ensurePackage(await mainText(), "hyperref", store().index.stylePackages) !== "present") {
+      await loadInMain("url", "to print the web address");
     }
+  });
+}
+
+/**
+ * Have the document load a package, in the settings at the top of its main file, and say so;
+ * nothing when it loads it already, or its settings are where Emquad cannot be sure of them.
+ */
+async function loadInMain(name: string, why: string) {
+  const main = store().info?.mainFile;
+  if (!main) return;
+  const text = await mainText();
+  const need = ensurePackage(text, name, store().index.stylePackages);
+  if (typeof need !== "object") return;
+  // In its editor when it is open, so that edits not yet saved there are kept.
+  if (buffers.has(main)) buffers.change(main, need);
+  else await api.fileWrite(main, text.slice(0, need.from) + need.insert + text.slice(need.to));
+  store().notify(`Added \\usepackage{${name}} to the settings at the top of ${main}, ${why}.`);
+}
+
+// ---------- equations ----------
+
+/** The formula the cursor is in, in the file on screen, for the equation editor to change. */
+export function formulaHere(): Formula | null {
+  const path = store().active;
+  const at = buffers.cursorAt();
+  const text = path ? buffers.text(path) : undefined;
+  return text === undefined || at === null ? null : formulaAt(text, at);
+}
+
+/**
+ * Put a formula from the equation editor into the document: in place of the one it was opened
+ * on, or where the cursor is. A formula that uses amsmath's matrices, cases or words has the
+ * package loaded.
+ */
+export async function applyFormula(tex: string, placement: Placement, was: Formula | null) {
+  const path = store().active;
+  if (!path || !tex.trim()) return;
+  await guard(async () => {
+    if (was) buffers.change(path, { from: was.from, to: was.to, insert: writeFormula(tex, placement, was.label) });
+    else if (placement === "inline") buffers.insertInline((inMath) => ({ before: inMath ? tex.trim() : writeFormula(tex, "inline"), after: "" }));
+    else {
+      const block = writeFormula(tex, placement);
+      buffers.insertBlock(`${block}\n`, block.length + 1);
+    }
+    store().set({ dialog: null });
+    if (/\\(?:text|[pbvBV]?matrix|cases|dfrac|tfrac|binom)\b|\\begin\{(?:align|gather|multline)/.test(tex)) {
+      await loadInMain("amsmath", "which the formula needs");
+    }
+  });
+}
+
+// ---------- pictures ----------
+
+/**
+ * Files dropped on the window from elsewhere: a bundle is opened; pictures dropped on the text
+ * become figures there; anything else is added to the project, as Add files from disk does.
+ */
+export async function dropFiles(paths: string[], x: number, y: number) {
+  if (paths.length === 1 && paths[0].toLowerCase().endsWith(".emquad")) return importBundle(paths[0]);
+  if (!store().root || !paths.length) return;
+  const at = store().view === "editor" ? buffers.placeAt(x, y) : null;
+  const pictures = at === null ? [] : paths.filter((p) => PICTURE.test(p));
+  const others = paths.filter((p) => !pictures.includes(p));
+  if (pictures.length) await addPictures(pictures.map((source) => ({ source })), at ?? undefined);
+  if (others.length) {
+    await guard(async () => {
+      store().set({ tree: await api.fileImport(others, "") });
+      const names = others.map((p) => p.slice(Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")) + 1));
+      store().notify(`Added ${names.join(", ")} to the project.`);
+    });
+  }
+}
+
+/**
+ * Add pictures to the project, beside the main file in figures/ or where \graphicspath says,
+ * never over a file that is there, and put each in a figure where the cursor is, or where they
+ * were dropped. In a file that is not LaTeX they are only added.
+ */
+export async function addPictures(pictures: ({ source: string } | { file: File })[], at?: number) {
+  await guard(async () => {
+    const main = store().info?.mainFile;
+    if (!main || !pictures.length) return;
+    const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/") + 1) : "";
+    const { dir, byName } = pictureFolder(await mainText(), folder);
+    const paths: string[] = [];
+    for (const p of pictures) {
+      if ("source" in p) paths.push(await api.pictureImport(p.source, dir));
+      else {
+        // A screenshot comes as image.png; the name says where it came from.
+        const ext = p.file.type === "image/jpeg" ? "jpg" : "png";
+        const name = /^image\.(png|jpe?g)$/i.test(p.file.name) || !p.file.name ? `pasted.${ext}` : p.file.name;
+        paths.push(await api.pictureAdd(dir, name, new Uint8Array(await p.file.arrayBuffer())));
+      }
+    }
+    void refreshTree();
+    buffers.picturesChanged();
+    const active = store().active;
+    if (!active?.toLowerCase().endsWith(".tex")) {
+      return store().notify(`Added ${paths.join(", ")} to the project. Open a .tex file to put ${paths.length === 1 ? "it" : "them"} in the document.`);
+    }
+    // One block of figures, the cursor in the first caption.
+    const labels = [...store().index.labels];
+    const figures = paths.map((path) => {
+      const figure = figureFor(path, folder, byName, labels);
+      labels.push(figure.label);
+      return figure;
+    });
+    buffers.insertBlock(figures.map((f) => f.text).join("\n"), figures[0].caret, at);
+    await loadInMain("graphicx", "which shows pictures");
+    store().notify(`Added ${paths.join(", ")} as ${paths.length === 1 ? "a figure" : "figures"}. Type ${paths.length === 1 ? "its" : "the first"} caption.`);
   });
 }
 

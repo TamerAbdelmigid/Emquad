@@ -350,3 +350,15 @@ dialog select option{background:var(--pop-bg);color:var(--tx)}
 .own-words li button{width:18px;height:18px;border-radius:50%;line-height:1;color:var(--mu)}
 .own-words li button:hover{background:var(--acc);color:#fff}
 .own-words-empty{margin:4px 0 0;font-size:12px;color:var(--mu)}
+
+/* Files dragged over the window: the text shows it will take them. */
+body[data-dropping] .cm-editor{outline:2px dashed var(--acc);outline-offset:-6px}
+
+/* The equation editor */
+.eq-tools{display:flex;flex-wrap:wrap;gap:6px}
+.eq-tools .btn{min-height:34px;padding:0 10px;font-size:13px}
+.eq-tools .btn.sym{min-width:34px;padding:0 6px;font-size:15px}
+dialog textarea.eq-tex{font:400 14px/1.5 var(--mono)}
+.eq-preview-box{min-height:64px;display:flex;align-items:center;justify-content:center;padding:12px;border-radius:10px;background:var(--card);box-shadow:0 0 0 1px var(--edge-a);overflow-x:auto;color:var(--tx)}
+.eq-preview{font-size:1.2em}
+.eq-empty{color:var(--mu)}

@@ -44,7 +44,7 @@ const states = new Map<string, EditorState>();
 const saved = new Map<string, string>();
 let view: EditorView | null = null;
 let shownPath: string | null = null;
-let handlers = { save: () => {}, compile: () => {}, comment: () => {} };
+let handlers = { save: () => {}, compile: () => {}, comment: () => {}, equation: () => {} };
 /** Holds visual mode's extensions, or nothing, in every file's state. */
 const visual = new Compartment();
 let visualOn = false;
@@ -205,6 +205,8 @@ function extensions(path: string): Extension[] {
       { key: "Mod-s", run: () => (handlers.save(), true) },
       { key: "Mod-Enter", run: () => (handlers.compile(), true) },
       { key: "Mod-Alt-m", run: () => (handlers.comment(), true) },
+      // As in Word: Alt+= opens the equation editor.
+      { key: "Alt-=", run: () => (handlers.equation(), true) },
       // As in a word processor. Before the default keys, where Ctrl+I selects the enclosing syntax.
       { key: "Mod-b", run: () => (buffers.format("textbf"), true) },
       { key: "Mod-i", run: () => (buffers.format("textit"), true) },
@@ -279,6 +281,11 @@ export const buffers = {
     return placedComments(state)
       .filter((p) => p.to > p.from)
       .map((p) => ({ id: p.id, ...describe(text, p.from, p.to) }));
+  },
+
+  /** Where the cursor is in the file on screen, or null when none is shown. */
+  cursorAt(): number | null {
+    return view && shownPath ? view.state.selection.main.head : null;
   },
 
   /** The selected passage of the file on screen, described so a comment can be put on it. */
@@ -400,6 +407,36 @@ export const buffers = {
       command(view);
       view.focus();
     }
+  },
+
+  /** The place in the file on screen at a point of the window, or null when the point is not over its text. */
+  placeAt(x: number, y: number): number | null {
+    if (!view || !shownPath) return null;
+    const box = view.dom.getBoundingClientRect();
+    if (x < box.left || x > box.right || y < box.top || y > box.bottom) return null;
+    return view.posAtCoords({ x, y }, false);
+  },
+
+  /**
+   * Put a block, such as a figure, on lines of its own: on the line the place is on when that is
+   * empty, else after it. The place is the cursor unless given. `caret` is where in the block
+   * the cursor goes.
+   */
+  insertBlock(text: string, caret: number, at?: number) {
+    if (!view || !shownPath) return;
+    const line = view.state.doc.lineAt(at ?? view.state.selection.main.head);
+    const block = text.replace(/\n$/, "");
+    // An empty line takes the block in its place; a line with text keeps it, and the block follows.
+    const empty = line.text.trim() === "";
+    const from = empty ? line.from : line.to;
+    view.dispatch({
+      changes: { from, to: line.to, insert: empty ? block : `\n${block}` },
+      selection: { anchor: from + (empty ? 0 : 1) + caret },
+      userEvent: "input",
+      annotations: isolateHistory.of("full"),
+      scrollIntoView: true,
+    });
+    view.focus();
   },
 
   /** Wrap the selection, or insert a snippet with the cursor between `before` and `after`. */

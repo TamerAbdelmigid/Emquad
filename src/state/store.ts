@@ -70,7 +70,7 @@ export interface State {
   pendingReviews: number;
   /** Bundle to select when History opens. */
   focusBundle: string | null;
-  dialog: null | "export" | "logs" | "settings" | "newProject" | "shortcuts" | "setup" | "cite" | "reference" | "citationStyle";
+  dialog: null | "export" | "logs" | "settings" | "newProject" | "shortcuts" | "setup" | "cite" | "reference" | "citationStyle" | "equation";
   ask: Ask | null;
   toast: { text: string; error: boolean } | null;
   set: (patch: Partial<State>) => void;
