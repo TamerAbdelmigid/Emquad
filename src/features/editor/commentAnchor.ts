@@ -69,7 +69,9 @@ export function relocate(text: string, anchor: Anchor): { from: number; to: numb
   let seen = 0;
   for (let at = text.indexOf(before); at >= 0 && seen < 500; at = text.indexOf(before, at + 1), seen++) {
     const from = at + before.length;
-    const to = text.indexOf(after, from);
+    // Looked for only as far as the comment's words could reach, not to the end of the text.
+    const within = text.slice(from, from + room + after.length).indexOf(after);
+    const to = within < 0 ? -1 : from + within;
     if (to <= from || to - from > room) continue;
     for (let i = text.indexOf("\n", counted); i >= 0 && i < from; i = text.indexOf("\n", i + 1)) {
       line++;

@@ -1,5 +1,6 @@
 // What visual mode shows differently from the plain source, worked out from the text alone.
 // The source is never changed: these are only instructions for drawing it.
+import { MATH_NAMES, mathForDrawing } from "./mathEnvironments";
 
 export type Piece =
   /** Do not draw this range (a command name, a brace). */
@@ -58,7 +59,7 @@ const CITES = new Set(["cite", "citep", "citet", "parencite", "textcite", "autoc
 const TABLE = /\\begin\{(tabular\*?|tabularx|longtable)\}/g;
 const RULE = /^\s*(?:\\(?:hline|toprule|midrule|bottomrule)\b|\\(?:cline|cmidrule)(?:\([^)]*\))?\{[^}]*\})/;
 const CHIPS = new Set(["label", "ref", "eqref", "pageref", "footnote", "includegraphics", "input", "include", ...CITES]);
-const MATH_ENV = /\\begin\{((?:equation|align|gather|multline)\*?|displaymath)\}([\s\S]*?)\\end\{\1\}/g;
+const MATH_ENV = new RegExp(String.raw`\\begin\{(${MATH_NAMES})\}([\s\S]*?)\\end\{\1\}`, "g");
 
 /** Offset just past the brace that closes the one at `open`, or -1 if it never closes. */
 export function closingBrace(text: string, open: number): number {
@@ -213,9 +214,8 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
   // Only mathematics environments are looked for, so an enclosing one such as `document`
   // cannot swallow them.
   for (const m of text.matchAll(MATH_ENV)) {
-    const body = m[2].replace(/\\label\{[^}]*\}/g, "");
-    const aligned = /^(align|gather|multline)/.test(m[1]);
-    math(m.index, m.index + m[0].length, aligned ? `\\begin{aligned}${body}\\end{aligned}` : body, true);
+    const drawn = mathForDrawing(m[1], m[2].replace(/\\label\{[^}]*\}/g, ""));
+    math(m.index, m.index + m[0].length, drawn.tex, drawn.display);
   }
   for (const m of text.matchAll(/\\\[([\s\S]*?)\\\]/g)) math(m.index, m.index + m[0].length, m[1], true);
   for (const m of text.matchAll(/\$\$([\s\S]*?)\$\$/g)) math(m.index, m.index + m[0].length, m[1], true);

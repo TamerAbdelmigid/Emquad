@@ -61,7 +61,12 @@ pub struct Session {
     pub opening: Mutex<()>,
     /// The files the window has just saved, so the watcher does not report them back.
     pub own_writes: Arc<crate::watch::OwnWrites>,
+    /// The source/PDF map of the last compile, read once rather than at every lookup, with the
+    /// file it was read from, its size and its time of change.
+    pub synctex: Mutex<Option<(SyncTexStamp, Arc<SyncTex>)>>,
 }
+
+type SyncTexStamp = (PathBuf, u64, Option<std::time::SystemTime>);
 
 impl AppState {
     pub fn new(
@@ -740,7 +745,8 @@ pub fn pdf_save(window: tauri::Window, state: State<AppState>, dest: String) -> 
     Ok(())
 }
 
-fn synctex(project: &Project) -> Result<SyncTex> {
+/// The source/PDF map of the last compile: the one already read, while its file is unchanged.
+fn synctex(session: &Session, project: &Project) -> Result<Arc<SyncTex>> {
     let main = project.resolve(&project.info.main_file)?;
     let cwd = main.parent().unwrap_or(&project.root);
     let base = compile::pdf_path(project);
@@ -750,7 +756,18 @@ fn synctex(project: &Project) -> Result<SyncTex> {
     } else {
         base.with_extension("synctex")
     };
-    SyncTex::load(&file, cwd, &project.root)
+    let stamp = fs::metadata(&file)
+        .ok()
+        .map(|m| (file.clone(), m.len(), m.modified().ok()));
+    let mut cached = session.synctex.lock().unwrap_or_else(|e| e.into_inner());
+    if let (Some(stamp), Some((was, map))) = (&stamp, cached.as_ref())
+        && stamp == was
+    {
+        return Ok(map.clone());
+    }
+    let map = Arc::new(SyncTex::load(&file, cwd, &project.root)?);
+    *cached = stamp.map(|stamp| (stamp, map.clone()));
+    Ok(map)
 }
 
 #[tauri::command(async)]
@@ -761,7 +778,7 @@ pub fn synctex_forward(
     line: u32,
 ) -> Result<Option<PdfRect>> {
     let session = state.session(window.label());
-    Ok(synctex(&current(&session)?)?.forward(&file, line))
+    Ok(synctex(&session, &current(&session)?)?.forward(&file, line))
 }
 
 #[tauri::command(async)]
@@ -773,7 +790,7 @@ pub fn synctex_inverse(
     y: f64,
 ) -> Result<Option<SourcePos>> {
     let session = state.session(window.label());
-    Ok(synctex(&current(&session)?)?.inverse(page, x, y))
+    Ok(synctex(&session, &current(&session)?)?.inverse(page, x, y))
 }
 
 // ---------- history ----------

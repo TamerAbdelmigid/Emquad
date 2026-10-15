@@ -2,7 +2,7 @@ import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { useEffect, useRef, useState } from "react";
 import { Icon, Menu } from "../../design/ui";
-import type { Tab } from "../../state/store";
+import { type Tab, useStore } from "../../state/store";
 import { SymbolPicker } from "./SymbolPicker";
 import { buffers } from "./buffers";
 import { newTable, writeTable } from "./tableModel";
@@ -10,7 +10,6 @@ import { newTable, writeTable } from "./tableModel";
 interface Props {
   tabs: Tab[];
   active: string | null;
-  cursor: { line: number; column: number };
   engine: string | null;
   languageServer: boolean;
   fontSize: number;
@@ -183,7 +182,7 @@ export function EditorPane(p: Props) {
       {!p.active && <div className="screen-empty">Choose a file on the left to start editing.</div>}
       <div className="sfoot">
         <span>
-          Line <b>{p.cursor.line}</b>, column <b>{p.cursor.column}</b>
+          <Position />
         </span>
         <span>LaTeX</span>
         {p.engine && <span>{p.engine === "tectonic" ? "Tectonic engine" : "latexmk engine"}</span>}
@@ -191,5 +190,15 @@ export function EditorPane(p: Props) {
         <span style={{ marginLeft: "auto" }}>Works offline</span>
       </div>
     </main>
+  );
+}
+
+/** Where the cursor is. Read here alone, so moving it redraws this line and nothing else. */
+function Position() {
+  const cursor = useStore((s) => s.cursor);
+  return (
+    <>
+      Line <b>{cursor.line}</b>, column <b>{cursor.column}</b>
+    </>
   );
 }

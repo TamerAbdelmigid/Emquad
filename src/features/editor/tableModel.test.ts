@@ -1444,6 +1444,18 @@ describe("tables from the clipboard", () => {
   });
 });
 
+describe("speed", () => {
+  it("escapes a keystroke in a long cell without comparing all of it", () => {
+    const before = "word ".repeat(360);
+    const at = before.length / 2;
+    const after = `${before.slice(0, at)}_${before.slice(at)}`;
+    expect(escapeInserted(before, after)).toBe(`${before.slice(0, at)}\\_${before.slice(at)}`);
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) escapeInserted(before, after);
+    expect((performance.now() - t0) / 20).toBeLessThan(2);
+  });
+});
+
 describe("cases the review of the open-items work found", () => {
   const wrap = (spec: string, body: string) => `\\begin{tabular}{${spec}}\n${body}\n\\end{tabular}`;
   const tabular = "\\begin{tabular}{l}\na \\\\\n\\end{tabular}";

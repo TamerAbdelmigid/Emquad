@@ -5,6 +5,8 @@
 // goes decides which is used: a formula symbol typed in text is put in $…$, and a text symbol
 // typed in a formula is put in \mbox{…}, so whatever is chosen compiles where it lands.
 
+import { MATH_ENVIRONMENT } from "./mathEnvironments";
+
 export interface Sym {
   /** Shown on the tile when there is no formula to typeset, and searched for. */
   glyph: string;
@@ -236,7 +238,7 @@ export function symbolsById(ids: string[]): Sym[] {
 }
 
 /** Environments whose body is mathematics. */
-const MATH_ENVS = /^(?:equation|align|alignat|flalign|gather|multline|eqnarray|displaymath|math|dmath|IEEEeqnarray)\*?$/;
+const MATH_ENVS = MATH_ENVIRONMENT;
 /** Commands whose argument is text again, inside a formula. */
 const TEXT_IN_MATH = /^(?:text|textrm|textit|textbf|textsf|texttt|textnormal|textup|mbox|hbox|intertext|shortintertext|emph)$/;
 /** Environments whose body is not LaTeX at all. */

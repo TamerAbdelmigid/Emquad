@@ -1,6 +1,7 @@
 // Which words of a LaTeX source are prose, and so worth checking for spelling. Worked out from
 // the text alone: commands, their technical arguments, mathematics, comments and the preamble
 // are left out.
+import { MATH_NAMES } from "./mathEnvironments";
 import { closingBrace } from "./visualModel";
 
 export interface Word {
@@ -24,7 +25,7 @@ const TECHNICAL = new Set([
 /** Of those, the ones whose last argument is prose after all. */
 const LAST_IS_PROSE = new Set(["href", "textcolor", "colorbox", "multicolumn", "multirow", "parbox", "resizebox", "scalebox", "raisebox", "hyperref"]);
 const VERBATIM = /\\begin\{(verbatim\*?|lstlisting|minted|comment|filecontents\*?|tikzpicture|algorithmic|algorithm)\}[\s\S]*?(?:\\end\{\1\}|$)/g;
-const MATH_ENV = /\\begin\{((?:equation|align|alignat|gather|multline|eqnarray|flalign|math)\*?|displaymath)\}[\s\S]*?(?:\\end\{\1\}|$)/g;
+const MATH_ENV = new RegExp(String.raw`\\begin\{(${MATH_NAMES})\}[\s\S]*?(?:\\end\{\1\}|$)`, "g");
 const WORD = /(?<![\p{L}\p{N}_@\\'’-])\p{L}[\p{L}'’]*(?![\p{L}\p{N}_@])/gu;
 
 /** The prose words of `text`, in order. */

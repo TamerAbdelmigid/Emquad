@@ -30,7 +30,7 @@ export interface Highlight {
   nonce: number;
 }
 
-interface State {
+export interface State {
   settings: Settings | null;
   view: View;
   layout: Layout;

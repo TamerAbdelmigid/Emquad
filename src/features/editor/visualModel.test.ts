@@ -44,6 +44,20 @@ describe("visualPieces", () => {
     ]);
   });
 
+  it("typesets every environment that holds mathematics, in a form KaTeX can draw", () => {
+    const text =
+      "\\begin{document}\n\\begin{alignat}{2}a&=b&c&=d\\end{alignat}\n\\begin{flalign*}x&=y\\end{flalign*}\n" +
+      "\\begin{eqnarray}a&=&b\\end{eqnarray}\n\\begin{gather}p\\\\q\\end{gather}\nIn \\begin{math}r\\end{math} text.\n\\end{document}";
+    const math = of(visualPieces(text, []), "math") as Extract<Piece, { kind: "math" }>[];
+    expect(math.map((m) => [m.tex, m.display])).toEqual([
+      ["\\begin{alignedat}{2}a&=b&c&=d\\end{alignedat}", true],
+      ["\\begin{aligned}x&=y\\end{aligned}", true],
+      ["\\begin{aligned}a&=&b\\end{aligned}", true],
+      ["\\begin{gathered}p\\\\q\\end{gathered}", true],
+      ["r", false],
+    ]);
+  });
+
   it("does not treat prices, escaped dollars or comments as mathematics or commands", () => {
     const text = "It costs \\$5 and \\$6.\n% \\section{Hidden} $x$\nreal $y$";
     const pieces = visualPieces(text, []);

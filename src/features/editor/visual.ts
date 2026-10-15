@@ -3,8 +3,7 @@
 // turns that into decorations.
 import { type ChangeSet, type EditorSelection, type EditorState, type Extension, type Range as CmRange, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { openPdf } from "../../shared/pdf";
 import { api } from "../../ipc/api";
 import { store } from "../../state/store";
 import { renderInline, typeset } from "./inlineTex";
@@ -12,7 +11,6 @@ import { EditableTable } from "./tableEditor";
 import { parseTable } from "./tableModel";
 import { type Row, describeCitation, visualPieces } from "./visualModel";
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 class MathWidget extends WidgetType {
   constructor(
@@ -106,7 +104,7 @@ async function pictureUrl(path: string): Promise<string | null> {
   }
   if (startsWith(bytes, 0x25, 0x50, 0x44, 0x46)) {
     // A PDF figure: draw its first page.
-    const task = pdfjs.getDocument({ data: bytes });
+    const task = await openPdf(bytes);
     try {
       const doc = await task.promise;
       const page = await doc.getPage(1);

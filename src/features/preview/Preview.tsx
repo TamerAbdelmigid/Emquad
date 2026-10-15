@@ -1,10 +1,8 @@
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "../../design/ui";
+import { openPdf } from "../../shared/pdf";
 import type { Highlight } from "../../state/store";
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 interface Props {
   /** Changes whenever there is a new PDF to load. */
@@ -30,7 +28,7 @@ interface PageSize {
 type Zoom = "fit" | number;
 
 export function Preview(p: Props) {
-  const [doc, setDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
+  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
   const [sizes, setSizes] = useState<PageSize[]>([]);
   const [zoom, setZoom] = useState<Zoom>("fit");
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -43,13 +41,14 @@ export function Preview(p: Props) {
   useEffect(() => {
     let stale = false;
     load()
-      .then((bytes) => pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise)
+      .then(async (bytes) => (await openPdf(new Uint8Array(bytes))).promise)
       .then(async (next) => {
-        const dims: PageSize[] = [];
-        for (let n = 1; n <= next.numPages; n++) {
-          const view = (await next.getPage(n)).getViewport({ scale: 1 });
-          dims.push({ width: view.width, height: view.height });
-        }
+        // Asked for all at once: one after another takes long on a long document.
+        const pages = await Promise.all(Array.from({ length: next.numPages }, (_, i) => next.getPage(i + 1)));
+        const dims: PageSize[] = pages.map((page) => {
+          const view = page.getViewport({ scale: 1 });
+          return { width: view.width, height: view.height };
+        });
         if (stale) return void next.loadingTask.destroy();
         const el = stage.current;
         keepScroll.current = el && el.scrollHeight > 0 ? el.scrollTop / el.scrollHeight : 0;
@@ -158,9 +157,11 @@ export function Preview(p: Props) {
           </div>
         )}
         {doc &&
+          // Kept across a recompile, so each page is drawn over with the new one rather than
+          // going blank first.
           sizes.map((size, i) => (
             <Page
-              key={`${version}:${i}`}
+              key={i}
               doc={doc}
               number={i + 1}
               size={size}
@@ -175,7 +176,7 @@ export function Preview(p: Props) {
 }
 
 function Page(p: {
-  doc: pdfjs.PDFDocumentProxy;
+  doc: PDFDocumentProxy;
   number: number;
   size: PageSize;
   scale: number;
@@ -195,21 +196,36 @@ function Page(p: {
   }, []);
 
   useEffect(() => {
-    if (!visible || !canvas.current) return;
     const target = canvas.current;
-    let task: pdfjs.RenderTask | null = null;
+    if (!target) return;
+    if (!visible) {
+      // A page well out of view gives back the memory its picture took; it is drawn again
+      // when it comes near.
+      target.width = target.height = 0;
+      return;
+    }
+    let task: RenderTask | null = null;
     let stale = false;
     void p.doc.getPage(p.number).then((page) => {
       if (stale) return;
       const viewport = page.getViewport({ scale: p.scale * window.devicePixelRatio });
-      target.width = Math.floor(viewport.width);
-      target.height = Math.floor(viewport.height);
-      const context = target.getContext("2d");
-      if (!context) return;
-      task = page.render({ canvas: target, canvasContext: context, viewport });
-      task.promise.catch(() => {
-        // Cancelled by a newer render.
-      });
+      // Drawn aside and copied in when complete, so the page never shows blank in between.
+      const aside = document.createElement("canvas");
+      aside.width = Math.floor(viewport.width);
+      aside.height = Math.floor(viewport.height);
+      task = page.render({ canvas: aside, viewport });
+      task.promise.then(
+        () => {
+          if (stale) return;
+          target.width = aside.width;
+          target.height = aside.height;
+          target.getContext("2d")?.drawImage(aside, 0, 0);
+          aside.width = aside.height = 0;
+        },
+        () => {
+          // Cancelled by a newer render.
+        },
+      );
     });
     return () => {
       stale = true;

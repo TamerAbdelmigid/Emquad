@@ -82,6 +82,13 @@ fn original_column(line: &str, byte: usize, match_case: bool) -> u32 {
 
 /// The most matches a search returns; beyond this the user should narrow the query.
 pub const MAX_SEARCH_HITS: usize = 500;
+/// The largest file project search reads.
+const MAX_SEARCHED: u64 = 16 << 20;
+/// Kinds of file project search does not read, since they are not text.
+const NOT_TEXT: &[&str] = &[
+    "pdf", "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "eps", "ps", "svgz", "zip",
+    "gz", "emquad", "docx", "xlsx", "pptx", "otf", "ttf", "woff", "woff2", "mp4", "mov",
+];
 
 #[derive(Debug, Clone)]
 pub struct Project {
@@ -558,6 +565,16 @@ impl Project {
             query.to_lowercase()
         };
         for (rel, path) in self.walk_files()? {
+            // Pictures, PDFs and anything very large are not text, and not worth reading to learn it.
+            let extension = Path::new(&rel)
+                .extension()
+                .map(|e| e.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+            if NOT_TEXT.contains(&extension.as_str())
+                || fs::metadata(&path).is_ok_and(|m| m.len() > MAX_SEARCHED)
+            {
+                continue;
+            }
             let Ok(bytes) = fs::read(&path) else { continue };
             let Some(text) = as_text(&bytes) else {
                 continue;
@@ -730,6 +747,8 @@ mod tests {
         )
         .unwrap();
         fs::write(p.root.join("fig.bin"), b"Gaussian\0binary").unwrap();
+        // A PDF is not read at all, even one whose bytes happen to look like text.
+        fs::write(p.root.join("figure.pdf"), b"%PDF-1.5 Gaussian").unwrap();
         let found = p.search("gaussian", false).unwrap();
         let places: Vec<_> = found
             .hits

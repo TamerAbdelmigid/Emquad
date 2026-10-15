@@ -18,7 +18,8 @@ import { Preview } from "../features/preview/Preview";
 import { Start } from "../features/start/Start";
 import { api } from "../ipc/api";
 import type { TreeNode } from "../ipc/bindings/TreeNode";
-import { type Layout, store, useStore } from "../state/store";
+import { useShallow } from "zustand/react/shallow";
+import { type Layout, type State, store, useStore } from "../state/store";
 import { Dialogs, SettingsDialog } from "./Dialogs";
 import * as act from "./actions";
 
@@ -34,7 +35,9 @@ const historyBackend = {
 };
 
 export function App() {
-  const s = useStore();
+  // Everything but where the cursor is and the compile log, which change on every keystroke
+  // and every line the compiler writes: the parts that show them read them themselves.
+  const s = useStore(useShallow(withoutBusyFields));
   const { set, notify } = s;
   const [outlineText, setOutlineText] = useState("");
   const [focusFile, setFocusFile] = useState<string | null>(null);
@@ -69,10 +72,7 @@ export function App() {
     const here = getCurrentWebviewWindow();
     const listen = here.listen.bind(here);
     const off = [
-      listen<string>("compile://log", (e) => {
-        const log = store().log;
-        store().set({ log: log.length > 4000 ? [...log.slice(-3000), e.payload] : [...log, e.payload] });
-      }),
+      listen<string>("compile://log", (e) => logLine(e.payload)),
       listen<string[]>("project://changed", (e) => void act.filesChangedOnDisk(e.payload)),
       listen<string>("app://open-bundle", (e) => setStartupBundle(e.payload)),
       listen<string>("lsp://message", (e) => lspReceive(e.payload)),
@@ -439,7 +439,6 @@ export function App() {
             <EditorPane
               tabs={s.tabs}
               active={s.active}
-              cursor={s.cursor}
               engine={s.build?.engine ?? null}
               languageServer={s.languageServer}
               fontSize={s.settings?.editorFontSize ?? 13}
@@ -578,4 +577,23 @@ function Toast() {
       </button>
     </div>
   );
+}
+
+function withoutBusyFields(state: State): Omit<State, "cursor" | "log"> {
+  const rest: Partial<State> = { ...state };
+  delete rest.cursor;
+  delete rest.log;
+  return rest as Omit<State, "cursor" | "log">;
+}
+
+/** Lines of the compile log not yet shown: added together once per frame, not one at a time. */
+let pendingLog: string[] = [];
+function logLine(line: string) {
+  if (pendingLog.push(line) > 1) return;
+  requestAnimationFrame(() => {
+    const lines = pendingLog;
+    pendingLog = [];
+    const log = [...store().log, ...lines];
+    store().set({ log: log.length > 4000 ? log.slice(-3000) : log });
+  });
 }

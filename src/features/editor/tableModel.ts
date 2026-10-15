@@ -2291,29 +2291,37 @@ export function escapeInserted(before: string, after: string): string {
   // Which character of `before` each character of `after` is, or -1 for one that was put in:
   // the longest run of shared characters, in order.
   const from = new Int32Array(m).fill(-1);
-  if (n * m <= 4_000_000) {
-    const width = m + 1;
-    const table = new Uint16Array((n + 1) * width);
-    for (let i = n - 1; i >= 0; i--) {
-      for (let j = m - 1; j >= 0; j--) {
-        table[i * width + j] = before[i] === after[j] ? table[(i + 1) * width + j + 1] + 1 : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+  // What the two have in common at each end is matched at once; only what lies between is
+  // compared in full, which keeps a keystroke in a long cell cheap.
+  let start = 0;
+  while (start < n && start < m && before[start] === after[start]) start++;
+  let end = 0;
+  while (end < n - start && end < m - start && before[n - 1 - end] === after[m - 1 - end]) end++;
+  for (let j = 0; j < start; j++) from[j] = j;
+  for (let k = 1; k <= end; k++) from[m - k] = n - k;
+  const [bn, am] = [n - start - end, m - start - end];
+  if (bn * am <= 4_000_000) {
+    const width = am + 1;
+    const table = new Uint16Array((bn + 1) * width);
+    const b = (i: number) => before[start + i];
+    const a = (j: number) => after[start + j];
+    for (let i = bn - 1; i >= 0; i--) {
+      for (let j = am - 1; j >= 0; j--) {
+        table[i * width + j] = b(i) === a(j) ? table[(i + 1) * width + j + 1] + 1 : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
       }
     }
-    for (let i = 0, j = 0; i < n && j < m; ) {
-      if (before[i] === after[j]) from[j++] = i++;
+    for (let i = 0, j = 0; i < bn && j < am; ) {
+      if (b(i) === a(j)) from[start + j++] = start + i++;
       else if (table[(i + 1) * width + j] >= table[i * width + j + 1]) i++;
       else j++;
     }
-  } else {
-    // Too long to compare in full: take what the two have in common at each end.
-    let start = 0;
-    while (start < n && start < m && before[start] === after[start]) start++;
-    let end = 0;
-    while (end < n - start && end < m - start && before[n - 1 - end] === after[m - 1 - end]) end++;
-    for (let j = 0; j < start; j++) from[j] = j;
-    for (let k = 1; k <= end; k++) from[m - k] = n - k;
   }
-  const escapedIn = (text: string, i: number) => /\\*$/.exec(text.slice(0, i))![0].length % 2 === 1;
+  // Whether the character at `i` has an odd run of backslashes before it, counted back from it.
+  const escapedIn = (text: string, i: number) => {
+    let k = 0;
+    while (i - 1 - k >= 0 && text[i - 1 - k] === "\\") k++;
+    return k % 2 === 1;
+  };
   const SPECIAL = "&%#_";
   // For each place in `after`, which character of `before` the nearest kept one on either
   // side is: what was typed in between does not make neighbours of old into strangers.
@@ -2331,10 +2339,18 @@ export function escapeInserted(before: string, after: string): string {
   const posOf = new Int32Array(n).fill(-1);
   for (let j = 0; j < m; j++) if (from[j] >= 0) posOf[from[j]] = j;
   let out = "";
+  // How many backslashes `out` ends with, kept as it grows rather than counted each time.
+  let slashes = 0;
+  const add = (piece: string) => {
+    out += piece;
+    let k = 0;
+    while (k < piece.length && piece[piece.length - 1 - k] === "\\") k++;
+    slashes = k === piece.length ? slashes + k : k;
+  };
   for (let j = 0; j < m; j++) {
     const ch = after[j];
     const i = from[j];
-    const escaped = /\\*$/.exec(out)![0].length % 2 === 1;
+    const escaped = slashes % 2 === 1;
     if (i >= 0) {
       // There before. A backslash whose character has been deleted goes with it ...
       const orphan = ch === "\\" && !escapedIn(before, i) && SPECIAL.includes(before[i + 1] ?? " ") && keptAfter[j] !== i + 1;
@@ -2344,7 +2360,7 @@ export function escapeInserted(before: string, after: string): string {
       // the escape, such as \, before \%.
       const lost = SPECIAL.includes(ch) && escapedIn(before, i) && !escaped;
       const typedInFront = i >= 1 && keptBefore[j] === i - 1 && /^\\*$/.test(after.slice(posOf[i - 1] + 1, j));
-      out += lost && !typedInFront ? `\\${ch}` : ch;
+      add(lost && !typedInFront ? `\\${ch}` : ch);
       continue;
     }
     const math = mathMap[j] > 0;
@@ -2353,7 +2369,7 @@ export function escapeInserted(before: string, after: string): string {
       !escaped &&
       literal[j] !== 2 &&
       (ch === "%" || (literal[j] === 0 && (ch === "#" || (ch === "&" && !math) || (ch === "_" && !math && proseMap[j] === 1))));
-    out += bare ? `\\${ch}` : ch;
+    add(bare ? `\\${ch}` : ch);
   }
   return out;
 }
