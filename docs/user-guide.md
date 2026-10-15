@@ -204,6 +204,14 @@ If you change your mind, **Start this review over** clears your choices. If you 
 
 The state of your project from just before the import is always kept as a version called "Before import from …", so a merge can be undone by restoring it.
 
+### Working with someone who uses Word
+
+- **File ▸ Send to Word…** saves the document as a Word file, with its pictures, headings, lists, tables, footnotes and references, for someone who works in Word. Formulas become Word equations.
+- **File ▸ Open a Word file…** makes a new project from a Word file someone sent you, its pictures in a `media` folder, and opens it. Your other projects are not touched.
+- Both use **Pandoc**, a free program you install once from pandoc.org; Emquad finds it by itself. Some things do not carry over exactly, and Emquad says when that happens.
+- **File ▸ Save PDF with comments…** saves a copy of the PDF with each open comment on it, highlighted on its passage with the replies, as Acrobat or any PDF viewer shows comments.
+- In **History**, choose a version and press **PDF with changes since this version…** to save a copy of the PDF with what was written or changed since then highlighted, each mark saying what was there before, and a note in the margin where text was taken out. Send it to someone who reads PDFs rather than bundles.
+
 ## Document setup
 
 **File ▸ Document setup…** sets the page as a word processor's page setup does: the paper (A4 or US Letter), the size of the text, the margins, the line spacing (single, 1.5 lines, double), the typeface (Computer Modern, Times, Palatino or sans serif), whether pages are numbered, and whether paragraphs start with an indent or are set apart by space. Emquad writes the ordinary LaTeX for each choice at the top of the main file (class options, `geometry`, `setspace`, the font packages, `parskip`, `\pagestyle`) and compiles. Everything else in your settings stays as you wrote it, and Ctrl+Z takes the change back.
@@ -226,6 +234,8 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Bold, italic, underline | Ctrl+B, Ctrl+I, Ctrl+U |
 | Search the project | Ctrl+Shift+F |
 | Comment on the selected text | Ctrl+Alt+M |
+| Equation editor | Alt+= |
+| Paste without formatting | Ctrl+Shift+V |
 | In a table: next or previous cell | Tab, Shift+Tab |
 | In a table: select cells | Shift+arrow keys |
 | In a table: stop typing; then reach the tools | Esc; then Tab |

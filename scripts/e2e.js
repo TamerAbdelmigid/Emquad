@@ -9,7 +9,8 @@
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
 // lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
 // visual mode, comments, references and citation styles, pictures dropped and pasted, text pasted
-// with its formatting, the equation editor, and a bundle that carries its LaTeX packages.
+// with its formatting, the equation editor, PDFs with comments and changes on them, Send to Word
+// (or, with no Pandoc, its refusal), and a bundle that carries its LaTeX packages.
 // Zotero must not be running: one check asks for a citation from it and expects to be told it is not.
 // Native file dialogs cannot be driven from a page, so those steps call the backend directly.
 // Lines starting "SHOT" mark moments worth a screenshot; the script pauses briefly after each.
@@ -976,6 +977,66 @@
       await act.save();
       await act.compile();
       await ok(!store().build.diagnostics.some((d) => d.severity === "error"), "the changed formula is put back in its place, and the document compiles");
+    }
+
+    // Working with people who use Word: a PDF with the comments on it, one with the changes
+    // since a version marked, and Word files through Pandoc when it is installed.
+    {
+      const { buffers } = await import("/src/features/editor/buffers.ts");
+      const { openPdf } = await import("/src/shared/pdf.ts");
+      /** The notes on each page of a PDF saved in the project, as a PDF viewer reads them. */
+      const notesIn = async (path) => {
+        const task = await openPdf(new Uint8Array(await invoke("project_image", { path })));
+        const pdf = await task.promise;
+        const all = [];
+        for (let n = 1; n <= pdf.numPages; n++) {
+          const page = await pdf.getPage(n);
+          const words = (await page.getTextContent()).items.map((t) => ({ str: t.str, x: t.transform[4], y: t.transform[5] }));
+          for (const a of await page.getAnnotations()) {
+            // The words that sit inside the note's rectangle, as the page draws them.
+            const [x1, y1, x2, y2] = a.rect;
+            const under = words.filter((w) => w.y >= y1 - 2 && w.y <= y2 + 2 && w.x >= x1 - 2 && w.x <= x2).map((w) => w.str).join(" ");
+            all.push({ page: n, type: a.subtype, text: a.contentsObj?.str ?? "", author: a.titleObj?.str ?? "", under });
+          }
+        }
+        await task.destroy();
+        return all;
+      };
+      const out = `${store().root}\\out`;
+      await invoke("file_create", { path: "out", isDir: true }).catch(() => {});
+      const text = buffers.text("main.tex");
+      const line = text.split("\n").findIndex((l) => l.includes("where $c_0$ is")) + 1;
+      await invoke("comment_add", { path: "main.tex", anchor: { quote: "speed of light", before: "is the ", after: ".", line }, text: "Say which units." });
+      await act.refreshComments();
+      await act.compile();
+      const comments = await invoke("pdf_save_with_comments", { dest: `${out}\\with comments.pdf` });
+      const commented = await notesIn("out/with comments.pdf");
+      await ok(
+        comments >= 1 && commented.some((n) => n.type === "Highlight" && n.text.includes("Say which units.") && n.author === "Tamer" && n.under.includes("speed of light")),
+        "a PDF with comments carries each open comment as a note a PDF viewer shows, on its passage",
+      );
+      const before = await invoke("history_snapshot", { label: "Before the summary" });
+      buffers.change("main.tex", { from: buffers.text("main.tex").indexOf("where $c_0$ is"), insert: "A summary sentence written for the reader.\n\n" });
+      await act.save();
+      await act.compile();
+      const marks = await invoke("pdf_save_with_changes", { version: before, label: "Before the summary", dest: `${out}\\changes.pdf` });
+      const changed = await notesIn("out/changes.pdf");
+      await ok(
+        marks >= 1 && changed.some((n) => n.type === "Highlight" && n.text.startsWith("Written since Before the summary") && n.under.includes("summary sentence")),
+        "a PDF with the changes since a version marks what was written since, where it prints",
+      );
+      // Pandoc is a separate program; without it, Word files are refused with how to get it.
+      if (!(await invoke("pandoc_available"))) {
+        const refused = await invoke("word_export", { dest: `${out}\\paper.docx`, bibliography: null }).then(
+          () => null,
+          (e) => e,
+        );
+        await ok(refused?.code === "no_pandoc" && /pandoc\.org/.test(refused.message), "with no Pandoc on the computer, Send to Word says where to get it");
+      } else {
+        const warnings = await invoke("word_export", { dest: `${out}\\paper.docx`, bibliography: "references.bib" });
+        const tree = JSON.stringify(await invoke("project_tree"));
+        await ok(Array.isArray(warnings) && tree.includes("out/paper.docx"), "Send to Word makes a Word file of the document, with Pandoc");
+      }
     }
 
     // Deleting a file takes a version first, so History can bring it back.

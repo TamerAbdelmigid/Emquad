@@ -33,6 +33,8 @@ interface Props {
   focusFile: string | null;
   onError: (e: unknown) => void;
   onRestore: (version: string, label: string) => Promise<void>;
+  /** Save a PDF with what changed since the version marked on it. */
+  onChangesPdf: (version: string, label: string) => Promise<void>;
   onSnapshot: () => Promise<void>;
   /** The working copy was rewritten (merge finished): open files need re-reading. */
   onWorkingCopyChanged: () => Promise<void>;
@@ -271,6 +273,14 @@ export function History(p: Props) {
           </button>
           <button className="btn" aria-pressed={compareWorking} disabled={selected === WORKING} onClick={() => setCompareWorking(!compareWorking)}>
             Compare with working copy
+          </button>
+          <button
+            className="btn"
+            title="A copy of the PDF with everything changed since this version marked on it, for someone who reads PDFs"
+            disabled={busy || selected === WORKING || !!pendingBundle}
+            onClick={() => act(() => p.onChangesPdf(selected, label))}
+          >
+            PDF with changes since this version…
           </button>
         </div>
       </aside>

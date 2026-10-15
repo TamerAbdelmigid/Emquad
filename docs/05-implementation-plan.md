@@ -184,7 +184,7 @@ Agreed with the owner on 15 October 2026, after a review of the app for speed an
 | 0.10.0 | Compile errors explained in plain words, with one-click fixes where they are safe; a Document setup dialog for margins, font, line spacing, paper size and page numbers |
 | 0.11.0 | References: picking citations from Zotero running on the same computer, a citation style chooser, a form to add a reference, and a dialog that finds a reference to cite |
 | 0.12.0 | Pictures by drag and drop or paste; text pasted with its formatting from Word, Google Docs or a web page; an equation editor (Alt+=) |
-| 0.13.0 | Working with people who use Word: send to Word and open a Word file (through Pandoc, a separate program), a PDF that marks the changes between two versions, and a PDF with the comments |
+| 0.13.0 | Working with people who use Word: send to Word and open a Word file (through Pandoc, a separate program the user installs), a PDF that marks the changes since a version, and a PDF with the comments |
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.
 

@@ -817,6 +817,94 @@ export async function importBundle(path?: string) {
   });
 }
 
+// ---------- Word, and PDFs with notes ----------
+
+/** Whether Pandoc is here; when it is not, the user is told how to get it. */
+async function havePandoc(): Promise<boolean> {
+  if (await api.pandocAvailable()) return true;
+  await confirm(
+    "Pandoc is needed",
+    "Sending to Word and opening Word files use Pandoc, a free program installed separately from pandoc.org. Install it, then try again; Emquad finds it by itself.",
+    "OK",
+  );
+  return false;
+}
+
+/** The .bib file the document takes its references from, as a project path, if it has one there. */
+async function referencesForWord(): Promise<string | null> {
+  const main = store().info?.mainFile ?? "";
+  const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/") + 1) : "";
+  const named = namedBib(await mainText());
+  const path = named ? resolveFrom(folder, named) : null;
+  return path && projectFiles().some((p) => p.toLowerCase() === path.toLowerCase()) ? path : null;
+}
+
+/** Turn the document into a Word file, for someone who works in Word. */
+export async function sendToWord() {
+  const s = store();
+  if (!s.info || !(await havePandoc())) return;
+  const dest = await saveDialog({ title: "Send to Word", defaultPath: `${s.info.name}.docx`, filters: [{ name: "Word document", extensions: ["docx"] }] });
+  if (!dest || !(await saveAll())) return;
+  await guard(async () => {
+    store().notify("Making the Word file…");
+    const warnings = await api.wordExport(dest, await referencesForWord());
+    store().notify(
+      warnings.length
+        ? `Saved ${dest}. Pandoc could not carry ${warnings.length === 1 ? "one thing" : `${warnings.length} things`} over exactly; check the Word file.`
+        : `Saved ${dest}.`,
+    );
+  });
+}
+
+/** Make a new project from a Word file, and open it. */
+export async function openWordFile() {
+  if (!(await havePandoc())) return;
+  const source = await openDialog({ title: "Open a Word file", filters: [{ name: "Word document", extensions: ["docx"] }] });
+  if (typeof source !== "string") return;
+  const parent = await openDialog({ directory: true, title: "Choose where to put the new project" });
+  if (typeof parent !== "string") return;
+  if (!(await saveAll())) return;
+  await guard(async () => {
+    store().notify("Turning the Word file into LaTeX…");
+    await enter(await api.wordImport(source, parent));
+    store().notify("Opened the Word file as a new project. Its pictures are in the media folder.");
+  });
+}
+
+/** Compile, so a PDF with notes on it is of the text as it is now; whether there is one. */
+async function freshPdf(): Promise<boolean> {
+  await compile();
+  const build = store().build;
+  if (!build?.hasPdf) store().notify("The document has to compile before a PDF can be made from it.", true);
+  return !!build?.hasPdf;
+}
+
+/** Save a copy of the PDF with the open comments on it, as PDF viewers show comments. */
+export async function savePdfWithComments() {
+  const s = store();
+  if (!s.info) return;
+  if (!s.comments.some((c) => !c.resolved)) return s.notify("There are no open comments to put on the PDF.");
+  if (!(await freshPdf())) return;
+  const dest = await saveDialog({ title: "Save PDF with comments", defaultPath: `${s.info.name} with comments.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+  if (!dest) return;
+  await guard(async () => {
+    const count = await api.pdfSaveWithComments(dest);
+    store().notify(`Saved ${dest}, with ${count === 1 ? "one comment" : `${count} comments`} on it.`);
+  });
+}
+
+/** Save a copy of the PDF with everything changed since a version marked on it. */
+export async function savePdfWithChanges(version: string, label: string) {
+  const s = store();
+  if (!s.info || !(await freshPdf())) return;
+  const dest = await saveDialog({ title: "Save PDF with changes", defaultPath: `${s.info.name} changes since ${label}.pdf`.replace(/[\\/:*?"<>|]/g, "-"), filters: [{ name: "PDF", extensions: ["pdf"] }] });
+  if (!dest) return;
+  await guard(async () => {
+    const count = await api.pdfSaveWithChanges(version, label, dest);
+    store().notify(count ? `Saved ${dest}, with the changes since “${label}” marked.` : `Saved ${dest}. Nothing in the PDF changed since “${label}”.`);
+  });
+}
+
 // ---------- comments ----------
 
 function setComments(comments: Comment[]) {

@@ -132,6 +132,17 @@ export const api = {
     invoke<FileDiff>("history_file_diff", { version, against, path }),
   historyRestore: (version: string) => invoke<string>("history_restore", { version }),
 
+  /** Whether Pandoc, which Word documents need, is on this computer. */
+  pandocAvailable: () => invoke<boolean>("pandoc_available"),
+  /** The document as a Word file at `dest`; what Pandoc warned about. */
+  wordExport: (dest: string, bibliography: string | null) => invoke<string[]>("word_export", { dest, bibliography }),
+  /** A new project from a Word file, in a folder named after it inside `parentDir`, opened. */
+  wordImport: (source: string, parentDir: string) => invoke<OpenedProject>("word_import", { source, parentDir }),
+  /** A copy of the PDF at `dest` with the open comments on it; how many. */
+  pdfSaveWithComments: (dest: string) => invoke<number>("pdf_save_with_comments", { dest }),
+  /** A copy of the PDF at `dest` with what changed since `version` marked; how many marks. */
+  pdfSaveWithChanges: (version: string, label: string, dest: string) => invoke<number>("pdf_save_with_changes", { version, label, dest }),
+
   /** References picked in Zotero, on this computer; null when the picker was closed without one. */
   zoteroPick: () => invoke<Picked | null>("zotero_pick"),
 

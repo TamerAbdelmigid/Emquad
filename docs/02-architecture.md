@@ -34,6 +34,7 @@ Pin exact versions of every dependency and of the two sidecar binaries when scaf
 
 - **texlab** is GPL-3.0. It must remain a separate executable that the app starts and talks to over a pipe; do not link it into the app.
 - **libgit2** is GPL-2.0 with a linking exception that permits linking from software under other licenses.
+- **Pandoc** is GPL-2.0-or-later. It is never shipped or linked: the user installs it, and the app looks for it on the PATH and where its installer puts it (`%LOCALAPPDATA%\Pandoc`, `%ProgramFiles%\Pandoc`) and runs it as a separate program. **lopdf** and what it uses are MIT, Apache-2.0, BSD or Zlib.
 - Tectonic, CodeMirror, PDF.js, Tauri, React, `git2`, `zip` and nspell are under permissive licenses. The word lists are under MIT, BSD and MPL terms; a word list offered only under the GPL is not shipped.
 - LaTeX package files that a bundle carries keep their own licences, mostly the LaTeX Project Public License, which permits passing them on unchanged.
 - No Overleaf source code is used. Overleaf is AGPL; the app only follows its layout conventions.
@@ -102,6 +103,8 @@ App-wide settings (display name, author id, recent projects, preferences) live i
 | `lsp` | Start texlab, forward JSON-RPC messages both ways |
 | `settings` | App-wide and per-project settings |
 | `zotero` | Ask Zotero's Better BibTeX add-on, on this computer only, for the references the user picks and their BibTeX |
+| `pandoc` | Find Pandoc on this computer and run it: a document to `.docx`, a `.docx` to a new project |
+| `pdfnotes` | Put notes on a copy of the compiled PDF (with `lopdf`): comments as highlights with what was said, changes since a version as highlights with what was there, where SyncTeX places their lines |
 
 Each module exposes plain Rust functions that are unit-tested without Tauri. A thin `commands` layer wraps them as Tauri commands and maps errors to a single serialisable error type with a stable `code` and a user-readable `message`.
 
@@ -185,6 +188,15 @@ A diagnostic is `{ severity, file, line, message }`.
 | `zotero_pick()` | the citation keys picked in Zotero and their BibTeX, or nothing when the picker was closed; `zotero_missing` when Zotero with Better BibTeX is not running |
 
 The webview turns a reference into BibTeX (`bib.ts`) and adds it at the end of the project's `.bib` file, never changing an entry already there: with `file_write`, or, when the file is open in a tab, in its editor, which is then saved with whatever else was typed in it. Keys are compared without regard to case, as BibTeX compares them, and entries are read as BibTeX reads them, counting every brace. A `.bib` file with an entry that is never closed is not added to, since what came after would be read as part of it, and one the document names outside the project is never written. `citationStyle.ts` sets the citation style. Both are plain functions with tests.
+
+**Word, and PDFs with notes**
+
+| Command | Returns |
+|---|---|
+| `pandoc_available()` | whether Pandoc was found |
+| `word_export(dest, bibliography)` | what Pandoc warned about; the `.docx` is written beside `dest` and put in place whole |
+| `word_import(source, parentDir)` | the new project, opened; converted in a folder of its own and moved into place whole |
+| `pdf_save_with_comments(dest)` / `pdf_save_with_changes(version, label, dest)` | how many notes were put on the copy at `dest` |
 
 **LSP**
 
@@ -275,6 +287,7 @@ Features do not import from one another's internals; shared pieces go in `design
 - Tauri capabilities are restricted to the commands above. The webview has no general file-system or shell permission. The capability applies to the first window (`main`) and to the windows the app opens for other projects (`w-*`), and to nothing else. Beyond `core:default` and `dialog:default` it grants `core:window:allow-destroy` alone: a window that is asked to close saves its unsaved changes first and then closes itself, which needs it.
 - Each window has a session of its own (`Session` in `commands.rs`): its project, its compile and the lock that keeps compiles one at a time, its file watcher and its language server. Every command that acts on the open project takes the window that called it and works on that window's session; the events a session sends (compile log, file changes, the language server's messages) go to its window only, and each window listens only for its own. A window claims the folder of the project it opens in one step with the check that no other window has it, or a folder inside or around it (`AppState::claim`), so two windows opening one project at the same moment cannot both have it; a claimed project is not opened again, and the window that has it is brought forward. A window opening another project keeps its claim on the old one until the new one is open, and the folder of a project being created or imported from a bundle is claimed before anything is written to it. A window opens, creates or imports one project at a time. The watcher and language server of a project are put in place only once all of it has opened, so a failed open leaves the window as it was. A bundle for a project open in another window is handed to that window. A window that closes, or whose page loads again, ends its session: its compile is stopped, and its claim, watcher and language server go. A language server the app stops itself does not report that it has stopped, so the next project's server is not taken for it.
 - The app opens one connection of its own: to Zotero's Better BibTeX add-on on `127.0.0.1:23119`, this computer's own address, and only when the user asks for a citation from Zotero. It never connects to another host, follows no redirect, and reads at most 16 MB of reply. Everything else that reaches the network is the compiler fetching LaTeX packages.
+- Pandoc runs only when the user asks for a Word file, on the document's own files; a document that names a picture by a web address could have Pandoc fetch it, which is the one way it reaches the network. It is stopped after three minutes.
 - Every path argument is resolved and checked to lie inside the project root (or, for bundle import and export, the path the user picked in a native dialog).
 - Bundle extraction rejects entries with absolute paths, `..` segments, symbolic links, or names that fail the file-name rule in `03-bundles-and-history.md`, and enforces a size ceiling. Every version in a bundle's history is held to the same rule before any of it is accepted.
 - A received bundle is untrusted input. Importing it never runs anything from it; compiling its LaTeX is subject to the engine's own restrictions (Tectonic does not enable shell escape by default; keep it that way).

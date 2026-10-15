@@ -4,6 +4,15 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.13.0 - 2026-10-15
+
+Working with people who use Word.
+
+- File ▸ Send to Word… saves the document as a Word file, with its pictures and references. File ▸ Open a Word file… makes a new project from a Word file and opens it. Both use Pandoc, a free program installed separately from pandoc.org; Emquad finds it by itself, and says where to get it when it is missing.
+- File ▸ Save PDF with comments… saves a copy of the PDF with each open comment on it, on its passage and with its replies, as any PDF viewer shows comments.
+- History has PDF with changes since this version…: a copy of the PDF with what was written or changed since the chosen version highlighted, each mark saying what was there before, and a marker where text was taken out.
+- A `%` just after `\\` is read as the start of a comment, as LaTeX reads it, when the equation editor looks for a formula, and a second paragraph of a list item pasted from a web page stays in its item.
+
 ## 0.12.0 - 2026-10-15
 
 Pictures, formatting and equations, the way Word has them.

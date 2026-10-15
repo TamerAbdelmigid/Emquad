@@ -15,13 +15,15 @@ texlab is distributed unmodified under the GNU General Public License, version 3
 
 Tectonic downloads LaTeX packages, classes and fonts from its package bundle when a document first needs them. Those files carry their own licences, mostly the LaTeX Project Public License. When you export a bundle with its LaTeX packages, copies of those files, unchanged, travel inside it under the same licences.
 
+Pandoc, which Send to Word and Open a Word file use, is not shipped with Emquad. Users install it themselves from pandoc.org, under its own licence (GPL-2.0 or later), and Emquad runs it as a separate program.
+
 ## Compiled into the app
 
 | Component | Licence | Source |
 |---|---|---|
 | Tauri, wry, tao | MIT or Apache-2.0 | https://github.com/tauri-apps |
 | libgit2 (through the `git2` crate) | GPL-2.0 with a linking exception that permits use in programs under any licence | https://github.com/libgit2/libgit2 |
-| `git2`, `similar`, `zip`, `flate2`, `regex`, `notify`, `serde`, `uuid`, `chrono`, `tempfile`, `thiserror`, `ts-rs` and their dependencies | MIT or Apache-2.0 (some dual, some BSD or Zlib) | https://crates.io |
+| `git2`, `similar`, `zip`, `flate2`, `regex`, `notify`, `serde`, `uuid`, `chrono`, `tempfile`, `thiserror`, `ts-rs`, `lopdf` and their dependencies | MIT or Apache-2.0 (some dual, some BSD or Zlib) | https://crates.io |
 | React | MIT | https://github.com/facebook/react |
 | CodeMirror 6 and its packages | MIT | https://github.com/codemirror |
 | PDF.js | Apache-2.0 | https://github.com/mozilla/pdf.js |

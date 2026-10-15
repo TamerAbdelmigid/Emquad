@@ -264,6 +264,10 @@ export function App() {
                   "separator",
                   { label: "Document setup…", run: () => set({ dialog: "setup" }) },
                   "separator",
+                  { label: "Send to Word…", run: () => void act.sendToWord() },
+                  { label: "Open a Word file…", run: () => void act.openWordFile() },
+                  { label: "Save PDF with comments…", run: () => void act.savePdfWithComments() },
+                  "separator",
                   { label: "New project…", run: () => set({ dialog: "newProject" }) },
                   { label: "Open another folder…", run: () => void act.chooseAndOpenProject() },
                   { label: "New window", hint: "Ctrl+Shift+N", run: () => void act.guard(() => api.windowNew()) },
@@ -528,6 +532,7 @@ export function App() {
           focusFile={focusFile}
           onError={onHistoryError}
           onRestore={act.restoreVersion}
+          onChangesPdf={act.savePdfWithChanges}
           onSnapshot={act.saveSnapshot}
           onWorkingCopyChanged={async () => {
             await act.reloadOpenFiles();
