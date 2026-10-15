@@ -11,7 +11,7 @@ An equation editor like Word's.
 - The equation editor (Insert ▸ Equation…, Alt+=) now shows the formula as it prints while you type, and you type it as in Word: `/` makes a fraction, `^` a power, `_` an index, names such as `alpha`, `sqrt`, `sum` or `infty` become what they name, and Tab moves between boxes.
 - A ribbon like Word's Equation tab: fractions, scripts, radicals, integrals, large operators, brackets and cases, functions, accents, limits, operators and matrices, each written around what you selected, and a row of symbols by kind.
 - New line (Shift+Enter) sets a formula over several lines, lined up at `=`.
-- A double-click on a formula in visual mode opens the editor on it.
+- A double-click on a formula in visual mode opens the editor on it. A single click on a drawn formula leaves it drawn; the arrow keys, or a click beside it, still show its LaTeX.
 - The packages a formula needs (amsmath, amssymb, mathtools) are added to the settings at the top for you.
 - A Word file you open is read in Pandoc's sandbox, so it cannot make Pandoc read or fetch anything else.
 

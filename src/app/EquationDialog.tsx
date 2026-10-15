@@ -48,11 +48,32 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
   const [symbols, setSymbols] = useState(SYMBOL_GROUPS[0].id);
   const holder = useRef<HTMLDivElement>(null);
   const field = useRef<MathfieldElement | null>(null);
+  /** The formula as the editor read it on opening, to tell whether it was changed at all. */
+  const opened = useRef("");
+  /** The LaTeX under the formula was typed in last: it goes in as it was typed. */
+  const [typedSource, setTypedSource] = useState(false);
+  /** The button of each group of the ribbon, to give the keyboard back to when its list closes. */
+  const toolButtons = useRef(new Map<string, HTMLButtonElement>());
 
-  const formula = () => cleanFormula(field.current?.getValue("latex-expanded") ?? source);
+  /**
+   * What goes into the document: the formula as it was when nothing in it was changed, the
+   * LaTeX as typed when it was typed last, and otherwise what the editor writes, made LaTeX.
+   */
+  const formula = () => {
+    if (typedSource) return source.trim();
+    const latex = field.current?.getValue("latex") ?? source;
+    if (was && latex === opened.current) return was.tex;
+    return cleanFormula(latex);
+  };
+  const empty = !cleanFormula(source).replace(/\{\}/g, "").trim();
   const apply = () => {
     const tex = formula();
     if (tex) void applyFormula(tex, placement, was);
+  };
+  /** Close a ribbon list, the keyboard going back to its button when it was in the list. */
+  const closeList = (refocus: boolean) => {
+    if (refocus && open) toolButtons.current.get(open)?.focus();
+    setOpen(null);
   };
 
   useEffect(() => {
@@ -66,8 +87,15 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
       mf.smartFence = true;
       mf.popoverPolicy = "off";
       mf.value = was?.tex ?? "";
-      mf.addEventListener("input", () => setSource(mf.getValue("latex")));
+      mf.addEventListener("input", () => {
+        setSource(mf.getValue("latex"));
+        setTypedSource(false);
+      });
       holder.current.append(mf);
+      // Once it is in the page: its right-click menu offers colours and decorations that need
+      // packages or are not LaTeX at all.
+      mf.menuItems = [];
+      opened.current = mf.getValue("latex");
       field.current = mf;
       setReady(true);
       requestAnimationFrame(() => mf.focus());
@@ -87,6 +115,7 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
     if (!mf) return;
     mf.insert(insert, { selectionMode: after ? "after" : "placeholder", focus: true, format: "latex" });
     setSource(mf.getValue("latex"));
+    setTypedSource(false);
     setOpen(null);
   };
 
@@ -100,6 +129,7 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
     mf.executeCommand("moveToPreviousChar");
     mf.focus();
     setSource(mf.getValue("latex"));
+    setTypedSource(false);
     if (placement === "inline") setPlacement("display");
   };
 
@@ -131,17 +161,32 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
           } else if (e.key === "Escape" && open) {
             e.preventDefault();
             e.stopPropagation();
-            setOpen(null);
+            closeList(true);
+          } else if (e.key === "Escape" && e.target === field.current && field.current?.mode !== "latex") {
+            // The formula takes Esc for itself; outside its LaTeX typing, Esc closes the dialog
+            // as it does every other.
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
           }
         }}
       >
-        <div className="eq-ribbon" role="toolbar" aria-label="Structures">
+        <div className="eq-ribbon" role="group" aria-label="Structures">
           {STRUCTURES.map((g) => (
-            <div className="eq-group" key={g.id}>
+            <div
+              className="eq-group"
+              key={g.id}
+              onBlur={(e) => {
+                // A list closes when the keyboard leaves it, or its button, for elsewhere.
+                if (open === g.id && !e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(null);
+              }}
+            >
               <button
                 type="button"
+                ref={(b) => {
+                  if (b) toolButtons.current.set(g.id, b);
+                }}
                 className={`btn eq-tool${open === g.id ? " on" : ""}`}
-                aria-haspopup="true"
                 aria-expanded={open === g.id}
                 title={g.label}
                 disabled={!ready}
@@ -208,6 +253,7 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
             value={source}
             onChange={(e) => {
               setSource(e.target.value);
+              setTypedSource(true);
               if (field.current) field.current.value = e.target.value;
             }}
           />
@@ -226,7 +272,7 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn go" disabled={!ready}>
+          <button type="submit" className="btn go" disabled={!ready || empty}>
             {was ? "Change" : "Insert"}
           </button>
         </div>

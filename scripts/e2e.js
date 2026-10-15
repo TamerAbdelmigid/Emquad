@@ -1018,7 +1018,9 @@
       buffers.setVisual(true);
       buffers.goToLine(1);
       const drawn = await until("the formula drawn", () => $$(".cm-v-math").find((m) => m.textContent.includes("0") && !m.closest(".cm-v-display")));
-      drawn.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+      // The second press of a double-click, where the formula is.
+      const box = drawn.getBoundingClientRect();
+      drawn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, detail: 2, button: 0, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 }));
       const onIt = await until("the editor from a double-click", () => $("math-field.eq-field"));
       await until("the formula in it", () => onIt.getValue("latex").startsWith("c_"));
       await ok(true, "a double-click on a formula in visual mode opens the equation editor on it");

@@ -186,6 +186,26 @@ await check(await focusIn(".cm-v-tmenu"), "Shift+F10 opens the table's menu with
 await key("Escape");
 await check(await focusIs(".cm-v-tedit"), "Escape closes it and returns to the table");
 
+// A double-click with the mouse on a formula drawn in visual mode opens the equation editor on
+// it, as in Word; Esc in the formula closes the editor, as in every dialog.
+const at = await evaluate(`(() => { const m = [...document.querySelectorAll('.cm-v-math')].find((e) => e.textContent.includes('β')); if (!m) return null; m.scrollIntoView({ block: 'center' }); const r = m.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+await sleep(300);
+if (at) {
+  for (const clickCount of [1, 2]) {
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount });
+    await sleep(80);
+  }
+  await sleep(1200);
+}
+await check(
+  !!at && /\\beta/.test((await evaluate("document.querySelector('math-field')?.getValue('latex') ?? ''")) ?? ""),
+  "a double-click with the mouse on a formula in visual mode opens the equation editor on it",
+);
+await key("Escape");
+await sleep(300);
+await check(!(await evaluate("!!document.querySelector('dialog[open]')")), "Esc in the formula closes the equation editor");
+
 // History.
 await key("H", { ctrl: true, shift: true });
 await sleep(800);

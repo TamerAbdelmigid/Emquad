@@ -201,25 +201,91 @@ export const SYMBOL_GROUPS: { id: string; label: string; symbols: Sym[] }[] = CA
 export const preview = (insert: string) => insert.replace(/#[0?]/g, "\\square");
 
 /**
- * The LaTeX the visual editor gives, as it goes into a document: empty boxes taken out, and the
- * spacing the editor adds for itself tidied away.
+ * What the visual editor writes that LaTeX does not know, as LaTeX writes it: its own names for
+ * the d of a derivative, e and i, and a few symbols its typing shortcuts give.
+ */
+const OWN: [RegExp, string][] = [
+  [/\\differentialD(?![a-zA-Z])/g, "\\mathrm{d}"],
+  [/\\capitalDifferentialD(?![a-zA-Z])/g, "\\mathrm{D}"],
+  [/\\exponentialE(?![a-zA-Z])/g, "\\mathrm{e}"],
+  [/\\imaginaryI(?![a-zA-Z])/g, "\\mathrm{i}"],
+  [/\\imaginaryJ(?![a-zA-Z])/g, "\\mathrm{j}"],
+  [/\\doubleprime(?![a-zA-Z])/g, "\\prime\\prime"],
+  [/\\questeq(?![a-zA-Z])/g, "\\stackrel{?}{=}"],
+  [/\\Colon(?![a-zA-Z])/g, "::"],
+  [/\\twoheadrightarrowtail(?![a-zA-Z])/g, "\\twoheadrightarrow"],
+  // mathtools' \coloneq is :−; the := the shortcut means is \coloneqq.
+  [/\\coloneq(?![a-zA-Z])/g, "\\coloneqq"],
+  [/\\degree(?![a-zA-Z])/g, "^{\\circ}"],
+  [/\\slash(?![a-zA-Z])/g, "/"],
+];
+
+/**
+ * The LaTeX the visual editor gives, as it goes into a document: what only the editor knows
+ * written as LaTeX does, an empty box left as an empty group (so the letters either side do
+ * not run together), and an empty last line of several taken away.
  */
 export function cleanFormula(latex: string): string {
-  return latex
-    .replace(/\\placeholder(?:\[[^\]]*\])?\{[^{}]*\}/g, "")
+  let out = latex.replace(/\\placeholder(?:\[[^\]]*\])?\{[^{}]*\}/g, "{}");
+  for (const [pattern, written] of OWN) out = out.replace(pattern, written);
+  return out
+    .replace(/\\\\\s*&?\s*(?:\{\})?\s*\\end\{aligned\}/g, "\\end{aligned}")
     .replace(/[ \t]+/g, " ")
     .trim();
 }
 
 /**
+ * The places in `text` where `token` begins at the text's own level: outside braces and
+ * outside environments such as a matrix, so that a subscript's = or a matrix's rows are not
+ * taken for the formula's own.
+ */
+function topLevel(text: string, token: string): number[] {
+  const found: number[] = [];
+  let braces = 0;
+  let envs = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (braces === 0 && envs === 0 && text.startsWith(token, i)) {
+      found.push(i);
+      i += token.length - 1;
+      continue;
+    }
+    if (text.startsWith("\\begin{", i)) envs++;
+    else if (text.startsWith("\\end{", i)) envs = Math.max(0, envs - 1);
+    const ch = text[i];
+    if (ch === "\\") i++;
+    else if (ch === "{") braces++;
+    else if (ch === "}") braces = Math.max(0, braces - 1);
+  }
+  return found;
+}
+
+/** `text` cut at each of `places`, the `width` characters there left out. */
+function cut(text: string, places: number[], width: number): string[] {
+  const parts: string[] = [];
+  let from = 0;
+  for (const at of places) {
+    parts.push(text.slice(from, at));
+    from = at + width;
+  }
+  return [...parts, text.slice(from)];
+}
+
+/**
  * The formula with a line added after it, as Word's Enter in an equation does: the lines are
- * set one under another in `aligned`, lined up at their first `=`. `#?` marks where typing
- * goes on.
+ * set one under another in `aligned`, lined up at their first `=` of their own. `#?` marks
+ * where typing goes on.
  */
 export function withNewLine(latex: string): string {
-  const align = (line: string) => (line.includes("&") ? line : line.includes("=") ? line.replace("=", "&=") : `&${line}`);
-  const body = /^\\begin\{aligned\}([\s\S]*)\\end\{aligned\}$/.exec(latex.trim())?.[1];
-  const lines = body !== undefined ? body.split(/\\\\/).map((l) => l.trim()) : [latex.trim()];
+  const align = (line: string) => {
+    if (topLevel(line, "&").length) return line;
+    const equals = topLevel(line, "=")[0];
+    return equals === undefined ? `&${line}` : `${line.slice(0, equals)}&${line.slice(equals)}`;
+  };
+  const whole = latex.trim();
+  const aligned = /^\\begin\{aligned\}([\s\S]*)\\end\{aligned\}$/.exec(whole);
+  // Lines of an aligned block that is the whole formula, and not two blocks one after another.
+  const body = aligned && topLevel(aligned[1], "\\end{aligned}").length === 0 ? aligned[1] : undefined;
+  const lines = body !== undefined ? cut(body, topLevel(body, "\\\\"), 2).map((l) => l.trim()) : [whole];
   return `\\begin{aligned}${[...lines.map(align), "&#?"].join("\\\\ ")}\\end{aligned}`;
 }
 
@@ -239,4 +305,5 @@ export function packagesFor(tex: string): string[] {
 
 const AMSMATH =
   /\\(?:text|operatorname|[pbvBV]?matrix|cases|aligned|gathered|dfrac|tfrac|binom|overset|underset|xrightarrow|xleftarrow|boxed|iint|iiint|substack)\b|\\begin\{(?:align|gather|multline|cases|[pbvBV]?matrix)/;
-const AMSSYMB = /\\(?:mathbb|mathfrak|square|blacksquare|leqslant|geqslant|nleq|ngeq|varnothing|therefore|because|lesssim|gtrsim|checkmark)\b/;
+const AMSSYMB =
+  /\\(?:mathbb|mathfrak|square|blacksquare|leqslant|geqslant|nleq|ngeq|nless|ngtr|varnothing|therefore|because|lesssim|gtrsim|checkmark|rightarrowtail|leftarrowtail|twoheadrightarrow|twoheadleftarrow|ltimes|rtimes|nexists|nmid|nparallel|complement|leqq|geqq|lll|ggg|lozenge|blacklozenge|circledast|boxplus|boxtimes)\b/;

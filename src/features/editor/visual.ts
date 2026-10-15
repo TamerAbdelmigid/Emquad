@@ -29,17 +29,11 @@ class MathWidget extends WidgetType {
   eq(other: MathWidget) {
     return other.tex === this.tex && other.display === this.display;
   }
-  toDOM(view: EditorView) {
+  toDOM() {
     const el = document.createElement("span");
     el.className = this.display ? "cm-v-math cm-v-display" : "cm-v-math";
     el.title = "Double-click to change this formula";
     typeset(el, this.tex, this.display);
-    // As in Word, a double-click opens the equation editor on it.
-    el.addEventListener("dblclick", (e) => {
-      e.preventDefault();
-      view.dispatch({ selection: { anchor: Math.min(view.posAtDOM(el) + 1, view.state.doc.length) } });
-      editFormula();
-    });
     return el;
   }
   ignoreEvent() {
@@ -415,4 +409,27 @@ const settle = ViewPlugin.fromClass(
 );
 
 /** Everything visual mode adds to an editor. */
-export const visualMode: Extension = [drawing, settle, EditorView.editorAttributes.of({ class: "cm-visual" })];
+/**
+ * As in Word, a formula drawn in visual mode is changed with a double-click, which opens the
+ * equation editor on it. A click on it leaves it drawn, rather than showing its source, so the
+ * second click of a double-click lands where the first did; the arrow keys, or a click beside
+ * it, still reach its LaTeX.
+ */
+const formulaClicks = EditorView.domEventHandlers({
+  mousedown(event, view) {
+    if (event.button !== 0) return false;
+    const drawn = event.target instanceof Element ? event.target.closest(".cm-v-math") : null;
+    if (!drawn || !view.contentDOM.contains(drawn)) return false;
+    event.preventDefault();
+    view.focus();
+    if (event.detail >= 2) {
+      const at = view.posAtDOM(drawn);
+      // Inside the formula, so the editor opens on it.
+      view.dispatch({ selection: { anchor: Math.min(at + 1, view.state.doc.length) } });
+      editFormula();
+    }
+    return true;
+  },
+});
+
+export const visualMode: Extension = [drawing, settle, formulaClicks, EditorView.editorAttributes.of({ class: "cm-visual" })];

@@ -16,7 +16,7 @@
     const B = String.fromCharCode(92);
     const text = (await invoke("file_read", { path: "main.tex" })).text.replace(
       "Start writing here.",
-      `Start writing here.\n\n${B}begin{tabular}{|l|l|}\n${B}hline\nA & B ${B}${B}\nC & D ${B}${B}\n${B}hline\n${B}end{tabular}\n`,
+      `Start writing here, with a formula: $${B}beta^2$.\n\n${B}begin{tabular}{|l|l|}\n${B}hline\nA & B ${B}${B}\nC & D ${B}${B}\n${B}hline\n${B}end{tabular}\n`,
     );
     await invoke("file_write", { path: "main.tex", text });
     // As the file watcher would tell of a change another program made.

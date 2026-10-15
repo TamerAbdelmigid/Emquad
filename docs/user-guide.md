@@ -141,7 +141,7 @@ The magnifier in the left rail (Ctrl+Shift+F) searches every text file in the pr
 - **New line** (or Shift+Enter) starts a line below, the lines lined up at their `=`.
 - **LaTeX** under the formula shows what will be written, and you can type there too.
 
-Choose whether the formula sits in the line of text, on a line of its own, or on a line of its own with a number to refer to, and press **Insert** (or Ctrl+Enter). To change a formula, put the cursor in it and press Alt+=, or double-click it in visual mode. A package the formula needs is added to the settings at the top for you.
+Choose whether the formula sits in the line of text, on a line of its own, or on a line of its own with a number to refer to, and press **Insert** (or Ctrl+Enter). To change a formula, double-click it in visual mode, or put the cursor in it and press Alt+=. In visual mode a click on a formula leaves it drawn; the arrow keys, or a click beside it, show its LaTeX to edit by hand. A package the formula needs is added to the settings at the top for you.
 
 ### References and citations
 
