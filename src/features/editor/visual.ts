@@ -11,6 +11,7 @@ import { renderInline, typeset } from "./inlineTex";
 import { EditableTable } from "./tableEditor";
 import { parseTable } from "./tableModel";
 import { type Row, describeCitation, visualPieces } from "./visualModel";
+import { formulaAt } from "./equation";
 
 
 /** What a double-click on a formula does: the app opens the equation editor on it. */
@@ -419,13 +420,15 @@ const formulaClicks = EditorView.domEventHandlers({
   mousedown(event, view) {
     if (event.button !== 0) return false;
     const drawn = event.target instanceof Element ? event.target.closest(".cm-v-math") : null;
-    if (!drawn || !view.contentDOM.contains(drawn)) return false;
+    // A formula in a drawn table belongs to the table, which is edited where it is drawn.
+    if (!drawn || !view.contentDOM.contains(drawn) || drawn.closest(".cm-v-table, .cm-v-tedit")) return false;
+    // Inside the formula, so the editor opens on it; only where there is one.
+    const inside = Math.min(view.posAtDOM(drawn) + 1, view.state.doc.length);
+    if (!formulaAt(view.state.doc.toString(), inside)) return false;
     event.preventDefault();
     view.focus();
     if (event.detail >= 2) {
-      const at = view.posAtDOM(drawn);
-      // Inside the formula, so the editor opens on it.
-      view.dispatch({ selection: { anchor: Math.min(at + 1, view.state.doc.length) } });
+      view.dispatch({ selection: { anchor: inside } });
       editFormula();
     }
     return true;

@@ -377,3 +377,4 @@ body[data-dropping] .cm-editor{outline:2px dashed var(--acc);outline-offset:-6px
 .eq-field::part(virtual-keyboard-toggle),.eq-field::part(menu-toggle){display:none}
 .eq-source summary{cursor:pointer;color:var(--mu);font-size:13px}
 .eq-source textarea{width:100%;margin-top:8px;font:400 13px/1.5 var(--mono)}
+.eq-note{margin:0;padding:10px 12px;border-radius:10px;background:var(--card);box-shadow:inset 3px 0 0 var(--acc);color:var(--tx);font-size:13px}

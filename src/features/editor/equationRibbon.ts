@@ -216,7 +216,10 @@ const OWN: [RegExp, string][] = [
   [/\\twoheadrightarrowtail(?![a-zA-Z])/g, "\\twoheadrightarrow"],
   // mathtools' \coloneq is :−; the := the shortcut means is \coloneqq.
   [/\\coloneq(?![a-zA-Z])/g, "\\coloneqq"],
-  [/\\degree(?![a-zA-Z])/g, "^{\\circ}"],
+  // An empty group first, so that it follows a power already there without a double one.
+  [/\\degree(?![a-zA-Z])/g, "{}^{\\circ}"],
+  // The editor writes amsmath's bold symbol as bm's, which the document does not load.
+  [/\\bm(?![a-zA-Z])/g, "\\boldsymbol"],
   [/\\slash(?![a-zA-Z])/g, "/"],
 ];
 
@@ -225,9 +228,10 @@ const OWN: [RegExp, string][] = [
  * written as LaTeX does, an empty box left as an empty group (so the letters either side do
  * not run together), and an empty last line of several taken away.
  */
-export function cleanFormula(latex: string): string {
+export function cleanFormula(latex: string, written = ""): string {
   let out = latex.replace(/\\placeholder(?:\[[^\]]*\])?\{[^{}]*\}/g, "{}");
-  for (const [pattern, written] of OWN) out = out.replace(pattern, written);
+  // A command the formula had as it was written stays: it is the writer's, not the editor's.
+  for (const [pattern, latexFor] of OWN) if (!new RegExp(pattern.source).test(written)) out = out.replace(pattern, latexFor);
   return out
     .replace(/\\\\\s*&?\s*(?:\{\})?\s*\\end\{aligned\}/g, "\\end{aligned}")
     .replace(/[ \t]+/g, " ")
@@ -249,8 +253,9 @@ function topLevel(text: string, token: string): number[] {
       i += token.length - 1;
       continue;
     }
-    if (text.startsWith("\\begin{", i)) envs++;
-    else if (text.startsWith("\\end{", i)) envs = Math.max(0, envs - 1);
+    // An environment, or brackets that grow, \left( … \right), holds what is in it.
+    if (text.startsWith("\\begin{", i) || /^\\left(?![a-zA-Z])/.test(text.slice(i, i + 6))) envs++;
+    else if (text.startsWith("\\end{", i) || /^\\right(?![a-zA-Z])/.test(text.slice(i, i + 7))) envs = Math.max(0, envs - 1);
     const ch = text[i];
     if (ch === "\\") i++;
     else if (ch === "{") braces++;
@@ -304,6 +309,6 @@ export function packagesFor(tex: string): string[] {
 }
 
 const AMSMATH =
-  /\\(?:text|operatorname|[pbvBV]?matrix|cases|aligned|gathered|dfrac|tfrac|binom|overset|underset|xrightarrow|xleftarrow|boxed|iint|iiint|substack)\b|\\begin\{(?:align|gather|multline|cases|[pbvBV]?matrix)/;
+  /\\(?:text|operatorname|[pbvBV]?matrix|cases|aligned|gathered|dfrac|tfrac|binom|overset|underset|xrightarrow|xleftarrow|boxed|iint|iiint|substack|boldsymbol)\b|\\begin\{(?:align|gather|multline|cases|[pbvBV]?matrix)/;
 const AMSSYMB =
   /\\(?:mathbb|mathfrak|square|blacksquare|leqslant|geqslant|nleq|ngeq|nless|ngtr|varnothing|therefore|because|lesssim|gtrsim|checkmark|rightarrowtail|leftarrowtail|twoheadrightarrow|twoheadleftarrow|ltimes|rtimes|nexists|nmid|nparallel|complement|leqq|geqq|lll|ggg|lozenge|blacklozenge|circledast|boxplus|boxtimes)\b/;

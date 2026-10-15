@@ -52,6 +52,8 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
   const opened = useRef("");
   /** The LaTeX under the formula was typed in last: it goes in as it was typed. */
   const [typedSource, setTypedSource] = useState(false);
+  /** The formula as written has parts the visual editor would write otherwise, such as a comment. */
+  const [rewrites, setRewrites] = useState(false);
   /** The button of each group of the ribbon, to give the keyboard back to when its list closes. */
   const toolButtons = useRef(new Map<string, HTMLButtonElement>());
 
@@ -63,7 +65,7 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
     if (typedSource) return source.trim();
     const latex = field.current?.getValue("latex") ?? source;
     if (was && latex === opened.current) return was.tex;
-    return cleanFormula(latex);
+    return cleanFormula(latex, was?.tex ?? "");
   };
   const empty = !cleanFormula(source).replace(/\{\}/g, "").trim();
   const apply = () => {
@@ -96,6 +98,19 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
       // packages or are not LaTeX at all.
       mf.menuItems = [];
       opened.current = mf.getValue("latex");
+      // The editor keeps a formula as written until it is changed, and then writes all of it its
+      // own way, which loses a comment or turns a bold symbol into another kind of bold. A trial
+      // change, taken back at once, shows whether it would: such a formula is shown with its
+      // LaTeX open, and a word on why, so that what the writer wrote is not lost.
+      if (was) {
+        mf.executeCommand("moveToMathfieldEnd");
+        mf.insert("q", { format: "latex", silenceNotifications: true });
+        const rewritten = mf.getValue("latex").replace(/q$/, "");
+        mf.value = was.tex;
+        opened.current = mf.getValue("latex");
+        const bare = (t: string) => t.replace(/\s+/g, "");
+        if (bare(cleanFormula(rewritten, was.tex)) !== bare(was.tex)) setRewrites(true);
+      }
       field.current = mf;
       setReady(true);
       requestAnimationFrame(() => mf.focus());
@@ -241,7 +256,13 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
         <div ref={holder} className="eq-holder">
           {!ready && <p>Opening the equation editor…</p>}
         </div>
-        <details className="eq-source">
+        {rewrites && (
+          <p className="eq-note">
+            Parts of this formula are written in a way the visual editor would write differently, such as a comment or a bold symbol. Change it in the
+            LaTeX below to keep them as they are.
+          </p>
+        )}
+        <details className="eq-source" open={rewrites || undefined}>
           <summary>LaTeX</summary>
           <label htmlFor="eq-tex" className="sr">
             The formula in LaTeX

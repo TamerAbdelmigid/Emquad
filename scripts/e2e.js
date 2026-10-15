@@ -1024,7 +1024,9 @@
       buffers.run((v) => (v.dispatch({ selection: { anchor: buffers.text("main.tex").indexOf("\\boldsymbol{v}") + 2 } }), true));
       store().set({ dialog: "equation" });
       await until("the editor on it again", () => $("math-field.eq-field"));
-      $(".eq-source summary").click();
+      // The editor would write \boldsymbol its own way: it says so, with the LaTeX open.
+      await ok(!!(await until("the note", () => $(".eq-note"))) && $(".eq-source").open, "a formula the visual editor would write differently opens with its LaTeX shown, and a note on why");
+      if (!$(".eq-source").open) $(".eq-source summary").click();
       type(await until("the LaTeX under the formula", () => $("#eq-tex")), "\\boldsymbol{u}\\hspace{2em}w");
       await click("Change");
       await until("the typed LaTeX", () => buffers.text("main.tex").includes("With $\\boldsymbol{u}\\hspace{2em}w$ kept.\n\n"));
