@@ -9,6 +9,7 @@ pub mod history;
 pub mod index;
 pub mod lsp;
 pub mod packages;
+pub mod pdfnotes;
 pub mod project;
 pub mod review;
 pub mod settings;
