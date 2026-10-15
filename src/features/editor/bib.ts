@@ -214,14 +214,15 @@ export function formatEntry(ref: Reference, key: string): string {
 }
 
 /**
- * The first .bib file a document names, as written (with ".bib" added where \bibliography
- * leaves it out), or null when it names none.
+ * The .bib files a document names, as written (with ".bib" added where \bibliography leaves
+ * it out), in order: those \addbibresource names, then those of \bibliography.
  */
-export function namedBib(text: string): string | null {
+export function namedBibs(text: string): string[] {
   const code = text.replace(/(?<!\\)%[^\n]*/g, "");
-  const resource = /\\addbibresource\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/.exec(code)?.[1].trim();
-  if (resource) return resource;
-  const first = /\\bibliography\s*\{([^}]+)\}/.exec(code)?.[1].split(",")[0].trim();
-  if (!first) return null;
-  return first.toLowerCase().endsWith(".bib") ? first : `${first}.bib`;
+  const resources = [...code.matchAll(/\\addbibresource\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g)].map((m) => m[1].trim());
+  const listed = [...code.matchAll(/\\bibliography\s*\{([^}]+)\}/g)].flatMap((m) => m[1].split(",").map((b) => b.trim()));
+  return [...resources, ...listed.filter(Boolean).map((b) => (b.toLowerCase().endsWith(".bib") ? b : `${b}.bib`))];
 }
+
+/** The first .bib file a document names, or null when it names none. */
+export const namedBib = (text: string): string | null => namedBibs(text)[0] ?? null;

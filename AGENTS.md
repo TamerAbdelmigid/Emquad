@@ -72,7 +72,7 @@ For those areas, the invariants in `docs/03-bundles-and-history.md` must each be
 - **Styling:** plain CSS in `src/design/`, built on the custom properties in `tokens.css`. No inline colours in components, no runtime styling library. A colour that differs between themes is a token, defined for all three in `tokens.css` and `themes.css`.
 - **Frontend features** do not import one another's internals.
 - **User files are sacred:** never write markers or metadata into a project's source files. App data goes in `.emquad/`.
-- **No network at runtime** except what the compiler does to fetch LaTeX packages, and Zotero on this computer's own address (`127.0.0.1`), only when the user asks for a citation from it. Pandoc, which the user installs separately, is run only when they ask for a Word file. Fonts and assets are bundled.
+- **No network at runtime** except what the compiler does to fetch LaTeX packages, and Zotero on this computer's own address (`127.0.0.1`), only when the user asks for a citation from it. Pandoc, which the user installs separately, is run only when they ask for a Word file; it may fetch a picture the document names by a web address. Fonts and assets are bundled.
 - **Dependencies:** pin exact versions. Check licences against the notes in `docs/02-architecture.md`; texlab must stay a separate process. Anything shipped in the installer is listed in `THIRD-PARTY-NOTICES.md`.
 - **Copy:** name things the way a user would ("snapshot", "bundle", "version"), never by their git implementation.
 

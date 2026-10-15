@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, people, unclosedEntry } from "./bib";
+import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, namedBibs, people, unclosedEntry } from "./bib";
 
 const BIB = "% my references\n@book{knuth1984,\n  author = {Donald E. Knuth},\n  title = {The {\\TeX}book},\n  year = {1984},\n}\n\n@string{tug = \"TUGboat\"}\n@article(lamport1994, title = {A {nested} title}, year = 1994)\n";
 
@@ -118,5 +118,6 @@ describe("the .bib file a document names", () => {
     expect(namedBib("\\addbibresource[datatype=bibtex]{lib/refs.bib}")).toBe("lib/refs.bib");
     expect(namedBib("% \\bibliography{old}\n\\bibliography{new.bib}")).toBe("new.bib");
     expect(namedBib("No list of references")).toBeNull();
+    expect(namedBibs("\\bibliography{refs, more.bib}\n\\addbibresource{lib.bib}")).toEqual(["lib.bib", "refs.bib", "more.bib"]);
   });
 });

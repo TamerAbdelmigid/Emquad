@@ -2,7 +2,7 @@
 // Components call these; they never talk to the backend for a multi-step action themselves.
 import { relativeTo, resolveFrom } from "../shared/paths";
 import { documentStart } from "../features/editor/visualModel";
-import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, unclosedEntry } from "../features/editor/bib";
+import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, namedBibs, unclosedEntry } from "../features/editor/bib";
 import { citeCommand, readStyle, styleChanges } from "../features/editor/citationStyle";
 import { PICTURE, figureFor, pictureFolder } from "../features/editor/pictures";
 import { type Formula, type Placement, formulaAt, writeFormula } from "../features/editor/equation";
@@ -830,13 +830,14 @@ async function havePandoc(): Promise<boolean> {
   return false;
 }
 
-/** The .bib file the document takes its references from, as a project path, if it has one there. */
-async function referencesForWord(): Promise<string | null> {
+/** The .bib files the document takes its references from, as project paths, those it has there. */
+async function referencesForWord(): Promise<string[]> {
   const main = store().info?.mainFile ?? "";
   const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/") + 1) : "";
-  const named = namedBib(await mainText());
-  const path = named ? resolveFrom(folder, named) : null;
-  return path && projectFiles().some((p) => p.toLowerCase() === path.toLowerCase()) ? path : null;
+  const files = new Set(projectFiles().map((p) => p.toLowerCase()));
+  return namedBibs(await mainText())
+    .map((b) => resolveFrom(folder, b))
+    .filter((p): p is string => !!p && files.has(p.toLowerCase()));
 }
 
 /** Turn the document into a Word file, for someone who works in Word. */
@@ -866,17 +867,27 @@ export async function openWordFile() {
   if (!(await saveAll())) return;
   await guard(async () => {
     store().notify("Turning the Word file into LaTeX…");
-    await enter(await api.wordImport(source, parent));
-    store().notify("Opened the Word file as a new project. Its pictures are in the media folder.");
+    const made = await api.wordImport(source, parent);
+    await enter(made.opened);
+    const pictures = projectFiles().some((p) => p.startsWith("media/"));
+    const parts = ["Opened the Word file as a new project."];
+    if (pictures) parts.push("Its pictures are in the media folder.");
+    if (made.warnings.length) parts.push(`Pandoc could not carry ${made.warnings.length === 1 ? "one thing" : `${made.warnings.length} things`} over exactly; compare it with the Word file.`);
+    store().notify(parts.join(" "), made.warnings.length > 0);
   });
 }
 
-/** Compile, so a PDF with notes on it is of the text as it is now; whether there is one. */
+/**
+ * Compile, so a PDF with notes on it is of the text as it is now: whether this compile made a
+ * PDF, with no errors. An older PDF would put the notes on the wrong lines.
+ */
 async function freshPdf(): Promise<boolean> {
+  const before = store().pdfVersion;
   await compile();
   const build = store().build;
-  if (!build?.hasPdf) store().notify("The document has to compile before a PDF can be made from it.", true);
-  return !!build?.hasPdf;
+  const fresh = store().pdfVersion > before && !!build?.hasPdf && !build.diagnostics.some((d) => d.severity === "error");
+  if (!fresh) store().notify("The document has to compile without errors before a PDF with notes can be made from it.", true);
+  return fresh;
 }
 
 /** Save a copy of the PDF with the open comments on it, as PDF viewers show comments. */

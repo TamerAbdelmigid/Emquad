@@ -56,27 +56,33 @@ fn numbers(values: &[f64]) -> Object {
     Object::Array(values.iter().map(|v| Object::Real(*v as f32)).collect())
 }
 
-/// The box a page is drawn in, left, bottom, right and top, from the page or the pages above it.
-fn page_box(doc: &Document, page: ObjectId) -> [f64; 4] {
+/// A box of a page, `key`, from the page or the pages above it, as left, bottom, right and top
+/// whichever corners the file gives.
+fn inherited_box(doc: &Document, page: ObjectId, key: &[u8]) -> Option<[f64; 4]> {
     let mut at = Some(page);
     for _ in 0..32 {
-        let Some(id) = at else { break };
-        let Ok(dict) = doc.get_dictionary(id) else {
-            break;
-        };
-        for key in [b"CropBox".as_slice(), b"MediaBox"] {
-            if let Ok(found) = dict.get_deref(key, doc).and_then(Object::as_array)
-                && let [a, b, c, d] = found.as_slice()
-                && let (Ok(a), Ok(b), Ok(c), Ok(d)) =
-                    (a.as_float(), b.as_float(), c.as_float(), d.as_float())
-            {
-                return [a as f64, b as f64, c as f64, d as f64];
+        let dict = doc.get_dictionary(at?).ok()?;
+        if let Ok(found) = dict.get_deref(key, doc).and_then(Object::as_array)
+            && let [a, b, c, d] = found.as_slice()
+            && let (Ok(a), Ok(b), Ok(c), Ok(d)) =
+                (a.as_float(), b.as_float(), c.as_float(), d.as_float())
+        {
+            let [a, b, c, d] = [a as f64, b as f64, c as f64, d as f64];
+            if [a, b, c, d].iter().all(|v| v.is_finite()) {
+                return Some([a.min(c), b.min(d), a.max(c), b.max(d)]);
             }
         }
         at = dict.get(b"Parent").and_then(Object::as_reference).ok();
     }
-    // A US Letter page, as PDF assumes when a file names none.
-    [0.0, 0.0, 612.0, 792.0]
+    None
+}
+
+/// The box a page is shown in: its crop box, else its media box, as PDF viewers show it.
+fn page_box(doc: &Document, page: ObjectId) -> [f64; 4] {
+    inherited_box(doc, page, b"CropBox")
+        .or_else(|| inherited_box(doc, page, b"MediaBox"))
+        // A US Letter page, as PDF assumes when a file names none.
+        .unwrap_or([0.0, 0.0, 612.0, 792.0])
 }
 
 /// The annotation for a note on a page whose box is `bounds`.
@@ -122,7 +128,12 @@ pub fn annotate(from: &Path, to: &Path, notes: &[Note]) -> Result<usize> {
     let pages = doc.get_pages();
     let mut placed = 0;
     for (number, page) in &pages {
-        let mine: Vec<&Note> = notes.iter().filter(|n| n.page == *number).collect();
+        // A place SyncTeX could not give in numbers is left out, not written as NaN.
+        let mine: Vec<&Note> = notes
+            .iter()
+            .filter(|n| n.page == *number)
+            .filter(|n| [n.x, n.y, n.width, n.height].iter().all(|v| v.is_finite()))
+            .collect();
         if mine.is_empty() {
             continue;
         }
@@ -132,37 +143,43 @@ pub fn annotate(from: &Path, to: &Path, notes: &[Note]) -> Result<usize> {
             .map(|n| Object::Reference(doc.add_object(annotation(n, bounds))))
             .collect();
         placed += ids.len();
-        // The page's own list of annotations, which may be written in it or kept elsewhere.
+        // The page's own list of annotations, written in it or kept elsewhere: a list kept
+        // elsewhere may be shared with other pages, so this page is given a copy of its own. A
+        // list that is not there is an empty one, as PDF reads a missing object.
         let held = doc
             .get_dictionary(*page)
             .map_err(failed)?
             .get(b"Annots")
             .ok()
             .cloned();
-        match held {
-            Some(Object::Reference(list)) => match doc.get_object_mut(list).map_err(failed)? {
-                Object::Array(items) => items.extend(ids),
-                other => *other = Object::Array(ids),
-            },
-            Some(Object::Array(mut items)) => {
-                items.extend(ids);
-                set_annots(&mut doc, *page, Object::Array(items))?;
-            }
-            _ => set_annots(&mut doc, *page, Object::Array(ids))?,
-        }
+        let mut items = match held {
+            Some(Object::Reference(list)) => doc
+                .get_object(list)
+                .ok()
+                .and_then(|o| o.as_array().ok())
+                .cloned()
+                .unwrap_or_default(),
+            Some(Object::Array(items)) => items,
+            _ => Vec::new(),
+        };
+        items.extend(ids);
+        set_annots(&mut doc, *page, Object::Array(items))?;
     }
     // Through a temporary file beside the destination, so a failure leaves no part of one.
     let parent = to
         .parent()
         .ok_or_else(|| Error::app("bad_path", "The PDF has no folder to go in"))?;
-    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-    doc.save_to(&mut tmp)?;
+    let tmp = tempfile::NamedTempFile::new_in(parent)?;
+    let mut out = std::io::BufWriter::new(tmp);
+    doc.save_to(&mut out)?;
+    let tmp = out.into_inner().map_err(|e| Error::Io(e.into_error()))?;
     tmp.persist(to).map_err(|e| Error::Io(e.error))?;
     Ok(placed)
 }
 
-/// Where a line of a file landed in the PDF, as SyncTeX finds it.
-pub type Locate<'a> = &'a dyn Fn(&str, u32) -> Option<crate::synctex::PdfRect>;
+/// Where a line of a file landed in the PDF, as SyncTeX finds it, and the line whose output
+/// that is: the line itself, or the next that printed something.
+pub type Locate<'a> = &'a dyn Fn(&str, u32) -> Option<(crate::synctex::PdfRect, u32)>;
 
 /// Text cut to `most` characters, for a note that should stay readable.
 fn shortened(text: &str, most: usize) -> String {
@@ -192,7 +209,7 @@ pub fn comment_notes(comments: &[crate::comments::Comment], locate: Locate) -> V
         .iter()
         .filter(|c| !c.resolved && !c.deleted)
         .filter_map(|c| {
-            let rect = locate(&c.path, c.anchor.line.max(1))?;
+            let (rect, _) = locate(&c.path, c.anchor.line.max(1))?;
             let mut text = c.text.trim().to_string();
             for reply in &c.replies {
                 text.push_str(&format!("\n\n{}: {}", reply.author_name, reply.text.trim()));
@@ -221,7 +238,7 @@ pub fn change_notes(diffs: &[crate::history::FileDiff], since: &str, locate: Loc
             let was = shortened(old_text, 600);
             let count = new_text.lines().count() as u32;
             if count == 0 {
-                if let Some(rect) = locate(&diff.path, *new_start) {
+                if let Some((rect, _)) = locate(&diff.path, *new_start) {
                     notes.push(note_at(
                         &rect,
                         NoteKind::Removed,
@@ -240,11 +257,12 @@ pub fn change_notes(diffs: &[crate::history::FileDiff], since: &str, locate: Loc
             let mut runs: Vec<crate::synctex::PdfRect> = Vec::new();
             let mut seen = std::collections::HashSet::new();
             for line in *new_start..*new_start + count {
-                let Some(rect) = locate(&diff.path, line) else {
+                // A line that prints nothing, such as a comment or a setting, is found at the next
+                // that prints something: that one did not change, and is not marked.
+                let Some((rect, found)) = locate(&diff.path, line) else {
                     continue;
                 };
-                // A line with no output of its own is found at the next that has some.
-                if !seen.insert((rect.page, rect.y.to_bits())) {
+                if found >= *new_start + count || !seen.insert((rect.page, rect.y.to_bits())) {
                     continue;
                 }
                 match runs.last_mut() {
@@ -386,15 +404,20 @@ mod tests {
     }
 
     /// Each line of main.tex prints 14 points below the last, from 100 down, on page 1; line 50
-    /// and on, on page 2; other files print nowhere.
-    fn locate(file: &str, line: u32) -> Option<crate::synctex::PdfRect> {
-        (file == "main.tex").then_some(crate::synctex::PdfRect {
-            page: if line < 50 { 1 } else { 2 },
-            x: 72.0,
-            y: 100.0 + 14.0 * (line % 50) as f64,
-            width: 400.0,
-            height: 10.0,
-        })
+    /// and on, on page 2. Lines 80 to 89 print nothing, as settings do, and are found at line
+    /// 90. Other files print nowhere.
+    fn locate(file: &str, line: u32) -> Option<(crate::synctex::PdfRect, u32)> {
+        let line = if (80..90).contains(&line) { 90 } else { line };
+        (file == "main.tex").then_some((
+            crate::synctex::PdfRect {
+                page: if line < 50 { 1 } else { 2 },
+                x: 72.0,
+                y: 100.0 + 14.0 * (line % 50) as f64,
+                width: 400.0,
+                height: 10.0,
+            },
+            line,
+        ))
     }
 
     #[test]
@@ -455,6 +478,8 @@ mod tests {
                 change(48, "old one\nold two\n", "new 48\nnew 49\nnew 50\n"),
                 change(60, "", "added\n"),
                 change(70, "gone for good\n", ""),
+                // A setting changed, which prints nothing: the paragraph after it is not marked.
+                change(85, "\\usepackage{old}\n", "\\usepackage{new}\n"),
             ],
             binary: false,
         };
@@ -484,6 +509,52 @@ mod tests {
             binary: false,
         };
         assert!(change_notes(&[elsewhere], "Draft 2", &locate).is_empty());
+    }
+
+    #[test]
+    fn a_list_of_notes_shared_by_pages_is_not_shared_with_the_new_ones_and_a_missing_one_is_empty()
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let from = tmp.path().join("main.pdf");
+        pdf(&from, 2);
+        let mut doc = Document::load(&from).unwrap();
+        let shared = doc.add_object(Object::Array(Vec::new()));
+        let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+        for page in &pages {
+            set_annots(&mut doc, *page, Object::Reference(shared)).unwrap();
+        }
+        doc.save(&from).unwrap();
+        let to = tmp.path().join("noted.pdf");
+        annotate(&from, &to, &[note(1, NoteKind::Comment, "one")]).unwrap();
+        let doc = Document::load(&to).unwrap();
+        let count = |page: ObjectId| {
+            let list = doc
+                .get_dictionary(page)
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .clone();
+            match list {
+                Object::Array(items) => items.len(),
+                Object::Reference(id) => doc.get_object(id).unwrap().as_array().unwrap().len(),
+                _ => 0,
+            }
+        };
+        let pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+        assert_eq!((count(pages[0]), count(pages[1])), (1, 0));
+        // A list named but not there.
+        let mut doc = Document::load(&from).unwrap();
+        let first = doc.get_pages()[&1];
+        set_annots(&mut doc, first, Object::Reference((999, 0))).unwrap();
+        doc.save(&from).unwrap();
+        assert_eq!(
+            annotate(&from, &to, &[note(1, NoteKind::Comment, "one")]).unwrap(),
+            1
+        );
+        // Coordinates that are not numbers are left out.
+        let mut bad = note(1, NoteKind::Comment, "nan");
+        bad.y = f64::NAN;
+        assert_eq!(annotate(&from, &to, &[bad]).unwrap(), 0);
     }
 
     #[test]

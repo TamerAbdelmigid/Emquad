@@ -21,6 +21,7 @@ import type { SearchResult } from "./bindings/SearchResult";
 import type { Settings } from "./bindings/Settings";
 import type { SourcePos } from "./bindings/SourcePos";
 import type { TreeNode } from "./bindings/TreeNode";
+import type { WordImport } from "./bindings/WordImport";
 
 export type {
   BuildOutput,
@@ -135,9 +136,9 @@ export const api = {
   /** Whether Pandoc, which Word documents need, is on this computer. */
   pandocAvailable: () => invoke<boolean>("pandoc_available"),
   /** The document as a Word file at `dest`; what Pandoc warned about. */
-  wordExport: (dest: string, bibliography: string | null) => invoke<string[]>("word_export", { dest, bibliography }),
-  /** A new project from a Word file, in a folder named after it inside `parentDir`, opened. */
-  wordImport: (source: string, parentDir: string) => invoke<OpenedProject>("word_import", { source, parentDir }),
+  wordExport: (dest: string, bibliographies: string[]) => invoke<string[]>("word_export", { dest, bibliographies }),
+  /** A new project from a Word file, in a folder named after it inside `parentDir`, opened; what Pandoc warned about. */
+  wordImport: (source: string, parentDir: string) => invoke<WordImport>("word_import", { source, parentDir }),
   /** A copy of the PDF at `dest` with the open comments on it; how many. */
   pdfSaveWithComments: (dest: string) => invoke<number>("pdf_save_with_comments", { dest }),
   /** A copy of the PDF at `dest` with what changed since `version` marked; how many marks. */

@@ -207,6 +207,11 @@ impl SyncTex {
     /// Where a source line landed. Falls forward to the next line that produced output, since
     /// blank lines, comments and commands often produce none themselves.
     pub fn forward(&self, file: &str, line: u32) -> Option<PdfRect> {
+        self.forward_from(file, line).map(|(rect, _)| rect)
+    }
+
+    /// The same, with the line whose output was found: `line` itself, or one after it.
+    pub fn forward_from(&self, file: &str, line: u32) -> Option<(PdfRect, u32)> {
         let tags: Vec<u32> = {
             let want = file.replace('\\', "/").to_lowercase();
             self.inputs
@@ -254,13 +259,16 @@ impl SyncTex {
             let right = boxes.iter().map(|b| b.x + b.w).fold(f64::MIN, f64::max);
             let top = boxes.iter().map(|b| b.top()).fold(f64::MAX, f64::min);
             let bottom = boxes.iter().map(|b| b.bottom()).fold(f64::MIN, f64::max);
-            return Some(PdfRect {
-                page: index as u32 + 1,
-                x: left,
-                y: top,
-                width: right - left,
-                height: (bottom - top).max(8.0),
-            });
+            return Some((
+                PdfRect {
+                    page: index as u32 + 1,
+                    x: left,
+                    y: top,
+                    width: right - left,
+                    height: (bottom - top).max(8.0),
+                },
+                target,
+            ));
         }
         None
     }

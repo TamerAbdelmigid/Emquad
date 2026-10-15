@@ -384,27 +384,59 @@ pub fn pandoc_available() -> bool {
 }
 
 /// Turn the document into a Word file where the user chose, with the references of the .bib
-/// file `bibliography` (a project path) when one is given. What Pandoc warned about.
+/// files `bibliographies` (project paths). What Pandoc warned about.
 #[tauri::command(async)]
 pub fn word_export(
     window: tauri::Window,
     state: State<AppState>,
     dest: String,
-    bibliography: Option<String>,
+    bibliographies: Vec<String>,
 ) -> Result<Vec<String>> {
     let session = state.session(window.label());
     let p = current(&session)?;
     let pandoc = crate::pandoc::require()?;
     let main = p.resolve(&p.info.main_file)?;
-    let bib = match bibliography {
-        Some(b) => Some(p.resolve(&b)?).filter(|b| b.is_file()),
-        None => None,
-    };
-    crate::pandoc::to_word(&pandoc, &main, bib.as_deref(), Path::new(&dest))
+    let mut bibs = Vec::new();
+    for b in &bibliographies {
+        let path = p.resolve(b)?;
+        if path.is_file() {
+            bibs.push(path);
+        }
+    }
+    crate::pandoc::to_word(&pandoc, &main, &bibs, Path::new(&dest))
 }
 
-/// Make a new project, in a folder named after it inside `parent_dir`, from a Word file, and
-/// open it.
+/// A project made from a Word file, and what Pandoc warned about while making it.
+#[derive(Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct WordImport {
+    pub opened: OpenedProject,
+    pub warnings: Vec<String>,
+}
+
+/// A folder name for a project made from the file named `stem`: plain on every file system.
+fn folder_name(stem: &str) -> String {
+    let name: String = stem
+        .chars()
+        .map(|c| {
+            if "/\\:*?\"<>|~".contains(c) || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let name = name.trim().trim_end_matches(['.', ' ']).trim();
+    match name {
+        "" => "From Word".to_string(),
+        n if crate::project::check_component(n).is_err() => format!("{n} from Word"),
+        n => n.to_string(),
+    }
+}
+
+/// Make a new project from a Word file, in a folder named after it inside `parent_dir` (or
+/// "Name 2" and so on when that one has files in it), and open it.
 #[tauri::command(async)]
 pub fn word_import(
     app: AppHandle,
@@ -412,37 +444,56 @@ pub fn word_import(
     state: State<AppState>,
     source: String,
     parent_dir: String,
-) -> Result<OpenedProject> {
+) -> Result<WordImport> {
     let session = state.session(window.label());
     let pandoc = crate::pandoc::require()?;
     let source = PathBuf::from(source);
-    let stem = source
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let name: String = stem
-        .chars()
-        .map(|c| {
-            if "/\\:*?\"<>|".contains(c) || c.is_control() {
-                '-'
+    let name = folder_name(
+        &source
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    );
+    crate::project::check_component(&name)?;
+    let taken =
+        |dir: &Path| dir.exists() && fs::read_dir(dir).map_or(true, |mut d| d.next().is_some());
+    let dest = (1..100)
+        .map(|n| {
+            Path::new(&parent_dir).join(if n == 1 {
+                name.clone()
             } else {
-                c
-            }
+                format!("{name} {n}")
+            })
         })
-        .collect();
-    let name = name.trim().trim_end_matches('.');
-    let name = if name.is_empty() { "From Word" } else { name };
-    crate::project::check_component(name)?;
+        .find(|dir| !taken(dir))
+        .ok_or_else(|| {
+            Error::app(
+                "not_empty",
+                format!(
+                    "There are many folders called {name} there already. Choose another place."
+                ),
+            )
+        })?;
     let _one_at_a_time = session.opening.lock().unwrap_or_else(|e| e.into_inner());
-    let dest = Path::new(&parent_dir).join(name);
     let held = claim_for(&app, &state, window.label(), &dest, "")?;
-    let opened = crate::pandoc::from_word(&pandoc, &source, &dest)
-        .and_then(|_| Project::open(&dest))
-        .and_then(|project| activate(&app, &window, &state, &session, project));
-    if opened.is_err() {
-        state.release(window.label(), &held);
+    let warnings = match crate::pandoc::from_word(&pandoc, &source, &dest) {
+        Ok(w) => w,
+        Err(e) => {
+            state.release(window.label(), &held);
+            return Err(e);
+        }
+    };
+    match Project::open(&dest)
+        .and_then(|project| activate(&app, &window, &state, &session, project))
+    {
+        Ok(opened) => Ok(WordImport { opened, warnings }),
+        Err(e) => {
+            // The folder was made just now, from the Word file, and holds nothing else.
+            state.release(window.label(), &held);
+            let _ = fs::remove_dir_all(&dest);
+            Err(e)
+        }
     }
-    opened
 }
 
 /// The compiled PDF, which the notes go on a copy of.
@@ -455,6 +506,22 @@ fn compiled_pdf(project: &Project) -> Result<PathBuf> {
         ));
     }
     Ok(pdf)
+}
+
+/// A destination for a PDF the user chose: only a file whose name ends in .pdf, so a slip in
+/// the save dialog cannot replace a source file.
+fn pdf_destination(dest: &str) -> Result<&Path> {
+    let path = Path::new(dest);
+    if !path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
+        return Err(Error::app(
+            "bad_path",
+            "A PDF's name ends in .pdf: choose one that does.",
+        ));
+    }
+    Ok(path)
 }
 
 /// Save a copy of the PDF where the user chose with each open comment on it, as a PDF viewer
@@ -470,8 +537,9 @@ pub fn pdf_save_with_comments(
     let pdf = compiled_pdf(&p)?;
     let sync = synctex(&session, &p)?;
     let comments = comments::visible(comments::load(&p)?);
-    let notes = crate::pdfnotes::comment_notes(&comments, &|file, line| sync.forward(file, line));
-    crate::pdfnotes::annotate(&pdf, Path::new(&dest), &notes)
+    let notes =
+        crate::pdfnotes::comment_notes(&comments, &|file, line| sync.forward_from(file, line));
+    crate::pdfnotes::annotate(&pdf, pdf_destination(&dest)?, &notes)
 }
 
 /// Save a copy of the PDF where the user chose with what changed since `version` marked on
@@ -497,8 +565,8 @@ pub fn pdf_save_with_changes(
         }
     }
     let notes =
-        crate::pdfnotes::change_notes(&diffs, &label, &|file, line| sync.forward(file, line));
-    crate::pdfnotes::annotate(&pdf, Path::new(&dest), &notes)
+        crate::pdfnotes::change_notes(&diffs, &label, &|file, line| sync.forward_from(file, line));
+    crate::pdfnotes::annotate(&pdf, pdf_destination(&dest)?, &notes)
 }
 
 // ---------- windows ----------
@@ -968,8 +1036,11 @@ pub fn pdf_read(window: tauri::Window, state: State<AppState>) -> Result<tauri::
 #[tauri::command(async)]
 pub fn pdf_save(window: tauri::Window, state: State<AppState>, dest: String) -> Result<()> {
     let session = state.session(window.label());
-    fs::copy(compile::pdf_path(&current(&session)?), dest)
-        .map_err(|_| Error::app("no_pdf", "There is no PDF yet. Compile the document first."))?;
+    fs::copy(
+        compile::pdf_path(&current(&session)?),
+        pdf_destination(&dest)?,
+    )
+    .map_err(|_| Error::app("no_pdf", "There is no PDF yet. Compile the document first."))?;
     Ok(())
 }
 
@@ -1454,6 +1525,21 @@ pub fn lsp_send(window: tauri::Window, state: State<AppState>, message: String) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_word_file_names_a_folder_any_file_system_takes() {
+        assert_eq!(folder_name("Annual report"), "Annual report");
+        assert_eq!(folder_name("Draft~1 v2. "), "Draft-1 v2");
+        assert_eq!(folder_name("a:b?"), "a-b-");
+        assert_eq!(folder_name("..."), "From Word");
+        assert_eq!(folder_name("con"), "con from Word");
+        for name in ["Draft~1 v2. ", "con", "aux.", " ", "nul"] {
+            assert!(
+                crate::project::check_component(&folder_name(name)).is_ok(),
+                "{name}"
+            );
+        }
+    }
 
     #[test]
     fn each_window_has_its_own_session_and_one_project_is_open_in_one_window() {

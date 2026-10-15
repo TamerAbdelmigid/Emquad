@@ -1027,13 +1027,13 @@
       );
       // Pandoc is a separate program; without it, Word files are refused with how to get it.
       if (!(await invoke("pandoc_available"))) {
-        const refused = await invoke("word_export", { dest: `${out}\\paper.docx`, bibliography: null }).then(
+        const refused = await invoke("word_export", { dest: `${out}\\paper.docx`, bibliographies: [] }).then(
           () => null,
           (e) => e,
         );
         await ok(refused?.code === "no_pandoc" && /pandoc\.org/.test(refused.message), "with no Pandoc on the computer, Send to Word says where to get it");
       } else {
-        const warnings = await invoke("word_export", { dest: `${out}\\paper.docx`, bibliography: "references.bib" });
+        const warnings = await invoke("word_export", { dest: `${out}\\paper.docx`, bibliographies: ["references.bib"] });
         const tree = JSON.stringify(await invoke("project_tree"));
         await ok(Array.isArray(warnings) && tree.includes("out/paper.docx"), "Send to Word makes a Word file of the document, with Pandoc");
       }

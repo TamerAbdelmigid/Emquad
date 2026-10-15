@@ -208,9 +208,9 @@ The state of your project from just before the import is always kept as a versio
 
 - **File ▸ Send to Word…** saves the document as a Word file, with its pictures, headings, lists, tables, footnotes and references, for someone who works in Word. Formulas become Word equations.
 - **File ▸ Open a Word file…** makes a new project from a Word file someone sent you, its pictures in a `media` folder, and opens it. Your other projects are not touched.
-- Both use **Pandoc**, a free program you install once from pandoc.org; Emquad finds it by itself. Some things do not carry over exactly, and Emquad says when that happens.
+- Both use **Pandoc**, a free program you install once from pandoc.org (version 3.1.6 or newer); Emquad finds it by itself. Some things do not carry over exactly, and Emquad says when that happens.
 - **File ▸ Save PDF with comments…** saves a copy of the PDF with each open comment on it, highlighted on its passage with the replies, as Acrobat or any PDF viewer shows comments.
-- In **History**, choose a version and press **PDF with changes since this version…** to save a copy of the PDF with what was written or changed since then highlighted, each mark saying what was there before, and a note in the margin where text was taken out. Send it to someone who reads PDFs rather than bundles.
+- In **History**, choose a version and press **PDF with changes since this version…** to save a copy of the PDF with what was written or changed since then highlighted, each mark saying what was there before, and a note in the margin where text was taken out. Send it to someone who reads PDFs rather than bundles. A change to something that does not print, such as a setting at the top, is not marked. Both PDFs are made after a compile without errors, so the marks fall on the right lines.
 
 ## Document setup
 
