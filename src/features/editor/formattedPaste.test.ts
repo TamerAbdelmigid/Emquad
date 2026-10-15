@@ -50,6 +50,8 @@ describe("pasting with formatting", () => {
       '<li dir="ltr" aria-level="1"><p dir="ltr" role="presentation"><span style="font-style:italic;">item two</span></p></li></ul></b>';
     expect(latex(docs)).toBe("\\section{Title}\n\nPlain \\textbf{bold}\n\n\\begin{itemize}\n  \\item item one\n  \\item \\textit{item two}\n\\end{itemize}");
     expect(latex("<ul><li><p>one</p></li><li><p>two <b>b</b></p></li></ul>")).toBe("\\begin{itemize}\n  \\item one\n  \\item two \\textbf{b}\n\\end{itemize}");
+    // A second paragraph of an item stays in it, and the numbering goes on.
+    expect(latex("<ol><li><p>a</p><p>a2</p></li><li><p>b</p></li></ol>")).toBe("\\begin{enumerate}\n  \\item a \\par a2\n  \\item b\n\\end{enumerate}");
   });
 
   it("nests lists no deeper than LaTeX allows", () => {

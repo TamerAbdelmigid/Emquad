@@ -29,6 +29,9 @@ describe("the formula at the cursor", () => {
     expect(formulaAt(dollars, dollars.indexOf("5"))).toBeNull();
     expect(formulaAt(dollars, dollars.indexOf("y"))?.tex).toBe("y");
     expect(formulaAt(dollars, dollars.indexOf("z"))).toBeNull();
+    // After a line break written \\, a % begins a comment.
+    const comment = "a \\\\% note $z$\nb";
+    expect(formulaAt(comment, comment.indexOf("z"))).toBeNull();
   });
 });
 

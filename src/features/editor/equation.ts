@@ -25,9 +25,8 @@ export function formulaAt(text: string, pos: number): Formula | null {
   // Looked for in the text with comments, line breaks written \\ (as in \\[2pt]) and dollars
   // written \$ blanked out, every character in its place, so none of them is taken for the
   // edge of a formula.
-  const code = text
-    .replace(/(?<!\\)%[^\n]*/g, (c) => " ".repeat(c.length))
-    .replace(/\\[\\$]/g, "  ");
+  // The escaped pairs first, from the left as TeX reads them: in \\% the % begins a comment.
+  const code = text.replace(/\\[\\$%]/g, "  ").replace(/%[^\n]*/g, (c) => " ".repeat(c.length));
   const found: Formula[] = [];
   const add = (from: number, to: number, inner: number, innerTo: number, placement: Placement) => {
     const tex = text.slice(inner, innerTo);

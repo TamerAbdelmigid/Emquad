@@ -141,7 +141,7 @@ export function formattedPaste(html: string): Formatted | null {
     return lead + text + trail;
   };
 
-  const visit = (node: Node, f: Formats, list: { ordered: boolean; level: number } | null) => {
+  const visit = (node: Node, f: Formats, list: { ordered: boolean; level: number } | null, inItem = false) => {
     if (node.nodeType !== 1) {
       add(inline(node, f, true));
       return;
@@ -158,9 +158,11 @@ export function formattedPaste(html: string): Formatted | null {
     }
     const heading = /^H([1-6])$/.exec(tag);
     const item = tag === "LI" && list ? list : wordListItem(el);
-    // A paragraph that opens a list item, as Google Docs and many pages write one, is the item.
-    if (!heading && !item && BLOCK.test(tag) && current?.item && !current.text.trim()) {
-      for (const child of el.childNodes) visit(child, f, list);
+    // A paragraph that opens a list item, as Google Docs and many pages write one, is the item;
+    // a later paragraph of the same item stays in it, as a paragraph of its own there.
+    if (!heading && !item && BLOCK.test(tag) && current?.item && (!current.text.trim() || inItem)) {
+      if (current.text.trim()) add(" \\par ");
+      for (const child of el.childNodes) visit(child, f, list, inItem);
       return;
     }
     if (heading || item || BLOCK.test(tag)) {
@@ -171,7 +173,7 @@ export function formattedPaste(html: string): Formatted | null {
       // A heading is set in bold by LaTeX already.
       const inner = heading ? { ...f, bold: true } : f;
       // Lists inside a list item are lists of their own, after the item's text.
-      for (const child of el.childNodes) visit(child, inner, item ?? list);
+      for (const child of el.childNodes) visit(child, inner, item ?? list, !!item);
       flush();
       return;
     }
