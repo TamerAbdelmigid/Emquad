@@ -22,16 +22,30 @@ const LABEL = /\\label\{([^}]*)\}/;
  * such as align, which are edited in their source.
  */
 export function formulaAt(text: string, pos: number): Formula | null {
+  // Looked for in the text with comments, line breaks written \\ (as in \\[2pt]) and dollars
+  // written \$ blanked out, every character in its place, so none of them is taken for the
+  // edge of a formula.
+  const code = text
+    .replace(/(?<!\\)%[^\n]*/g, (c) => " ".repeat(c.length))
+    .replace(/\\[\\$]/g, "  ");
   const found: Formula[] = [];
-  const add = (from: number, to: number, tex: string, placement: Placement) => {
+  const add = (from: number, to: number, inner: number, innerTo: number, placement: Placement) => {
+    const tex = text.slice(inner, innerTo);
     const label = LABEL.exec(tex)?.[1] ?? "";
     found.push({ from, to, tex: tex.replace(LABEL, "").trim(), placement, label });
   };
-  for (const m of text.matchAll(/\\begin\{(equation\*?)\}([\s\S]*?)\\end\{\1\}/g)) add(m.index, m.index + m[0].length, m[2], m[1] === "equation" ? "numbered" : "display");
-  for (const m of text.matchAll(/\\\[([\s\S]*?)\\\]/g)) add(m.index, m.index + m[0].length, m[1], "display");
-  for (const m of text.matchAll(/(?<!\\)\$\$([\s\S]*?)\$\$/g)) add(m.index, m.index + m[0].length, m[1], "display");
-  for (const m of text.matchAll(/\\\(([^\n]*?)\\\)/g)) add(m.index, m.index + m[0].length, m[1], "inline");
-  for (const m of text.matchAll(/(?<![\\$])\$(?!\$)((?:\\.|[^$\\\n])+?)\$/g)) add(m.index, m.index + m[0].length, m[1], "inline");
+  for (const m of code.matchAll(/\\begin\{(equation\*?)\}[\s\S]*?\\end\{\1\}/g)) {
+    const from = m.index!;
+    add(from, from + m[0].length, from + m[0].indexOf("}") + 1, from + m[0].lastIndexOf("\\end"), m[1] === "equation" ? "numbered" : "display");
+  }
+  /** Formulas between marks `edge` characters long. */
+  const between = (pattern: RegExp, edge: number, placement: Placement) => {
+    for (const m of code.matchAll(pattern)) add(m.index!, m.index! + m[0].length, m.index! + edge, m.index! + m[0].length - edge, placement);
+  };
+  between(/\\\[[\s\S]*?\\\]/g, 2, "display");
+  between(/\$\$[\s\S]*?\$\$/g, 2, "display");
+  between(/\\\([^\n]*?\\\)/g, 2, "inline");
+  between(/(?<!\$)\$(?!\$)[^$\n]+?\$/g, 1, "inline");
   // The innermost that holds the place: one written in the middle of another is not a formula.
   return found.filter((f) => f.from <= pos && pos <= f.to).sort((a, b) => a.to - a.from - (b.to - b.from))[0] ?? null;
 }
@@ -40,8 +54,10 @@ export function formulaAt(text: string, pos: number): Formula | null {
 export function writeFormula(tex: string, placement: Placement, label = ""): string {
   const body = tex.trim();
   if (placement === "inline") return `$${body.replace(/\s*\n\s*/g, " ")}$`;
+  // A blank line would end the paragraph in the middle of the formula.
   const lines = body
     .split("\n")
+    .filter((line) => line.trim())
     .map((line) => `  ${line.trim()}`)
     .join("\n");
   if (placement === "display") return `\\[\n${lines}\n\\]`;
@@ -66,30 +82,30 @@ export const STRUCTURES: { label: string; title: string; before: string; after: 
   { label: "abc", title: "Words in a formula", before: "\\text{", after: "}" },
 ];
 
-/** Symbols a formula often needs, as LaTeX writes them. */
-export const SYMBOLS: [string, string][] = [
-  ["α", "\\alpha"],
-  ["β", "\\beta"],
-  ["γ", "\\gamma"],
-  ["δ", "\\delta"],
-  ["θ", "\\theta"],
-  ["λ", "\\lambda"],
-  ["μ", "\\mu"],
-  ["π", "\\pi"],
-  ["σ", "\\sigma"],
-  ["ω", "\\omega"],
-  ["Δ", "\\Delta"],
-  ["±", "\\pm"],
-  ["×", "\\times"],
-  ["÷", "\\div"],
-  ["≤", "\\leq"],
-  ["≥", "\\geq"],
-  ["≠", "\\neq"],
-  ["≈", "\\approx"],
-  ["∞", "\\infty"],
-  ["→", "\\to"],
-  ["∈", "\\in"],
-  ["∂", "\\partial"],
-  ["·", "\\cdot"],
-  ["…", "\\ldots"],
+/** Symbols a formula often needs: as shown, as LaTeX writes them, and by name. */
+export const SYMBOLS: [string, string, string][] = [
+  ["α", "\\alpha", "alpha"],
+  ["β", "\\beta", "beta"],
+  ["γ", "\\gamma", "gamma"],
+  ["δ", "\\delta", "delta"],
+  ["θ", "\\theta", "theta"],
+  ["λ", "\\lambda", "lambda"],
+  ["μ", "\\mu", "mu"],
+  ["π", "\\pi", "pi"],
+  ["σ", "\\sigma", "sigma"],
+  ["ω", "\\omega", "omega"],
+  ["Δ", "\\Delta", "capital delta"],
+  ["±", "\\pm", "plus or minus"],
+  ["×", "\\times", "times"],
+  ["÷", "\\div", "divided by"],
+  ["≤", "\\leq", "less than or equal to"],
+  ["≥", "\\geq", "greater than or equal to"],
+  ["≠", "\\neq", "not equal to"],
+  ["≈", "\\approx", "approximately equal to"],
+  ["∞", "\\infty", "infinity"],
+  ["→", "\\to", "tends to"],
+  ["∈", "\\in", "element of"],
+  ["∂", "\\partial", "partial derivative"],
+  ["·", "\\cdot", "dot"],
+  ["…", "\\ldots", "dots"],
 ];

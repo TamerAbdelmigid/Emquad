@@ -19,6 +19,17 @@ describe("the formula at the cursor", () => {
   it("does not take align and its like, which are edited in their source", () => {
     expect(formulaAt("\\begin{align}\n  a &= b\n\\end{align}", 16)).toBeNull();
   });
+
+  it("does not take a line break such as \\\\[2pt], an escaped dollar or a comment for the edge of a formula", () => {
+    const align = "\\begin{align} a \\\\[2pt] b \\label{e} \\end{align} text \\[ x \\]";
+    expect(formulaAt(align, align.lastIndexOf("x"))).toMatchObject({ from: align.indexOf("\\[ x"), tex: "x", placement: "display", label: "" });
+    expect(formulaAt(align, align.indexOf("2pt"))).toBeNull();
+    const dollars = "cost \\\\$x$ and \\$5 and $y$ % $z$";
+    expect(formulaAt(dollars, dollars.indexOf("x"))?.tex).toBe("x");
+    expect(formulaAt(dollars, dollars.indexOf("5"))).toBeNull();
+    expect(formulaAt(dollars, dollars.indexOf("y"))?.tex).toBe("y");
+    expect(formulaAt(dollars, dollars.indexOf("z"))).toBeNull();
+  });
 });
 
 describe("writing a formula", () => {
@@ -27,5 +38,7 @@ describe("writing a formula", () => {
     expect(writeFormula("x^2", "display")).toBe("\\[\n  x^2\n\\]");
     expect(writeFormula("a = b\n+ c", "numbered", "eq:one")).toBe("\\begin{equation}\n  a = b\n  + c\n  \\label{eq:one}\n\\end{equation}");
     expect(writeFormula("a", "numbered")).toBe("\\begin{equation}\n  a\n\\end{equation}");
+    // A blank line would end the paragraph inside the formula.
+    expect(writeFormula("a\n\n  \nb", "display")).toBe("\\[\n  a\n  b\n\\]");
   });
 });

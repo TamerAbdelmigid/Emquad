@@ -6,7 +6,6 @@ import { EditorView } from "@codemirror/view";
 import { store } from "../../state/store";
 import { mathAt } from "./symbols";
 import { formattedPaste, printed } from "./formattedPaste";
-import { ensurePackage } from "./tableModel";
 
 
 /**
@@ -102,6 +101,12 @@ export function onPastedPicture(add: (file: File) => void) {
   pastedPicture = add;
 }
 
+/** What is done for packages pasted text needs: the app has the main file load them. */
+let pastedNeeds: (packages: string[]) => void = () => {};
+export function onPastedNeeds(load: (packages: string[]) => void) {
+  pastedNeeds = load;
+}
+
 /** The next paste is of the words alone: Ctrl+Shift+V was pressed. */
 let plainNext = false;
 /** Text compared as copied: line ends and a final line break do not count. */
@@ -156,27 +161,17 @@ export const prosePaste: Extension = EditorView.domEventHandlers({
     const formatted = !plain && html && !inMath && !inArgument && !looksLikeLatex(text) ? formattedPaste(html) : null;
     if (formatted) {
       event.preventDefault();
-      const changes: { from: number; to: number; insert: string }[] = [{ from: main.from, to: main.to, insert: formatted.latex }];
-      let shift = 0;
-      const added: string[] = [];
-      for (const name of formatted.packages) {
-        const need = ensurePackage(doc, name);
-        if (typeof need === "object" && need.to <= main.from) {
-          changes.unshift(need);
-          shift += need.insert.length;
-          added.push(name);
-        }
-      }
       view.dispatch({
-        changes,
-        selection: { anchor: main.from + shift + formatted.latex.length },
+        changes: { from: main.from, to: main.to, insert: formatted.latex },
+        selection: { anchor: main.from + formatted.latex.length },
         userEvent: "input.paste",
         annotations: isolateHistory.of("full"),
         scrollIntoView: true,
       });
-      store().notify(
-        `Pasted with its formatting, written as LaTeX${added.length ? `; added \\usepackage{${added.join(", ")}} for the links` : ""}. Ctrl+Shift+V pastes the words alone.`,
-      );
+      store().notify("Pasted with its formatting, written as LaTeX. Ctrl+Shift+V pastes the words alone.");
+      // A package the LaTeX needs, such as hyperref for links, goes in the main file's settings,
+      // which may be another file than this one.
+      if (formatted.packages.length) pastedNeeds(formatted.packages);
       return true;
     }
     // Only text from a word processor or a web page has a paragraph on each line; code copied

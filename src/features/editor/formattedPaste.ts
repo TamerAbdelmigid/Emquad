@@ -43,6 +43,8 @@ interface Formats {
 
 /** Elements that begin a paragraph of their own. */
 const BLOCK = /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE|SECTION|ARTICLE|HEADER|FOOTER|MAIN|ASIDE|NAV|FIGURE|FIGCAPTION|DT|DD|ADDRESS)$/;
+/** The same, with lists, as a selector. */
+const BLOCK_SELECTOR = "p,div,h1,h2,h3,h4,h5,h6,li,ul,ol,blockquote,pre,section,article,header,footer,main,aside,nav,figure,figcaption,dt,dd,address";
 /** Elements whose content is not text of the document. */
 const SKIPPED = /^(STYLE|SCRIPT|HEAD|META|TITLE|LINK|TEMPLATE|NOSCRIPT|IMG|SVG|OBJECT|IFRAME|O:P|XML|BUTTON|INPUT|SELECT|TEXTAREA)$/;
 const COMMANDS = ["\\section", "\\subsection", "\\subsubsection", "\\paragraph"];
@@ -103,7 +105,10 @@ export function formattedPaste(html: string): Formatted | null {
     if (tag === "BR") return top ? "\n" : " ";
     const weight = styleOf(el, "font-weight");
     const align = styleOf(el, "vertical-align");
-    const bold = !f.bold && (tag === "B" || tag === "STRONG" || weight === "bold" || weight === "bolder" || Number(weight) >= 600);
+    // A weight given outright says what it is, even on <b>: Google Docs wraps all it copies in
+    // <b style="font-weight:normal">.
+    const light = weight === "normal" || weight === "lighter" || (weight !== "" && Number(weight) < 600);
+    const bold = !f.bold && !light && (tag === "B" || tag === "STRONG" || weight === "bold" || weight === "bolder" || Number(weight) >= 600);
     const italic = !f.italic && (tag === "I" || tag === "EM" || tag === "CITE" || styleOf(el, "font-style") === "italic");
     const underline = !f.underline && (tag === "U" || tag === "INS" || styleOf(el, "text-decoration").includes("underline") || styleOf(el, "text-decoration-line").includes("underline"));
     const sup = !f.script && (tag === "SUP" || align === "super");
@@ -113,8 +118,8 @@ export function formattedPaste(html: string): Formatted | null {
     let text = [...el.childNodes].map((child) => inline(child, inner, top && !wrapped)).join("");
     if (!text.trim()) return text;
     // Spaces at the edges stay outside the command, where they read as spaces between words.
-    const lead = /^\s*/.exec(text)![0];
-    const trail = /\s*$/.exec(text)![0];
+    const lead = text.slice(0, text.length - text.trimStart().length);
+    const trail = text.slice(text.trimEnd().length);
     text = text.trim();
     const wrap = (command: string) => {
       formatted = true;
@@ -153,6 +158,11 @@ export function formattedPaste(html: string): Formatted | null {
     }
     const heading = /^H([1-6])$/.exec(tag);
     const item = tag === "LI" && list ? list : wordListItem(el);
+    // A paragraph that opens a list item, as Google Docs and many pages write one, is the item.
+    if (!heading && !item && BLOCK.test(tag) && current?.item && !current.text.trim()) {
+      for (const child of el.childNodes) visit(child, f, list);
+      return;
+    }
     if (heading || item || BLOCK.test(tag)) {
       flush();
       if (heading) formatted = true;
@@ -163,6 +173,11 @@ export function formattedPaste(html: string): Formatted | null {
       // Lists inside a list item are lists of their own, after the item's text.
       for (const child of el.childNodes) visit(child, inner, item ?? list);
       flush();
+      return;
+    }
+    // An element around paragraphs, headings or lists keeps them apart.
+    if (el.querySelector(BLOCK_SELECTOR)) {
+      for (const child of el.childNodes) visit(child, f, list);
       return;
     }
     add(inline(el, f, true));
@@ -192,7 +207,9 @@ function write(blocks: Block[]): string {
       out.push(block.heading ? `${COMMANDS[Math.min(block.heading, 4) - 1]}{${block.text}}` : block.text);
       continue;
     }
-    const { level, ordered } = block.item;
+    // LaTeX nests lists four deep at most.
+    const { ordered } = block.item;
+    const level = Math.min(block.item.level, 4);
     while (open.length && open[open.length - 1].level > level) close();
     if (open.length && open[open.length - 1].level === level && open[open.length - 1].ordered !== ordered) close();
     if (!open.length || open[open.length - 1].level < level) {

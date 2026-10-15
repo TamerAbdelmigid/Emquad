@@ -429,9 +429,12 @@ export const buffers = {
     // An empty line takes the block in its place; a line with text keeps it, and the block follows.
     const empty = line.text.trim() === "";
     const from = empty ? line.from : line.to;
+    const insert = empty ? block : `\n${block}`;
+    // Never past the end of the file, as the block may be its last line.
+    const length = view.state.doc.length - (line.to - from) + insert.length;
     view.dispatch({
-      changes: { from, to: line.to, insert: empty ? block : `\n${block}` },
-      selection: { anchor: from + (empty ? 0 : 1) + caret },
+      changes: { from, to: line.to, insert },
+      selection: { anchor: Math.min(from + (empty ? 0 : 1) + caret, length) },
       userEvent: "input",
       annotations: isolateHistory.of("full"),
       scrollIntoView: true,

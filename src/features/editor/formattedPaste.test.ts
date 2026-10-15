@@ -42,6 +42,22 @@ describe("pasting with formatting", () => {
     );
   });
 
+  it("reads Google Docs, which wraps all it copies in a <b> that is not bold, and puts each item in a paragraph", () => {
+    const docs =
+      '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-1a2b"><h1 dir="ltr"><span style="font-size:20pt;font-weight:400;">Title</span></h1>' +
+      '<p dir="ltr"><span style="font-weight:400;">Plain </span><span style="font-weight:700;">bold</span></p>' +
+      '<ul><li dir="ltr" style="list-style-type:disc;" aria-level="1"><p dir="ltr" role="presentation"><span style="font-weight:400;">item one</span></p></li>' +
+      '<li dir="ltr" aria-level="1"><p dir="ltr" role="presentation"><span style="font-style:italic;">item two</span></p></li></ul></b>';
+    expect(latex(docs)).toBe("\\section{Title}\n\nPlain \\textbf{bold}\n\n\\begin{itemize}\n  \\item item one\n  \\item \\textit{item two}\n\\end{itemize}");
+    expect(latex("<ul><li><p>one</p></li><li><p>two <b>b</b></p></li></ul>")).toBe("\\begin{itemize}\n  \\item one\n  \\item two \\textbf{b}\n\\end{itemize}");
+  });
+
+  it("nests lists no deeper than LaTeX allows", () => {
+    const deep = latex("<ul><li>1<ul><li>2<ul><li>3<ul><li>4<ul><li>5</li></ul></li></ul></li></ul></li></ul></li></ul>")!;
+    expect(deep.match(/\\begin\{itemize\}/g)).toHaveLength(4);
+    expect(deep).toContain("\\item 4\n        \\item 5");
+  });
+
   it("writes links with hyperref, and leaves out what is not text", () => {
     expect(formattedPaste('<p>See <a href="https://x.org/a#b">the site</a> or <a href="https://x.org">https://x.org</a>.</p>')).toEqual({
       latex: "See \\href{https://x.org/a\\#b}{the site} or \\url{https://x.org}.",

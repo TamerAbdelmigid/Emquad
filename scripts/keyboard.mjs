@@ -38,11 +38,11 @@ const send = (method, params = {}) =>
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const evaluate = async (expression) => (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.result?.value;
 
-const CODES = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, F10: 121 };
+const CODES = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, F10: 121, "=": 187 };
 async function key(name, mods = {}) {
   const modifiers = (mods.alt ? 1 : 0) | (mods.ctrl ? 2 : 0) | (mods.shift ? 8 : 0);
   const code = CODES[name] ?? name.toUpperCase().charCodeAt(0);
-  const base = { key: name, code: name.length === 1 ? `Key${name.toUpperCase()}` : name, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers };
+  const base = { key: name, code: name === "=" ? "Equal" : name.length === 1 ? `Key${name.toUpperCase()}` : name, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers };
   await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...base });
   if (name === "Enter") await send("Input.dispatchKeyEvent", { type: "char", text: "\r", ...base });
   await send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
@@ -139,6 +139,16 @@ await check(await focusIn(".sym-grid"), "the arrow keys move among them");
 await key("Enter");
 await sleep(300);
 await check(!(await evaluate("!!document.querySelector('.sym-pop')")) && (await evaluate("window.emquad.store().tabs[0]?.dirty")), "Enter puts the symbol in and closes the panel");
+
+// The equation editor, from the text with Alt+= as in Word.
+await evaluate("document.querySelector('.cm-content').focus(); true");
+await key("=", { alt: true });
+await sleep(400);
+await check(await focusIs("#eq-tex"), "Alt+= opens the equation editor with the keyboard in its formula");
+await typeText("x^2");
+await key("Enter", { ctrl: true });
+await sleep(400);
+await check(!(await evaluate("!!document.querySelector('dialog[open]')")) && (await focusIn(".cm-editor")), "Ctrl+Enter puts the formula in and gives the keyboard back to the text");
 
 // Visual mode and a table.
 await evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Visual').focus(); true");

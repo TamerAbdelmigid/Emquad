@@ -754,18 +754,26 @@ pub fn picture_import(
     source: String,
     dir: String,
 ) -> Result<String> {
+    use std::io::Read;
     let source = PathBuf::from(source);
     let name = source
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    if fs::metadata(&source)?.len() > crate::project::MAX_PICTURE {
+    // Only a picture, and only a file, is read: never more than a picture may weigh.
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
+    if !ext.is_some_and(|e| crate::project::PICTURES.contains(&e.as_str()))
+        || !fs::metadata(&source)?.is_file()
+    {
         return Err(Error::app(
-            "too_large",
-            format!("{name} is larger than 64 MB, too large for a picture in a document."),
+            "not_picture",
+            format!("{name} is not a picture LaTeX can show. Use PNG, JPEG or PDF."),
         ));
     }
-    let bytes = fs::read(&source)?;
+    let mut bytes = Vec::new();
+    fs::File::open(&source)?
+        .take(crate::project::MAX_PICTURE + 1)
+        .read_to_end(&mut bytes)?;
     let session = state.session(window.label());
     let project = current(&session)?;
     let path = project.add_picture(&dir, &name, &bytes)?;

@@ -575,8 +575,8 @@ function EquationDialog({ onClose }: { onClose: () => void }) {
           ))}
         </div>
         <div className="eq-tools" role="group" aria-label="Symbols">
-          {SYMBOLS.map(([shown, command]) => (
-            <button key={command} type="button" className="btn sym" title={command} aria-label={command} onClick={() => put(`${command} `)}>
+          {SYMBOLS.map(([shown, command, name]) => (
+            <button key={command} type="button" className="btn sym" title={`${name}, ${command}`} aria-label={name} onClick={() => put(`${command} `)}>
               {shown}
             </button>
           ))}
@@ -602,7 +602,7 @@ function EquationDialog({ onClose }: { onClose: () => void }) {
             }}
           />
         </div>
-        <div className="eq-preview-box" aria-label="Preview">
+        <div className="eq-preview-box" role="img" aria-label={tex.trim() ? `Preview of ${tex}` : "Preview"}>
           <div ref={preview} className="eq-preview" />
           {!tex.trim() && <span className="eq-empty">The preview shows here.</span>}
         </div>

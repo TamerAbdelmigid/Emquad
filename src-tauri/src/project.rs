@@ -648,10 +648,12 @@ impl Project {
             check_component(name)?;
             names.push(name);
         }
+        // Taken in the folder, or twice among the files given, which the second would replace.
+        let mut seen = std::collections::HashSet::new();
         let taken: Vec<&str> = names
             .iter()
             .copied()
-            .filter(|name| dest.join(name).exists())
+            .filter(|name| !seen.insert(name.to_lowercase()) || dest.join(name).exists())
             .collect();
         if !taken.is_empty() {
             return Err(Error::app(
@@ -717,15 +719,26 @@ impl Project {
             } else {
                 format!("{plain}-{n}.{ext}")
             };
-            check_component(&file)?;
+            // A name Windows keeps for itself, such as aux.png, is passed over for the next.
+            if check_component(&file).is_err() {
+                continue;
+            }
             let rel = if dir.is_empty() {
                 file
             } else {
                 format!("{dir}/{file}")
             };
             let path = self.resolve(&rel)?;
-            match fs::read(&path) {
-                Ok(there) if there == bytes => return Ok(rel),
+            match fs::symlink_metadata(&path) {
+                // The same picture is the one there; read only when it is as long.
+                Ok(m)
+                    if m.is_file()
+                        && m.len() == bytes.len() as u64
+                        && fs::read(&path)? == bytes =>
+                {
+                    return Ok(rel);
+                }
+                // Another file, a folder, or anything else: the name is taken.
                 Ok(_) => continue,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(e.into()),
@@ -825,6 +838,10 @@ mod tests {
             "n-code.jpg"
         );
         assert_eq!(p.add_picture("", ".png", b"x").unwrap(), "picture.png");
+        // A name Windows keeps for a device, or one a folder has, is passed over.
+        assert_eq!(p.add_picture("", "aux.png", b"x").unwrap(), "aux-2.png");
+        fs::create_dir_all(p.root.join("chart.png")).unwrap();
+        assert_eq!(p.add_picture("", "chart.png", b"x").unwrap(), "chart-2.png");
         for refused in ["plot.gif", "plot", "notes.tex"] {
             assert_eq!(
                 p.add_picture("", refused, b"x").unwrap_err().code(),
@@ -856,6 +873,17 @@ mod tests {
         assert_eq!(err.code(), "exists");
         assert_eq!(fs::read_to_string(p.root.join("main.tex")).unwrap(), before);
         // Nothing at all was copied, not even the file whose name was free.
+        assert!(!p.root.join("new.tex").exists());
+        // Nor when two of the files have one name between them.
+        let other = tmp.path().join("other");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("NEW.tex"), "other").unwrap();
+        assert_eq!(
+            p.import_files(&[outside.join("new.tex"), other.join("NEW.tex")], "")
+                .unwrap_err()
+                .code(),
+            "exists"
+        );
         assert!(!p.root.join("new.tex").exists());
         p.import_files(&[outside.join("new.tex")], "chapters")
             .unwrap();

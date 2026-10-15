@@ -293,21 +293,22 @@ export async function addReference(ref: Reference) {
     await cite([key]);
     // A web page's address is written with \url, which the url package gives (hyperref too).
     if (ref.kind === "online" && ref.url.trim() && ensurePackage(await mainText(), "hyperref", store().index.stylePackages) !== "present") {
-      await loadInMain("url", "to print the web address");
+      await needPackage("url", "to print the web address");
     }
   });
 }
 
 /**
  * Have the document load a package, in the settings at the top of its main file, and say so;
- * nothing when it loads it already, or its settings are where Emquad cannot be sure of them.
+ * nothing when it loads it already. Where its settings are not certain, the user is told.
  */
-async function loadInMain(name: string, why: string) {
+export async function needPackage(name: string, why: string) {
   const main = store().info?.mainFile;
   if (!main) return;
   const text = await mainText();
   const need = ensurePackage(text, name, store().index.stylePackages);
-  if (typeof need !== "object") return;
+  // Where Emquad cannot be sure of the settings, the user is told what to add.
+  if (typeof need !== "object") return void (need !== "present" && store().notify(packageNotice(name, need) ?? `Add \\usepackage{${name}} to the settings of ${main}.`, true));
   // In its editor when it is open, so that edits not yet saved there are kept.
   if (buffers.has(main)) buffers.change(main, need);
   else await api.fileWrite(main, text.slice(0, need.from) + need.insert + text.slice(need.to));
@@ -333,15 +334,19 @@ export async function applyFormula(tex: string, placement: Placement, was: Formu
   const path = store().active;
   if (!path || !tex.trim()) return;
   await guard(async () => {
-    if (was) buffers.change(path, { from: was.from, to: was.to, insert: writeFormula(tex, placement, was.label) });
+    if (was) {
+      buffers.change(path, { from: was.from, to: was.to, insert: writeFormula(tex, placement, was.label) });
+      // A label belongs to a number: a formula no longer numbered loses it, and what refers to it shows ??.
+      if (was.label && placement !== "numbered") store().notify(`The formula is no longer numbered, so its label ${was.label} was taken out with the number; references to it show ?? until they are changed.`, true);
+    }
     else if (placement === "inline") buffers.insertInline((inMath) => ({ before: inMath ? tex.trim() : writeFormula(tex, "inline"), after: "" }));
     else {
       const block = writeFormula(tex, placement);
-      buffers.insertBlock(`${block}\n`, block.length + 1);
+      buffers.insertBlock(block, block.length);
     }
     store().set({ dialog: null });
     if (/\\(?:text|[pbvBV]?matrix|cases|dfrac|tfrac|binom)\b|\\begin\{(?:align|gather|multline)/.test(tex)) {
-      await loadInMain("amsmath", "which the formula needs");
+      await needPackage("amsmath", "which the formula needs");
     }
   });
 }
@@ -377,6 +382,9 @@ export async function addPictures(pictures: ({ source: string } | { file: File }
   await guard(async () => {
     const main = store().info?.mainFile;
     if (!main || !pictures.length) return;
+    // The place, as a line of the file it is in: the file may change while the pictures are copied.
+    const target = store().active;
+    const line = at === undefined || !target ? null : (buffers.text(target) ?? "").slice(0, at).split("\n").length;
     const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/") + 1) : "";
     const { dir, byName } = pictureFolder(await mainText(), folder);
     const paths: string[] = [];
@@ -392,23 +400,31 @@ export async function addPictures(pictures: ({ source: string } | { file: File }
     void refreshTree();
     buffers.picturesChanged();
     const active = store().active;
+    const activeText = active ? (buffers.text(active) ?? "") : "";
+    // Back to a place in the file as it is now, on the same line; the cursor if another file is on screen.
+    const lines = activeText.split("\n");
+    const place = line !== null && active === target && line <= lines.length ? lines.slice(0, line - 1).reduce((n, l) => n + l.length + 1, 0) : undefined;
     if (!active?.toLowerCase().endsWith(".tex")) {
       return store().notify(`Added ${paths.join(", ")} to the project. Open a .tex file to put ${paths.length === 1 ? "it" : "them"} in the document.`);
     }
     // A figure belongs in the text: never among the settings at the top.
-    const begin = documentStart(buffers.text(active) ?? "");
-    if (begin >= 0 && (at ?? buffers.cursorAt() ?? 0) < begin) {
+    const begin = documentStart(activeText);
+    if (begin >= 0 && (place ?? buffers.cursorAt() ?? 0) < begin) {
       return store().notify(`Added ${paths.join(", ")} to the project. Put the cursor in the text of the document to place ${paths.length === 1 ? "it" : "them"} there.`);
     }
     // One block of figures, the cursor in the first caption.
     const labels = [...store().index.labels];
+    const files = new Set(projectFiles().map((p) => p.toLowerCase()));
     const figures = paths.map((path) => {
-      const figure = figureFor(path, folder, byName, labels);
+      // LaTeX looks beside the main file before the \graphicspath folders: a picture of the same
+      // name there would be shown instead, so this one is named by its folder too.
+      const shadowed = files.has(`${folder}${path.slice(path.lastIndexOf("/") + 1)}`.toLowerCase());
+      const figure = figureFor(path, folder, byName && !shadowed, labels);
       labels.push(figure.label);
       return figure;
     });
-    buffers.insertBlock(figures.map((f) => f.text).join("\n"), figures[0].caret, at);
-    await loadInMain("graphicx", "which shows pictures");
+    buffers.insertBlock(figures.map((f) => f.text).join("\n"), figures[0].caret, place);
+    await needPackage("graphicx", "which shows pictures");
     store().notify(`Added ${paths.join(", ")} as ${paths.length === 1 ? "a figure" : "figures"}. Type ${paths.length === 1 ? "its" : "the first"} caption.`);
   });
 }
