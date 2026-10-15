@@ -30,7 +30,7 @@ The single command that must pass before any merge request is:
 pnpm verify
 ```
 
-It runs, in order: the version check (`scripts/check-version.mjs`), `cargo fmt --check`, `cargo clippy` with warnings as errors, `cargo test`, TypeScript type-check, lint, and `vitest run`. The Rust tests come first because `cargo test` regenerates the TypeScript types in `src/ipc/bindings/` that the type-check needs; commit them when they change.
+It runs, in order: the version check (`scripts/check-version.mjs`), `cargo fmt --check`, `cargo clippy` with warnings as errors, `cargo test`, TypeScript type-check, lint, and `vitest run`. The Rust tests come before the type-check because `cargo test` regenerates the TypeScript types in `src/ipc/bindings/` that the type-check needs; commit them when they change.
 
 For a change to anything the user sees or to compile, bundles or review, also run the end-to-end script against the real window. The instructions are at the top of `scripts/e2e.js`; the app exits with code 0 when every check passes. For a change to what the keyboard reaches (focus, menus, dialogs, panels), also run the keyboard pass, `scripts/keyboard.mjs`, as its header says.
 
@@ -46,10 +46,10 @@ git status --short && git log --oneline -5
 
 Each completed change set, the work of one branch that lands on `main`, gets one version and one dated section at the top of `CHANGELOG.md`, written on the branch before the merge request. Commits along the way do not each get a version, and there is no `Unreleased` section.
 
-- **The number** is `MAJOR.MINOR.PATCH`. A change set that adds something a user can do raises MINOR and sets PATCH to 0; one made only of fixes, documents, tests, refactoring or tidying raises PATCH. MAJOR stays 0 until the owner decides Emquad is 1.0, and changes only on the owner's word.
+- **The number** is `MAJOR.MINOR.PATCH`. A change set that adds something a user can do, or changes or removes what they could do, raises MINOR and sets PATCH to 0; one made only of fixes, speed-ups, documents, tests, refactoring or tidying raises PATCH. MAJOR stays 0 until the owner decides Emquad is 1.0, and changes only on the owner's word. If another branch lands first with the same number, the later one takes the next number, renaming its section and its version commit, before its merge request.
 - **The section** is headed `## X.Y.Z - YYYY-MM-DD`, opens with a line saying what the version is about, then lists in plain bullets what a user now sees or can do differently, the way `docs/user-guide.md` would put it. Fixes that a user could have met are listed; internal work is summed up in a line, if at all.
 - **The same number** is written in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, the "Current version" line of `README.md`, and the newest changelog heading. `pnpm verify` fails when any of them differ.
-- **The commit** that bumps the version and writes its section starts its subject with the version, as in `0.9.0: Load spelling dictionaries in the background`. Other commits on the branch do not mention one.
+- **The commit** that bumps the version and writes its section starts its subject with the version, as in `0.9.0: Show a word count in the status line`. Other commits on the branch do not mention one.
 - **Pushing:** `main` goes to `origin` (the private GitHub repository) once the owner has approved a merge and the merged `main` passes `pnpm verify`. Branches are not pushed unless the owner asks. No tags or GitHub releases are made unless the owner asks for one; one made then is an annotated tag `vX.Y.Z` on that version's commit on `main`.
 
 ## Tiers

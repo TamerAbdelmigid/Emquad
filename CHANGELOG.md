@@ -9,15 +9,14 @@ Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each c
 Emquad keeps a changelog and numbers each version.
 
 - This file, with a section for every change set so far.
-- The version is the same in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, the README and the newest heading here, and `pnpm verify` fails when they differ. The installer is named after it, `Emquad_0.8.1_x64-setup.exe`.
-- The project has a private GitHub repository, and `main` is pushed to it each time a version lands.
+- The installer, and Windows' list of installed apps, carry the version: this one is `Emquad_0.8.1_x64-setup.exe`.
 
 ## 0.8.0 - 2026-10-15
 
 A window for each project, more languages for spelling, and the items left open after 0.7.0.
 
 - File ▸ New window (Ctrl+Shift+N) opens another window, for another project. A project open in one window cannot be opened in a second, and nor can a folder inside it or around it: the window that has it comes forward. A bundle for a project open in another window goes to that window.
-- Opening another project, or closing a window, saves unsaved changes first; if they cannot be saved, you are asked.
+- Opening another project, or closing a window, saves unsaved changes first. If they cannot be saved, the other project is not opened, and a window asks before it closes without them.
 - Spelling in French, Spanish, Dutch and Russian as well as English (US and UK), chosen for the app and, if wanted, for each project. Words added to your own dictionary can be taken out again in Settings.
 - Go to definition (F12) opens a file that is not open yet.
 - A bundle with LaTeX packages carries only the package files its project reads, found by watching a compile, instead of every package on the computer.
@@ -36,7 +35,7 @@ Tables and symbols that work the way a word processor does.
 - Select cells by dragging with the mouse, a row or column by its handle, the whole table by its corner. Copy and paste cells, to and from Word and Excel.
 - A tool bar over the table: alignment, merge and split, insert and delete rows and columns, borders (all, outer, inner, the book style, or one side), caption and source.
 - Ω opens a symbol panel with search, categories and recently used symbols, drawn as they print.
-- Bold, Italic and the heading menu act on the table you are working in.
+- Bold, Italic and Ω on the main toolbar act on the table you are working in.
 
 ## 0.6.0 - 2026-10-13
 
@@ -90,6 +89,8 @@ Resizable panels, the user guide and the installer.
 
 The first version.
 
-- Projects and files, an editor, compiling with errors shown in the text, the PDF beside it, and jumping between the source and the PDF.
+- Projects from templates, files, and an editor with completion of commands, environments, labels and citation keys.
+- Compiling with errors shown in the text, the PDF beside it, and jumping between the source and the PDF.
+- Settings: your name, compiling on save, and the editor's font size.
 - Snapshots and History.
 - Bundles: one `.emquad` file that carries a project's files and history, so the recipient can continue the work and the sender can review and merge what comes back, passage by passage.
