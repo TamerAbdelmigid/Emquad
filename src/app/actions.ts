@@ -36,6 +36,8 @@ export function persistUi() {
 }
 
 async function enter(opened: OpenedProject) {
+  // Each project keeps versions while writing on its own clock.
+  lastKeptAsked = 0;
   buffers.closeAll();
   buffers.picturesChanged();
   setComments([]);

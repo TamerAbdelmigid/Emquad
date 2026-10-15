@@ -240,7 +240,13 @@ export function History(p: Props) {
           <button className="hent" aria-pressed={selected === WORKING} onClick={() => select(WORKING)}>
             <b>Working copy</b>
             <time>now</time>
-            <span>{list?.dirty ? "Has changes since the last version" : "Same as the last version"}</span>
+            <span>
+              {list?.dirty
+                ? "Has changes since the last version"
+                : list?.versions[0]?.kind === "automatic"
+                  ? "Kept just now; its changes are shown since your last own version"
+                  : "Same as the last version"}
+            </span>
             <span className="by">You</span>
           </button>
           {versions.map((v) => (
