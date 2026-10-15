@@ -1,7 +1,7 @@
 {
   "name": "emquad",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.8.1",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -15,7 +15,8 @@
     "rust:fmt": "cd src-tauri && cargo fmt --check",
     "rust:clippy": "cd src-tauri && cargo clippy --all-targets -- -D warnings",
     "rust:test": "cd src-tauri && cargo test",
-    "verify": "pnpm rust:fmt && pnpm rust:clippy && pnpm rust:test && pnpm typecheck && pnpm lint && pnpm test"
+    "check:version": "node scripts/check-version.mjs",
+    "verify": "pnpm check:version && pnpm rust:fmt && pnpm rust:clippy && pnpm rust:test && pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

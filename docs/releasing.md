@@ -12,7 +12,7 @@ How to produce the installer, and what is needed before giving it to other peopl
 6. Install it and run `scripts/installed-test.ps1` against the installed copy (usage at the top of the script; Windows PowerShell 5 or 7). It opens a recent project, compiles it with the installed Tectonic, and checks that double-clicking a bundle reuses the open window. It puts the user's settings back exactly as they were.
 7. Install it on a clean machine and open, compile and export once by hand.
 
-To change the version, edit `version` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `package.json` together.
+The version is set by the rule in `AGENTS.md` under "Versions": one for each change set that lands, written in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, the README and the newest `CHANGELOG.md` heading, which `pnpm verify` checks agree. The installer is named after it (`Emquad_X.Y.Z_x64-setup.exe`), and installing a newer one over an older replaces it.
 
 ## Signing
 

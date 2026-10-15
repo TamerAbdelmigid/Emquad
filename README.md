@@ -4,6 +4,8 @@ An offline desktop LaTeX editor in the spirit of Overleaf: source on the left, t
 
 The name comes from the em quad, the square blank a typesetter sets between words (`\quad` in LaTeX). The logo sheet is `mockup/emquad-logo.html`.
 
+Current version: `0.8.1`. What each version changed is in [CHANGELOG.md](CHANGELOG.md).
+
 ## Licence
 
 Emquad is under the MIT licence; see `LICENSE`. The programs and libraries it ships with keep their own licences, listed in `THIRD-PARTY-NOTICES.md`. texlab, which is GPL-3.0, is a separate program the app starts, not part of it.
@@ -48,7 +50,7 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`. It installs
 pnpm verify
 ```
 
-runs type-check, lint, the TypeScript unit tests, `cargo fmt --check`, `cargo clippy` and the Rust tests. One Rust test compiles a real document and is skipped on a machine with no LaTeX engine.
+checks that the version is the same everywhere it is written (`scripts/check-version.mjs`), then runs `cargo fmt --check`, `cargo clippy`, the Rust tests, type-check, lint and the TypeScript unit tests. One Rust test compiles a real document and is skipped on a machine with no LaTeX engine.
 
 `scripts/e2e.js` drives the real app window through compile, source/PDF lookup, export, import and a merge with a conflict. `scripts/keyboard.mjs` uses the app with real key presses only (sent over WebView2's debugging port, so nothing reaches other windows) and checks where the keyboard goes. `scripts/smoke-release.js` checks a release build: the packaged frontend, fonts, PDF viewer and bundled compiler. `scripts/installed-test.ps1` checks the installed copy. How to run each is at the top of the file.
 
@@ -62,7 +64,8 @@ runs type-check, lint, the TypeScript unit tests, `cargo fmt --check`, `cargo cl
 | [docs/04-design-system.md](docs/04-design-system.md) | The Fieldwork visual design, layout rules, and component inventory |
 | [docs/05-implementation-plan.md](docs/05-implementation-plan.md) | Milestones in build order, each with acceptance criteria and current state |
 | [docs/06-open-items.md](docs/06-open-items.md) | What remains to do, decisions waiting for the owner, and review notes not yet dealt with |
-| [AGENTS.md](AGENTS.md) | Working rules for anyone (human or agent) changing this repository |
+| [CHANGELOG.md](CHANGELOG.md) | What each version changed |
+| [AGENTS.md](AGENTS.md) | Working rules for anyone (human or agent) changing this repository, including how versions are numbered |
 
 ## Layout
 
