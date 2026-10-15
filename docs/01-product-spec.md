@@ -28,7 +28,7 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 - **Project files.** Tree of files and folders: create, rename, delete, move, add from disk.
 - **File outline.** Sections of the open file (`\section`, `\subsection`, …); clicking one moves the cursor there.
 - **Source editor.** LaTeX syntax highlighting, line numbers, multiple open files as tabs, undo/redo, find and replace, bracket matching, auto-closing of environments, completion for commands, environments, labels and citation keys.
-- **Toolbar.** Undo, redo, heading level, bold, italic, insert table, insert symbol. Each inserts the corresponding LaTeX at the cursor, or, while a table in visual mode is being worked on, into that table: bold and italic on its selected cells, a symbol into the cell being typed in.
+- **Toolbar.** Undo, redo, style (normal text, chapter where the class has chapters, Heading 1 to 3, run-in heading), bold, italic, insert table, insert symbol. Ctrl+B, Ctrl+I and Ctrl+U set bold, italic and underline, as in a word processor. Each inserts the corresponding LaTeX at the cursor, or, while a table in visual mode is being worked on, into that table: bold and italic on its selected cells, a symbol into the cell being typed in.
 - **Symbols.** The symbol panel offers Greek letters, operators, relations, arrows, set and logic signs, calculus, accents and fonts, structures (fractions, roots, scripts, limits, growing brackets, matrices, cases), text symbols and special characters, found by kind or by searching for a name, a command or the character itself, with the ones used lately first. Each is shown as it will print. A symbol is written the way the place it goes needs: a command inside a formula, in `$…$` in text, a text symbol in `\mbox{…}` inside a formula, a structure around the selection. A package it needs (`amssymb`, `amsmath`) is added to the preamble, unless the document has it or one that provides it. The recently used list is kept in the app's settings.
 - **Compile.** A Recompile button and a keyboard shortcut. Optional compile-on-save. Errors and warnings appear inline in the source and in a logs panel; the top bar shows compile state and error count.
 - **PDF preview.** Page navigation, zoom, fit to width or height. The preview keeps its scroll position across recompiles.
@@ -40,6 +40,7 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 - **Version list.** The working copy, every snapshot, and every imported bundle, newest first, each with author and description.
 - **Version view.** Selecting a version shows the files it changed and, for the selected file, the source with that version's changes highlighted.
 - **Snapshots.** Save a named snapshot at any time. Restore any snapshot. Compare any version with the working copy.
+- **Versions kept automatically.** While the user writes, a version is kept after a save when the latest is ten minutes old or more, and before a file is deleted, so History has the work even when no snapshot was taken.
 - **Bundle review.** Selecting an imported bundle shows a review panel: conflicts to resolve one by one (keep mine, keep theirs, or write the passage by hand), changes that merged automatically (each can still be rejected), and a Finish merge action that is enabled once every conflict is resolved.
 
 ### Bundles
@@ -50,13 +51,15 @@ Layout follows Overleaf; see `04-design-system.md` and the mockup.
 
 ### Project lifecycle
 
-- Create a project from a blank document or a built-in template.
+- Create a project from a blank document or a built-in template: article, report, thesis (title page, abstract, contents, chapters and a bibliography), exam, letter. A project with no PDF is compiled as soon as it opens.
 - Open an existing folder of LaTeX files as a project.
 - A recent-projects list on start.
 
 ## Added after the first release
 
-- **Visual mode.** The Code / Visual switch in the editor draws headings, emphasis, typeset mathematics, list bullets, tables, figures and citations in place. The text underneath stays plain LaTeX, and whatever the cursor is in is shown as source.
+- **Visual mode.** The Code / Visual switch in the editor draws headings, emphasis, typeset mathematics, bulleted and numbered lists, tables, figures, citations, references (as the numbers the last compile gave them), footnotes, and the title, contents and bibliography in place, and folds the preamble into one line. The text underneath stays plain LaTeX, and whatever the cursor is in is shown as source. A project opens in visual mode until it is left in Code.
+- **Pasting from elsewhere.** Text pasted from another program has the characters LaTeX treats specially written so that they print; text that is LaTeX already, or copied in Emquad, goes in as it is.
+- **Word count.** The status line counts the words of the file on screen, leaving out commands, mathematics and the preamble.
 - **Compiler choice.** Each project uses Automatic, Tectonic or `latexmk`; a compiler that is missing is refused with a message, not swapped.
 - **Editing a conflict by hand** in review, as a third way to resolve it.
 - **Search across the project.**

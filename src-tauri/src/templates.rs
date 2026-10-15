@@ -18,7 +18,8 @@ pub fn files(template: &str, title: &str) -> Vec<(&'static str, String)> {
 }
 
 /// A first reference, to show how one is written and cited.
-pub const REFERENCES: &str = "% Your references. Each one has a key, here knuth1984, which \\cite{knuth1984}
+pub const REFERENCES: &str =
+    "% Your references. Each one has a key, here knuth1984, which \\cite{knuth1984}
 % writes in the text. Add yours below, or copy them from a reference manager as BibTeX.
 
 @book{knuth1984,

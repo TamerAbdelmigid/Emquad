@@ -146,6 +146,7 @@ A diagnostic is `{ severity, file, line, message }`.
 |---|---|
 | `history_list()` | versions, newest first: id, kind (working, snapshot, bundle, merge), label, author, time, summary |
 | `history_snapshot(label)` | new version id |
+| `history_keep_while_writing()` | whether a version was kept: after a save, when the latest version is ten minutes old or more and the files differ from it |
 | `history_changed_files(version, against)` | paths with a status each |
 | `history_file_diff(version, against, path)` | hunks with word-level detail (see `03-…`) |
 | `history_restore(version)` | — (snapshots the working copy first) |

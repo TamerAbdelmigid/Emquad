@@ -226,7 +226,12 @@ export async function save(path: string | null = store().active): Promise<boolea
     if (moved.length) setComments(await api.commentsReanchor(moved));
     return true;
   });
-  if (done) void refreshIndex();
+  if (done) {
+    void refreshIndex();
+    // A version of the work is kept every ten minutes or so of saving, so History has it even
+    // when no snapshot was ever taken.
+    void api.historyKeepWhileWriting().catch(() => {});
+  }
   return done === true;
 }
 

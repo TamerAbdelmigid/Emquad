@@ -824,6 +824,23 @@ pub fn history_snapshot(
         .to_string())
 }
 
+/// How often, at most, a version is kept of the work as it is saved.
+const KEEP_WHILE_WRITING: i64 = 10 * 60;
+
+/// Keep a version of the work after a save, when the latest is ten minutes old or more. Whether
+/// one was kept.
+#[tauri::command(async)]
+pub fn history_keep_while_writing(window: tauri::Window, state: State<AppState>) -> Result<bool> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
+    Ok(History::open(&p)?
+        .keep_while_writing(&p, &author(&state)?, now, KEEP_WHILE_WRITING)?
+        .is_some())
+}
+
 /// `against` of `None` means the version's natural comparison (see `History::natural_base`).
 fn trees(
     p: &Project,

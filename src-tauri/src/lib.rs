@@ -52,6 +52,7 @@ macro_rules! handlers {
             commands::synctex_inverse,
             commands::history_list,
             commands::history_snapshot,
+            commands::history_keep_while_writing,
             commands::history_changed_files,
             commands::history_file_diff,
             commands::history_restore,

@@ -118,6 +118,7 @@ export const api = {
 
   historyList: () => invoke<HistoryList>("history_list"),
   historySnapshot: (label: string) => invoke<string>("history_snapshot", { label }),
+  historyKeepWhileWriting: () => invoke<boolean>("history_keep_while_writing"),
   historyChangedFiles: (version: string, against: string | null) =>
     invoke<ChangedFile[]>("history_changed_files", { version, against }),
   historyFileDiff: (version: string, against: string | null, path: string) =>

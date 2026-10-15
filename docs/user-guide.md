@@ -5,8 +5,8 @@ Emquad is a LaTeX editor that works without an internet connection or a TeX inst
 ## Getting started
 
 1. Start Emquad. The first time, it asks for your name. The name is attached to the snapshots and bundles you make so a collaborator can tell whose changes are whose.
-2. Choose **New project**, give it a name, pick a starting document (article, report, exam or letter), and choose where to create it. A project is an ordinary folder; you can also use **Open folder** on any folder of `.tex` files you already have.
-3. Press **Recompile** (or Ctrl+Enter). The PDF appears on the right.
+2. Choose **New project**, give it a name, pick a starting document (article, report, thesis, exam or letter), and choose where to create it. A project is an ordinary folder; you can also use **Open folder** on any folder of `.tex` files you already have. The **Thesis** document has a title page, an abstract, a table of contents, chapters, a bibliography in `references.bib`, and the margins and line spacing at the top, ready to change.
+3. Emquad compiles the new project straight away and the PDF appears on the right. After that, press **Recompile** (or Ctrl+Enter) whenever you want to see your changes.
 
 The first time a document is compiled, Emquad downloads the LaTeX packages it uses. That needs internet once; after that the document compiles offline.
 
@@ -25,7 +25,7 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 ### Code and Visual
 
-**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets, tables as tables, `\includegraphics` as the picture itself, and citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark). Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile. Pictures are also found in the folders named by `\graphicspath`, and citation names also come from a `.bib` file the document names outside the project, such as `\bibliography{../shared}`.
+**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets or numbers, tables as tables, `\includegraphics` as the picture itself, citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark), references such as `\ref{fig:plot}` as the number the PDF shows (after the first compile; `?` until then), footnotes as a raised number whose text shows when you point at it, and the title, table of contents and bibliography as labelled blocks. The settings at the top of the file (the class, the packages, the title) are folded into one **Document settings** line; click it to see and change them. A project opens in Visual until you leave it in Code. Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile. Pictures are also found in the folders named by `\graphicspath`, and citation names also come from a `.bib` file the document names outside the project, such as `\bibliography{../shared}`.
 
 **The toolbar acts on what is written**, in either mode. The heading menu (Tт) changes the level of the heading the cursor is in, and **Normal text** makes it ordinary text again; on a line with no heading it starts one. **B** and *I* (and Format ▸ Monospace and Emphasis) set the selection in that style, or, when it is in it already, take it out; with nothing selected, they take the group the cursor is in out of the style, or start an empty one to type in.
 
@@ -123,6 +123,10 @@ The magnifier in the left rail (Ctrl+Shift+F) searches every text file in the pr
 
 - Type `\` to get suggestions for commands. Inside `\ref{` you get the labels in your project; inside `\cite{` you get the keys from your `.bib` files; inside `\begin{` you get environments.
 - After `\begin{something}` press Enter and the matching `\end{something}` is added.
+- **Style** in the toolbar sets the paragraph the cursor is in as normal text, a chapter (in a report or thesis), Heading 1 to 3, or a run-in heading. Ctrl+B, Ctrl+I and Ctrl+U set bold, italic and underline.
+- **Insert** also has a numbered list, a footnote, a table of contents, a page break, and the bibliography. A project with no `.bib` file is given `references.bib`, with an example reference to copy.
+- Text pasted from another program, such as Word or a web page, has `%`, `&`, `#`, `_`, `$` and the like written so that they print, and each paragraph kept as a paragraph. LaTeX you paste, and text copied in Emquad, goes in as it is.
+- The status line shows how many words the file on screen has, not counting commands, mathematics or the settings at the top.
 - An orange dot on a tab means the file has unsaved changes. Ctrl+S saves, and recompiles if "Compile when saving" is on in Settings. Opening another project, or closing the window, saves them first.
 
 ### When a compile fails
@@ -139,6 +143,7 @@ The top bar shows the number of errors, the line is marked in the source, and th
 A snapshot is a saved version of the whole project that you can return to.
 
 - **Save a snapshot:** File → Save snapshot, or Ctrl+Shift+S. Give it a name such as "Draft 2".
+- **Versions kept for you:** while you write, Emquad keeps a version after a save at most every ten minutes ("Saved while writing"), and one before a file is deleted ("Before deleting …"), so History has your work even if you never save a snapshot.
 - **Open History:** the History button, or Ctrl+Shift+H.
 
 In History, the list on the right shows the working copy (your files as they are now) and every version, newest first. Select one to see which files it changed and, for each file, the text with its changes marked: removed words struck through, added words highlighted.

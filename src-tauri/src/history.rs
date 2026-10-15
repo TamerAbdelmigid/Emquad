@@ -472,6 +472,26 @@ impl History {
         Ok(())
     }
 
+    /// Keep a version of the work as it is saved, at most one every `every` seconds: someone
+    /// who never takes a snapshot still has the last hour's work in History. Nothing is taken
+    /// when the files are as the latest version has them. `now` is in seconds since the epoch.
+    pub fn keep_while_writing(
+        &self,
+        project: &Project,
+        author: &Author,
+        now: i64,
+        every: i64,
+    ) -> Result<Option<Oid>> {
+        if let Some(head) = self.head()
+            && now - self.repo.find_commit(head)?.time().seconds() < every
+        {
+            return Ok(None);
+        }
+        let before = self.head();
+        let taken = self.snapshot(project, author, "automatic", "Saved while writing")?;
+        Ok((Some(taken) != before).then_some(taken))
+    }
+
     /// Delete a file or folder of the project, taking an automatic snapshot first, so that
     /// History can bring it back.
     pub fn delete_kept(&self, project: &Project, author: &Author, rel: &str) -> Result<()> {
@@ -549,6 +569,45 @@ pub mod tests {
         let p = Project::create(dir, "paper", "article").unwrap();
         let h = History::open(&p).unwrap();
         (p, h)
+    }
+
+    #[test]
+    fn work_is_kept_while_writing_at_most_once_in_a_while() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (p, h) = new_project(&tmp.path().join("p"));
+        let me = author("Tamer");
+        let now = || {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+        };
+        // The first save of a project with no history keeps a version.
+        let first = h.keep_while_writing(&p, &me, now(), 600).unwrap();
+        assert!(first.is_some());
+        // Within ten minutes, no more, changed or not.
+        p.write_file("main.tex", "changed\n").unwrap();
+        assert_eq!(h.keep_while_writing(&p, &me, now(), 600).unwrap(), None);
+        // Later, the change is kept, labelled as such.
+        let later = h
+            .keep_while_writing(&p, &me, now() + 601, 600)
+            .unwrap()
+            .unwrap();
+        let list = h.list(&p).unwrap();
+        let kept = list
+            .versions
+            .iter()
+            .find(|v| v.id == later.to_string())
+            .unwrap();
+        assert_eq!(
+            (kept.kind.as_str(), kept.label.as_str()),
+            ("automatic", "Saved while writing")
+        );
+        // And nothing when nothing changed since.
+        assert_eq!(
+            h.keep_while_writing(&p, &me, now() + 1300, 600).unwrap(),
+            None
+        );
     }
 
     #[test]
