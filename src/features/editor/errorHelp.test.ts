@@ -57,3 +57,36 @@ describe("finding what was never closed", () => {
     expect(locate(error("Runaway argument?", 5), text)).toBeUndefined();
   });
 });
+
+describe("fixes only where they are certain", () => {
+  const fixFor = (message: string, line: string, loaded: (name: string) => boolean = none) =>
+    explain(error(message, 1), source([line]), loaded)?.fix;
+
+  it("never escapes a label, a reference, an address, \\verb or a formula", () => {
+    expect(fixFor("Missing $ inserted.", "Text with \\alpha and \\label{sec_intro}")).toBeUndefined();
+    expect(fixFor("Missing $ inserted.", "see \\ref{fig_one} where x_1 holds")).toMatchObject({ column: 26, char: "_" });
+    expect(fixFor("Misplaced alignment tab character &.", "See \\href{https://x.org/?a=1&b=2}{Q&A}.")).toMatchObject({ column: 36, char: "&" });
+    expect(fixFor("Misplaced alignment tab character &.", "\\verb|a&b| and R&D")).toMatchObject({ column: 17 });
+    expect(fixFor("You can't use `macro parameter character #' in horizontal mode.", "\\url{http://x/#a} and C# code")).toMatchObject({ column: 24 });
+    expect(fixFor("Missing $ inserted.", "$$a_1$$ and \\alpha")).toBeUndefined();
+    // Two candidates: which one is at fault is not certain, so no fix is offered.
+    expect(fixFor("Missing $ inserted.", "a_b and c_d")).toBeUndefined();
+    // Inside an equation over several lines.
+    const eq = source(["\\begin{equation}", "x_1 + y", "\\end{equation}"]);
+    expect(explain(error("Missing $ inserted.", 2), eq, none)?.fix).toBeUndefined();
+  });
+
+  it("never offers natbib to a document using biblatex, nor biblatex to one using BibTeX", () => {
+    const biblatex = (name: string) => name === "biblatex";
+    expect(explain(error("Undefined control sequence.", 1), source(["As \\citep{a} shows"]), biblatex)).toEqual({ text: expect.stringMatching(/parencite/) });
+    expect(explain(error("Undefined control sequence.", 1), source(["\\printbibliography"]), none)).toEqual({ text: expect.stringMatching(/\\bibliography/) });
+  });
+
+  it("does not take a % in an address, \\\\ before a brace, or braces in verbatim for something unclosed", () => {
+    expect(findUnclosed("a \\url{50%} b {c}")).toBeNull();
+    expect(findUnclosed("a \\\\{\\bf b}")).toBeNull();
+    expect(findUnclosed("\\begin{verbatim}\n{ not a brace\n\\end{verbatim}\nok")).toBeNull();
+    expect(findUnclosed("\\verb|{| and {x}")).toBeNull();
+    expect(findUnclosed("line one\n\\begin{verbatim}\n{\n\\end{verbatim}\n\\textbf{open")).toEqual({ line: 5, what: "brace" });
+  });
+});

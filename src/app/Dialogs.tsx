@@ -225,6 +225,11 @@ const MARGINS = [
   { value: "3.5cm", label: "Wide, 3.5 cm" },
 ];
 
+/** The choices offered, with the document's own value among them when it is none of them. */
+function withCurrent(value: string, options: { value: string; label: string }[]) {
+  return options.some((o) => o.value === value) ? options : [...options, { value, label: value.replace(/paper$/, "") }];
+}
+
 /** The page the document is set on, as a word processor's page setup shows it. */
 function SetupDialog({ onClose }: { onClose: () => void }) {
   const [setup, setSetup] = useState<Setup | null | undefined>(undefined);
@@ -256,24 +261,25 @@ function SetupDialog({ onClose }: { onClose: () => void }) {
             void applySetup(setup);
           }}
         >
-          {choice("su-paper", "Paper", setup.paper, [
+          {choice("su-paper", "Paper", setup.paper, withCurrent(setup.paper, [
             { value: "", label: "As the document class sets it" },
             { value: "a4paper", label: "A4" },
             { value: "letterpaper", label: "US Letter" },
-          ], (paper) => change({ paper }))}
+          ]), (paper) => change({ paper }))}
           {choice("su-size", "Size of the text", setup.size, [
             { value: "", label: "As the document class sets it (usually 10 pt)" },
             { value: "10pt", label: "10 pt" },
             { value: "11pt", label: "11 pt" },
             { value: "12pt", label: "12 pt" },
           ], (size) => change({ size }))}
-          {choice("su-margins", "Margins", setup.margins, MARGINS.some((m) => m.value === setup.margins) ? MARGINS : [...MARGINS, { value: setup.margins, label: setup.margins }], (margins) => change({ margins }))}
+          {choice("su-margins", "Margins", setup.margins, withCurrent(setup.margins, MARGINS), (margins) => change({ margins }))}
           {choice("su-spacing", "Line spacing", setup.spacing, [
             { value: "single", label: "Single" },
             { value: "onehalf", label: "1.5 lines" },
             { value: "double", label: "Double" },
           ], (spacing) => change({ spacing: spacing as Setup["spacing"] }))}
           {choice("su-font", "Typeface", setup.font, [
+            ...(setup.font === "other" ? [{ value: "other", label: "As the document chooses it now" }] : []),
             { value: "default", label: "Computer Modern, LaTeX's own" },
             { value: "times", label: "Times" },
             { value: "palatino", label: "Palatino" },

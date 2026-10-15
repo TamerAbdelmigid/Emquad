@@ -1,6 +1,8 @@
 // What a compile error means, in plain words, and a fix for it when one is certain. LaTeX's own
 // messages are written for people who know TeX; these are for people who know Word. Pure: the
 // app applies a fix, this only says what it is.
+import { literalAt } from "./paste";
+import { mathAt } from "./symbols";
 import type { Diagnostic } from "../../ipc/api";
 
 /** A change that puts an error right. */
@@ -48,45 +50,30 @@ const ENVIRONMENT_PACKAGES: Record<string, string> = {
   tikzpicture: "tikz", spacing: "setspace", onehalfspace: "setspace", doublespace: "setspace", minted: "minted",
 };
 
-/** Where a line's text is a formula, as far as one line shows: inside $…$ or \(…\). */
-function mathOnLine(line: string): boolean[] {
-  const out: boolean[] = [];
-  let math = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === "\\" && (line[i + 1] === "(" || line[i + 1] === ")")) {
-      math = line[i + 1] === "(";
-      out.push(true, true);
-      i++;
-      continue;
-    }
-    if (ch === "\\") {
-      out.push(math, math);
-      i++;
-      continue;
-    }
-    if (ch === "$") {
-      out.push(true);
-      math = !math;
-      continue;
-    }
-    out.push(math);
-  }
-  return out;
-}
-
-/** The first `char` on a line that is outside a formula, has no backslash before it and is not in a comment: 1-based, or 0. */
-function bareChar(line: string, char: string): number {
-  const math = mathOnLine(line);
+/**
+ * The one place on line `n` of `text` where `char` stands bare in ordinary text: no backslash
+ * before it, and not in a comment, a formula (one over several lines too), `\verb`, or an
+ * argument written as it is, such as a label, a reference or an address. Its 1-based column;
+ * 0 when there is none, or more than one, since then which one is at fault is not certain.
+ */
+function onlyBare(text: string, n: number, char: string): number {
+  const lines = text.split("\n");
+  const line = lines[n - 1] ?? "";
+  const start = lines.slice(0, n - 1).reduce((at, l) => at + l.length + 1, 0);
+  const found: number[] = [];
   for (let i = 0; i < line.length; i++) {
     if (line[i] === "\\") {
-      i++;
+      const verb = /^\\(?:verb|lstinline)\*?([^a-zA-Z\s*])/.exec(line.slice(i));
+      if (verb) {
+        const close = line.indexOf(verb[1], i + verb[0].length);
+        i = close < 0 ? line.length : close;
+      } else i++;
       continue;
     }
-    if (line[i] === "%") return 0;
-    if (line[i] === char && !math[i]) return i + 1;
+    if (line[i] === "%") break;
+    if (line[i] === char && !mathAt(text, start + i) && !literalAt(text, start + i)) found.push(i + 1);
   }
-  return 0;
+  return found.length === 1 ? found[0] : 0;
 }
 
 /** The commands written on a line, comments left out. */
@@ -103,24 +90,60 @@ function commandsOn(line: string): string[] {
 export function findUnclosed(text: string): { line: number; what: "brace" | "environment" | "extra" } | null {
   const braces: number[] = [];
   const environments: { name: string; line: number }[] = [];
-  const lines = text.split("\n");
-  for (let n = 0; n < lines.length; n++) {
-    const line = lines[n].replace(/(?<!\\)%.*$/, "");
-    for (const m of line.matchAll(/\\(begin|end)\s*\{([^}]*)\}|\\[{}]|\\verb(.).*?\3|[{}]/g)) {
-      const token = m[0];
-      if (m[1] === "begin") environments.push({ name: m[2], line: n + 1 });
-      else if (m[1] === "end") {
-        if (environments[environments.length - 1]?.name === m[2]) environments.pop();
-        else return { line: n + 1, what: "extra" };
-      } else if (token === "{") braces.push(n + 1);
-      else if (token === "}") {
-        if (!braces.pop()) return { line: n + 1, what: "extra" };
+  let line = 1;
+  // Step over `text` from `from` to `to`, counting the lines passed.
+  const skip = (from: number, to: number) => {
+    for (let k = from; k < to; k++) if (text[k] === "\n") line++;
+    return to - 1;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\n") line++;
+    else if (ch === "%") {
+      const end = text.indexOf("\n", i);
+      i = (end < 0 ? text.length : end) - 1;
+    } else if (ch === "\\") {
+      const name = /^[a-zA-Z@]+/.exec(text.slice(i + 1, i + 40))?.[0];
+      // \\, \{, \}, \% and the like are a backslash and one character.
+      if (!name) {
+        i++;
+        continue;
       }
-    }
+      const after = i + 1 + name.length;
+      const verb = /^\*?([^a-zA-Z\s*])/.exec(text.slice(after, after + 2));
+      if ((name === "verb" || name === "lstinline") && verb) {
+        const close = text.indexOf(verb[1], after + verb[0].length);
+        i = close < 0 || text.slice(after, close).includes("\n") ? after : close;
+        continue;
+      }
+      // An address is written as it is: a % in it is not a comment.
+      if ((name === "url" || name === "href" || name === "nolinkurl") && text[after] === "{") {
+        const close = text.indexOf("}", after);
+        i = close < 0 ? after : skip(after, close + 1);
+        continue;
+      }
+      const env = /^\s*\{([^}]*)\}/.exec(text.slice(after, after + 80));
+      if ((name === "begin" || name === "end") && env) {
+        const envName = env[1];
+        i = after + env[0].length - 1;
+        if (name === "begin") {
+          // What a verbatim environment holds is text, braces and all.
+          if (/^(?:verbatim\*?|Verbatim|lstlisting|minted|comment|filecontents\*?)$/.test(envName)) {
+            const end = text.indexOf(`\\end{${envName}}`, i);
+            if (end < 0) return { line, what: "environment" };
+            i = skip(i + 1, end + `\\end{${envName}}`.length);
+          } else environments.push({ name: envName, line });
+        } else if (environments[environments.length - 1]?.name === envName) environments.pop();
+        else return { line, what: "extra" };
+        continue;
+      }
+      i = after - 1;
+    } else if (ch === "{") braces.push(line);
+    else if (ch === "}" && braces.pop() === undefined) return { line, what: "extra" };
   }
   if (braces.length) return { line: braces[0], what: "brace" };
-  if (environments.length && environments[0].name !== "document") return { line: environments[environments.length - 1].line, what: "environment" };
-  if (environments.length > 1) return { line: environments[environments.length - 1].line, what: "environment" };
+  const open = environments.filter((e) => e.name !== "document");
+  if (open.length) return { line: open[open.length - 1].line, what: "environment" };
   return null;
 }
 
@@ -130,7 +153,9 @@ export function findUnclosed(text: string): { line: number; what: "brace" | "env
  */
 export function explain(d: Diagnostic, textOf: (path: string) => string | undefined, loaded: (name: string) => boolean): Help | null {
   const m = d.message;
-  const lineText = d.line > 0 ? (textOf(d.file)?.split("\n")[d.line - 1] ?? "") : "";
+  const fileText = textOf(d.file) ?? "";
+  const lineText = d.line > 0 ? (fileText.split("\n")[d.line - 1] ?? "") : "";
+  const bare = (char: string) => (d.line > 0 ? onlyBare(fileText, d.line, char) : 0);
   const at = (column: number, char: string, label: string): Fix | undefined =>
     column > 0 ? { kind: "escape", label, file: d.file, line: d.line, column, char } : undefined;
 
@@ -140,6 +165,14 @@ export function explain(d: Diagnostic, textOf: (path: string) => string | undefi
   if (/Undefined control sequence/.test(m)) {
     const commands = commandsOn(lineText);
     const needs = commands.find((c) => COMMAND_PACKAGES[c] && !loaded(COMMAND_PACKAGES[c]));
+    // natbib and biblatex cannot both be loaded: a command of one in a document using the other
+    // is written the other's way instead.
+    if (needs && COMMAND_PACKAGES[needs] === "natbib" && loaded("biblatex")) {
+      return { text: `\\${needs} belongs to natbib, and this document uses biblatex: write \\parencite or \\textcite instead.` };
+    }
+    if (needs && COMMAND_PACKAGES[needs] === "biblatex" && !loaded("biblatex")) {
+      return { text: `\\${needs} belongs to biblatex, and this document uses BibTeX: the list of references is printed by \\bibliography{…}.` };
+    }
     if (needs) {
       const name = COMMAND_PACKAGES[needs];
       return { text: `\\${needs} comes from the ${name} package, which this document does not load.`, fix: { kind: "package", label: `Add \\usepackage{${name}}`, name } };
@@ -153,15 +186,15 @@ export function explain(d: Diagnostic, textOf: (path: string) => string | undefi
     return { text: `There is no environment called ${environment[1]}. Check its spelling, or load the package it comes from.` };
   }
   if (/Misplaced alignment tab character/.test(m)) {
-    return { text: "An & on its own separates the columns of a table. To print the character in text, write \\&.", fix: at(bareChar(lineText, "&"), "&", "Write it as \\&") };
+    return { text: "An & on its own separates the columns of a table. To print the character in text, write \\&.", fix: at(bare("&"), "&", "Write it as \\&") };
   }
   if (/macro parameter character #/.test(m)) {
-    return { text: "A # on its own does not print. To print the character, write \\#.", fix: at(bareChar(lineText, "#"), "#", "Write it as \\#") };
+    return { text: "A # on its own does not print. To print the character, write \\#.", fix: at(bare("#"), "#", "Write it as \\#") };
   }
   if (/Missing \$ inserted/.test(m)) {
-    const under = bareChar(lineText, "_");
+    const under = bare("_");
     if (under) return { text: "An _ in ordinary text starts a subscript, which only works in a formula. To print the character, write \\_; for a subscript, put it in a formula, as $x_1$.", fix: at(under, "_", "Write it as \\_") };
-    if (bareChar(lineText, "^")) return { text: "A ^ in ordinary text starts a power, which only works in a formula: write $x^2$, or \\textasciicircum{} for the character itself." };
+    if (bare("^")) return { text: "A ^ in ordinary text starts a power, which only works in a formula: write $x^2$, or \\textasciicircum{} for the character itself." };
     return { text: "Something on this line works only in a formula, or a formula is missing its closing $." };
   }
   const notFound = /File `([^']+)' not found/.exec(m);

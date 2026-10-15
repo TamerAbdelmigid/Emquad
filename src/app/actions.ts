@@ -422,6 +422,8 @@ export async function applySetup(setup: Setup) {
   await guard(async () => {
     await openFile(main, undefined, true);
     const change = setupChange(buffers.text(main) ?? "", setup);
+    // A setting written in a way that cannot be changed for certain is left, and the dialog says why.
+    if (change && "error" in change) return store().notify(change.error, true);
     if (change) buffers.change(main, change);
     store().set({ dialog: null });
     if (change) await compile();
