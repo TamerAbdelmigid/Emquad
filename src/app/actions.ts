@@ -395,6 +395,11 @@ export async function addPictures(pictures: ({ source: string } | { file: File }
     if (!active?.toLowerCase().endsWith(".tex")) {
       return store().notify(`Added ${paths.join(", ")} to the project. Open a .tex file to put ${paths.length === 1 ? "it" : "them"} in the document.`);
     }
+    // A figure belongs in the text: never among the settings at the top.
+    const begin = documentStart(buffers.text(active) ?? "");
+    if (begin >= 0 && (at ?? buffers.cursorAt() ?? 0) < begin) {
+      return store().notify(`Added ${paths.join(", ")} to the project. Put the cursor in the text of the document to place ${paths.length === 1 ? "it" : "them"} there.`);
+    }
     // One block of figures, the cursor in the first caption.
     const labels = [...store().index.labels];
     const figures = paths.map((path) => {

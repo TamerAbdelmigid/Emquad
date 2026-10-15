@@ -125,9 +125,14 @@ The magnifier in the left rail (Ctrl+Shift+F) searches every text file in the pr
 - After `\begin{something}` press Enter and the matching `\end{something}` is added.
 - **Style** in the toolbar sets the paragraph the cursor is in as normal text, a chapter (in a report or thesis), Heading 1 to 3, or a run-in heading. Ctrl+B, Ctrl+I and Ctrl+U set bold, italic and underline.
 - **Insert** also has a numbered list, a footnote, a table of contents, a page break, and the bibliography. A project with no `.bib` file is given `references.bib`, with an example reference to copy. Citations have a section of their own, below.
-- Text pasted from another program, such as Word or a web page, has `%`, `&`, `#`, `_`, `$` and the like written so that they print, and each paragraph kept as a paragraph. LaTeX you paste, and text copied in Emquad, goes in as it is.
+- Text pasted from another program, such as Word or a web page, has `%`, `&`, `#`, `_`, `$` and the like written so that they print, and each paragraph kept as a paragraph. Text from Word, Google Docs or a web page keeps its bold, italic, underline, superscripts and subscripts, headings, bulleted and numbered lists and links, written as LaTeX; its colours, fonts and sizes are left behind, since the document sets those. **Ctrl+Shift+V** pastes the words alone. LaTeX you paste, and text copied in Emquad, goes in as it is.
+- To add a picture, drag it from File Explorer onto the text where it should go, or paste one you copied, such as a screenshot. Emquad copies it into the project's `figures` folder (or the folder `\graphicspath` names), puts it in a figure there, and leaves the cursor in its caption. PNG, JPEG and PDF pictures work. A picture never replaces a file of yours: one whose name is taken gets a name of its own. Other files you drop on the window are added to the project.
 - The status line shows how many words the file on screen has, not counting commands, mathematics or the settings at the top.
 - An orange dot on a tab means the file has unsaved changes. Ctrl+S saves, and recompiles if "Compile when saving" is on in Settings. Opening another project, or closing the window, saves them first.
+
+### Equations
+
+**Insert ▸ Equation…**, or **Alt+=** as in Word, opens the equation editor. Type the formula in LaTeX or build it with the buttons (fraction, root, power, index, sum, integral, limit, brackets, matrix, cases, words) and the symbols under them; the preview shows it as it will print. Choose whether it sits in the line of text, on a line of its own, or on a line of its own with a number to refer to, and press **Insert** (or Ctrl+Enter). With the cursor in a formula, the editor opens on that one and **Change** puts it back.
 
 ### References and citations
 

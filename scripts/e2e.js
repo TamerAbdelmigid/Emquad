@@ -8,7 +8,8 @@
 //
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
 // lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
-// visual mode, comments, references and citation styles, and a bundle that carries its LaTeX packages.
+// visual mode, comments, references and citation styles, pictures dropped and pasted, text pasted
+// with its formatting, the equation editor, and a bundle that carries its LaTeX packages.
 // Zotero must not be running: one check asks for a citation from it and expects to be told it is not.
 // Native file dialogs cannot be driven from a page, so those steps call the backend directly.
 // Lines starting "SHOT" mark moments worth a screenshot; the script pauses briefly after each.
@@ -900,6 +901,81 @@
       ]);
       await ok(zotero?.code === "zotero_missing" && /Better BibTeX/.test(zotero.message), `a citation from Zotero, with Zotero not running, says how to start it (${zotero?.message})`);
       await act.save();
+    }
+
+    // Pictures dropped or pasted, text pasted with its formatting, and the equation editor.
+    {
+      const { buffers } = await import("/src/features/editor/buffers.ts");
+      const editor = $(".cm-content");
+      const lineOf = (needle) => buffers.text("main.tex").split("\n").findIndex((l) => l.includes(needle)) + 1;
+      // A 1 by 1 PNG, as a screenshot would come.
+      const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+      buffers.goToLine(lineOf("\\chapter{Method}"));
+      const shot1 = new DataTransfer();
+      shot1.items.add(new File([png], "image.png", { type: "image/png" }));
+      editor.focus();
+      editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: shot1, bubbles: true, cancelable: true }));
+      await until("the pasted picture as a figure", () => buffers.text("main.tex").includes("{figures/pasted.png}"));
+      const figure = buffers.text("main.tex");
+      await ok(
+        figure.includes("\\includegraphics[width=0.8\\linewidth]{figures/pasted.png}\n  \\caption{}\n  \\label{fig:pasted}") && /\\usepackage(\[[^\]]*\])?\{graphicx\}/.test(figure),
+        "a picture pasted on its own is added to the project and put in a figure, with graphicx loaded",
+      );
+      // The same picture dropped on the text, from elsewhere on disk: a figure of its own, the file not copied twice.
+      const elsewhere = await window.__TAURI_INTERNALS__.invoke("picture_add", png, { headers: { "x-dir": "dropped", "x-name": "dot.png" } });
+      // Dropped on the line of the chapter heading, as seen on screen.
+      let point = null;
+      buffers.run((v) => ((point = v.coordsAtPos(buffers.text("main.tex").indexOf("\\chapter{Method}"))), true));
+      await act.dropFiles([`${store().root}\\${elsewhere.replace("/", "\\")}`], point.left + 4, (point.top + point.bottom) / 2);
+      await until("the dropped picture", () => buffers.text("main.tex").includes("{figures/dot.png}"));
+      const files = JSON.stringify(await invoke("project_tree"));
+      await ok(files.includes("figures/dot.png") && files.includes("figures/pasted.png") && !files.includes("pasted-2"), "a picture dropped on the text becomes a figure where it was dropped");
+      await act.save();
+      await act.compile();
+      await ok(store().build.hasPdf && !store().build.diagnostics.some((d) => d.severity === "error"), "the document with its new figures compiles");
+
+      // Text with formatting from Word: bold, a heading and a list, written as LaTeX.
+      buffers.goToLine(lineOf("\\chapter{Method}"));
+      const word = new DataTransfer();
+      word.setData("text/plain", "Results\nThe yield rose.\nFirst\nSecond");
+      word.setData(
+        "text/html",
+        "<h2>Results</h2><p>The <b>yield</b> rose.</p><p class=MsoListParagraph style='mso-list:l0 level1 lfo1'><span style='mso-list:Ignore'>1.</span>First</p><p class=MsoListParagraph style='mso-list:l0 level1 lfo1'><span style='mso-list:Ignore'>2.</span>Second</p>",
+      );
+      editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: word, bubbles: true, cancelable: true }));
+      await ok(
+        buffers.text("main.tex").includes("\\subsection{Results}\n\nThe \\textbf{yield} rose.\n\n\\begin{enumerate}\n  \\item First\n  \\item Second\n\\end{enumerate}"),
+        "text pasted from Word keeps its bold, headings and numbered list, as LaTeX",
+      );
+
+      // The equation editor: a new numbered formula, then a formula in the line changed.
+      buffers.goToLine(lineOf("\\end{enumerate}"));
+      store().set({ dialog: "equation" });
+      type(await until("the equation editor", () => $("#eq-tex")), "E = mc");
+      (await until("the Power button", () => button("Power"))).click();
+      await until("the power written", () => $("#eq-tex").value === "E = mc^{}");
+      type($("#eq-tex"), "E = mc^{2}");
+      $("#eq-numbered").click();
+      await until("the preview", () => $(".eq-preview .katex"));
+      await shot("13-equation");
+      // The dialog's own button: the menu bar has an Insert too.
+      $("dialog .end .btn.go").click();
+      await until("the numbered equation", () => buffers.text("main.tex").includes("\\begin{equation}\n  E = mc^{2}\n\\end{equation}"));
+      await ok(true, "the equation editor writes a numbered formula, built with its buttons and shown as it will print");
+      const text = buffers.text("main.tex");
+      buffers.change("main.tex", { from: text.indexOf("\\end{equation}") + "\\end{equation}".length, insert: "\nwhere $c$ is the speed of light." });
+      // The cursor in the formula $c$.
+      const c = buffers.text("main.tex").indexOf("$c$") + 1;
+      buffers.run((v) => (v.dispatch({ selection: { anchor: c } }), true));
+      store().set({ dialog: "equation" });
+      const field = await until("the equation editor on the formula", () => $("#eq-tex"));
+      await ok(field.value === "c" && $("#eq-inline").checked, "the equation editor opens on the formula the cursor is in");
+      type(field, "c_0");
+      await click("Change");
+      await until("the formula changed", () => buffers.text("main.tex").includes("where $c_0$ is"));
+      await act.save();
+      await act.compile();
+      await ok(!store().build.diagnostics.some((d) => d.severity === "error"), "the changed formula is put back in its place, and the document compiles");
     }
 
     // Deleting a file takes a version first, so History can bring it back.

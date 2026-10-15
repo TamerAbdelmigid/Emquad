@@ -4,6 +4,17 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.12.0 - 2026-10-15
+
+Pictures, formatting and equations, the way Word has them.
+
+- Drag a picture from File Explorer onto the text, or paste one such as a screenshot: it is copied into the project's `figures` folder (or the folder `\graphicspath` names) and put in a figure where it was dropped, with the cursor in its caption. PNG, JPEG and PDF work, and `graphicx` is loaded if the document did not load it.
+- A picture never replaces a file: one whose name is taken gets a name of its own, such as `plot-2.png`, and the same picture added twice is kept once.
+- Other files dropped on the window are added to the project, and a bundle dropped on it is opened.
+- Text pasted from Word, Google Docs or a web page keeps its bold, italic, underline, superscripts and subscripts, headings, bulleted and numbered lists and links, written as LaTeX. Ctrl+Shift+V pastes the words alone.
+- Insert ▸ Equation… (Alt+=) opens an equation editor: buttons for fractions, roots, powers, sums, integrals, matrices, cases and common symbols, a preview of the formula as it will print, and a choice of in the line, on a line of its own, or numbered. With the cursor in a formula it changes that one.
+- File ▸ Add files from disk no longer replaces a file of the project with the same name: it says which names are taken and copies nothing.
+
 ## 0.11.0 - 2026-10-15
 
 References and citations, as Word's References tab has them.
