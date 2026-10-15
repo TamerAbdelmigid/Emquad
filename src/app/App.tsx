@@ -502,6 +502,9 @@ export function App() {
           onRevertBlock={async (path, text) => {
             await api.fileWrite(path, text);
             buffers.replace(path, text);
+            // The app's own writes are not reported back, so the labels and references it may
+            // have brought back or taken away are read here.
+            void act.refreshIndex();
           }}
           onPendingChanged={() => void act.refreshPending()}
         />
