@@ -5,20 +5,9 @@ import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { store } from "../../state/store";
 import { mathAt } from "./symbols";
+import { formattedPaste, printed } from "./formattedPaste";
+import { ensurePackage } from "./tableModel";
 
-/** How each character LaTeX treats specially is written to print as itself. */
-const PRINTED: Record<string, string> = {
-  "&": "\\&",
-  "%": "\\%",
-  $: "\\$",
-  "#": "\\#",
-  _: "\\_",
-  "{": "\\{",
-  "}": "\\}",
-  "~": "\\textasciitilde{}",
-  "^": "\\textasciicircum{}",
-  "\\": "\\textbackslash{}",
-};
 
 /**
  * Whether text reads as LaTeX already: any command, any character written with its backslash
@@ -75,7 +64,7 @@ export function literalAt(text: string, pos: number): boolean {
  */
 export function pastedText(text: string, formatted: boolean, inMath: boolean, inArgument = false): string | null {
   if (inMath || looksLikeLatex(text) || !/[&%$#_{}~^\\]|\r?\n/.test(text)) return null;
-  let out = text.replace(/\r\n?/g, "\n").replace(/[&%$#_{}~^\\]/g, (ch) => PRINTED[ch]);
+  let out = printed(text.replace(/\r\n?/g, "\n"));
   if (formatted || inArgument) {
     const lines = out
       .split(/\n+/)
@@ -107,6 +96,8 @@ export function inGroup(text: string, pos: number): boolean {
 
 /** The text last copied or cut in the editor, which is LaTeX and is pasted back as it was. */
 let copiedHere = "";
+/** The next paste is of the words alone: Ctrl+Shift+V was pressed. */
+let plainNext = false;
 /** Text compared as copied: line ends and a final line break do not count. */
 const same = (text: string) => text.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
 
@@ -128,18 +119,57 @@ export const prosePaste: Extension = EditorView.domEventHandlers({
     noteCopy(view);
     return false;
   },
+  keydown(event) {
+    // Ctrl+Shift+V pastes the words alone, without their formatting, as in a word processor.
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "v") {
+      plainNext = true;
+      setTimeout(() => (plainNext = false), 500);
+    }
+    return false;
+  },
   paste(event, view) {
     const data = event.clipboardData;
     const text = data?.getData("text/plain") ?? "";
+    const plain = plainNext;
+    plainNext = false;
     if (!text || same(text) === same(copiedHere)) return false;
     const main = view.state.selection.main;
     const doc = view.state.doc.toString();
     if (literalAt(doc, main.from)) return false;
     const inMath = mathAt(doc, main.from);
+    const html = data?.getData("text/html") ?? "";
+    const inArgument = inGroup(doc, main.from);
+    // With its formatting, where a paragraph may begin: not inside a formula or a command's braces.
+    const formatted = !plain && html && !inMath && !inArgument && !looksLikeLatex(text) ? formattedPaste(html) : null;
+    if (formatted) {
+      event.preventDefault();
+      const changes: { from: number; to: number; insert: string }[] = [{ from: main.from, to: main.to, insert: formatted.latex }];
+      let shift = 0;
+      const added: string[] = [];
+      for (const name of formatted.packages) {
+        const need = ensurePackage(doc, name);
+        if (typeof need === "object" && need.to <= main.from) {
+          changes.unshift(need);
+          shift += need.insert.length;
+          added.push(name);
+        }
+      }
+      view.dispatch({
+        changes,
+        selection: { anchor: main.from + shift + formatted.latex.length },
+        userEvent: "input.paste",
+        annotations: isolateHistory.of("full"),
+        scrollIntoView: true,
+      });
+      store().notify(
+        `Pasted with its formatting, written as LaTeX${added.length ? `; added \\usepackage{${added.join(", ")}} for the links` : ""}. Ctrl+Shift+V pastes the words alone.`,
+      );
+      return true;
+    }
     // Only text from a word processor or a web page has a paragraph on each line; code copied
     // from an editor keeps its lines and their indentation.
-    const paragraphs = /<(?:p|li|br|h[1-6])[\s>/]/i.test(data?.getData("text/html") ?? "");
-    const written = pastedText(text, paragraphs, inMath, inGroup(doc, main.from));
+    const paragraphs = /<(?:p|li|br|h[1-6])[\s>/]/i.test(html);
+    const written = pastedText(text, paragraphs, inMath, inArgument);
     if (written === null) return false;
     event.preventDefault();
     view.dispatch({
