@@ -2,8 +2,25 @@ import { useEffect, useState } from "react";
 import { Dialog } from "../design/ui";
 import { type Engines, type PackagesInfo, api } from "../ipc/api";
 import { useStore } from "../state/store";
-import { applyFix, applySetup, applySpelling, createProject, currentSetup, exportBundle, guard, helpFor, openFile } from "./actions";
+import {
+  addReference,
+  applyFix,
+  applySetup,
+  applySpelling,
+  cite,
+  citeFromZotero,
+  createProject,
+  currentCitationStyle,
+  currentSetup,
+  exportBundle,
+  guard,
+  helpFor,
+  openFile,
+  setCitationStyle,
+} from "./actions";
 import type { Setup } from "../features/editor/documentSetup";
+import type { Reference } from "../features/editor/bib";
+import { STYLES } from "../features/editor/citationStyle";
 
 const TEMPLATES = [
   { id: "article", label: "Article", note: "A paper with abstract and sections" },
@@ -76,6 +93,9 @@ export function Dialogs() {
       {dialog === "logs" && <LogsDialog onClose={close} />}
       {dialog === "settings" && <SettingsDialog onClose={close} />}
       {dialog === "setup" && <SetupDialog onClose={close} />}
+      {dialog === "cite" && <CiteDialog onClose={close} />}
+      {dialog === "reference" && <ReferenceDialog onClose={close} />}
+      {dialog === "citationStyle" && <CitationStyleDialog onClose={close} />}
       {dialog === "shortcuts" && (
         <Dialog title="Keyboard shortcuts" onClose={close}>
           <dl className="keys">
@@ -298,6 +318,195 @@ function SetupDialog({ onClose }: { onClose: () => void }) {
               Cancel
             </button>
             <button type="submit" className="btn go">
+              Apply
+            </button>
+          </div>
+        </form>
+      )}
+    </Dialog>
+  );
+}
+
+/** The references the project has, to pick the ones to cite where the cursor is. */
+function CiteDialog({ onClose }: { onClose: () => void }) {
+  const citations = useStore((s) => s.index.citations);
+  const set = useStore((s) => s.set);
+  const [query, setQuery] = useState("");
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [waiting, setWaiting] = useState(false);
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = citations.filter((c) => {
+    const all = `${c.key} ${c.authors} ${c.year} ${c.title}`.toLowerCase();
+    return words.every((w) => all.includes(w));
+  });
+  const toggle = (key: string) => setChosen((keys) => (keys.includes(key) ? keys.filter((k) => k !== key) : [...keys, key]));
+  // With none ticked, the only reference the search leaves is the one meant.
+  const keys = chosen.length ? chosen : shown.length === 1 ? [shown[0].key] : [];
+  return (
+    <Dialog title="Cite" intro="Choose the references to cite where the cursor is. They come from the project's .bib files." onClose={onClose} wide>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!keys.length) return;
+          onClose();
+          void cite(keys);
+        }}
+      >
+        <div className="f">
+          <label htmlFor="cite-search">Find a reference</label>
+          <input id="cite-search" type="text" autoFocus value={query} placeholder="An author, a word of the title, a year" onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {citations.length === 0 && <p>The project has no references yet. Add one, or bring them from Zotero.</p>}
+        {citations.length > 0 && shown.length === 0 && <p>No reference matches “{query}”.</p>}
+        {shown.length > 0 && (
+          <fieldset className="refs">
+            <legend className="sr">References</legend>
+            {shown.slice(0, 200).map((c) => (
+              <label className="ck" key={c.key}>
+                <input type="checkbox" checked={chosen.includes(c.key)} onChange={() => toggle(c.key)} />
+                <span>
+                  {c.authors || c.key}
+                  {c.year && `, ${c.year}`}
+                  {c.title && <small className="ref-title">{c.title}</small>}
+                </span>
+                <small>{c.key}</small>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <div className="end">
+          <button type="button" className="btn" onClick={() => set({ dialog: "reference" })}>
+            Add a reference…
+          </button>
+          <button
+            type="button"
+            className="btn"
+            disabled={waiting}
+            title="Choose in Zotero, with its Better BibTeX add-on"
+            onClick={() => {
+              setWaiting(true);
+              void citeFromZotero().finally(() => setWaiting(false));
+            }}
+          >
+            {waiting ? "Waiting for Zotero…" : "From Zotero…"}
+          </button>
+          <button type="submit" className="btn go" disabled={!keys.length}>
+            Cite{keys.length > 1 ? ` ${keys.length}` : ""}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Where each kind of reference was published, as the form asks for it. */
+const KINDS: { value: Reference["kind"]; label: string; where: string }[] = [
+  { value: "article", label: "Journal article", where: "Journal" },
+  { value: "book", label: "Book", where: "Publisher" },
+  { value: "inproceedings", label: "Conference paper", where: "Conference" },
+  { value: "phdthesis", label: "PhD thesis", where: "University" },
+  { value: "mastersthesis", label: "Master's thesis", where: "University" },
+  { value: "online", label: "Web page", where: "Website or organisation" },
+  { value: "misc", label: "Other", where: "Published by or in" },
+];
+
+/** A reference written in a form, as Word's Add New Source has it, then cited. */
+function ReferenceDialog({ onClose }: { onClose: () => void }) {
+  const [ref, setRef] = useState<Reference>({ kind: "article", authors: "", title: "", year: "", where: "", volume: "", pages: "", doi: "", url: "" });
+  const [busy, setBusy] = useState(false);
+  const change = (part: Partial<Reference>) => setRef((r) => ({ ...r, ...part }));
+  const field = (id: keyof Reference, label: string, placeholder = "") => (
+    <div className="f">
+      <label htmlFor={`ref-${id}`}>{label}</label>
+      <input id={`ref-${id}`} type="text" value={ref[id]} placeholder={placeholder} onChange={(e) => change({ [id]: e.target.value })} />
+    </div>
+  );
+  const kind = KINDS.find((k) => k.value === ref.kind)!;
+  return (
+    <Dialog title="Add a reference" intro="Emquad writes it into the project's .bib file and cites it where the cursor is." onClose={onClose}>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (busy || !(ref.title.trim() || ref.authors.trim())) return;
+          setBusy(true);
+          void addReference(ref).finally(() => setBusy(false));
+        }}
+      >
+        <div className="f">
+          <label htmlFor="ref-kind">Kind</label>
+          <select id="ref-kind" autoFocus value={ref.kind} onChange={(e) => change({ kind: e.target.value as Reference["kind"] })}>
+            {KINDS.map((k) => (
+              <option key={k.value} value={k.value}>
+                {k.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="f">
+          <label htmlFor="ref-authors">Authors</label>
+          <textarea id="ref-authors" rows={2} value={ref.authors} placeholder={"One to a line: Ada Lovelace\nor Lovelace, Ada"} onChange={(e) => change({ authors: e.target.value })} />
+        </div>
+        {field("title", "Title")}
+        <div className="ref-row">
+          {field("year", "Year")}
+          {field("where", kind.where)}
+        </div>
+        {(ref.kind === "article" || ref.kind === "inproceedings") && (
+          <div className="ref-row">
+            {ref.kind === "article" && field("volume", "Volume")}
+            {field("pages", "Pages", "12–34")}
+          </div>
+        )}
+        {field("doi", "DOI", "10.1000/xyz123")}
+        {field("url", "Web address")}
+        <div className="end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn go" disabled={busy || !(ref.title.trim() || ref.authors.trim())}>
+            Add and cite
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** How citations and the list of references look, chosen by name. */
+function CitationStyleDialog({ onClose }: { onClose: () => void }) {
+  const [style, setStyle] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    void currentCitationStyle().then(setStyle);
+  }, []);
+  return (
+    <Dialog title="Citation style" intro="How citations look in the text, and how the list of references is ordered and written." onClose={onClose}>
+      {style === undefined && <p>Reading the document…</p>}
+      {style !== undefined && (
+        <form
+          className="dlg"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (STYLES.some((s) => s.id === style)) void setCitationStyle(style);
+          }}
+        >
+          {style === "other" && <p>The document uses a style of its own. Choosing one below replaces it.</p>}
+          <fieldset>
+            <legend>Style</legend>
+            {STYLES.map((s) => (
+              <label className="ck" key={s.id}>
+                <input id={`cs-${s.id}`} type="radio" name="citation-style" checked={style === s.id} onChange={() => setStyle(s.id)} />
+                <span>{s.label}</span>
+                <small>{s.sample}</small>
+              </label>
+            ))}
+          </fieldset>
+          <div className="end">
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn go" disabled={!STYLES.some((s) => s.id === style)}>
               Apply
             </button>
           </div>

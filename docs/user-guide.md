@@ -124,10 +124,21 @@ The magnifier in the left rail (Ctrl+Shift+F) searches every text file in the pr
 - Type `\` to get suggestions for commands. Inside `\ref{` you get the labels in your project; inside `\cite{` you get the keys from your `.bib` files; inside `\begin{` you get environments.
 - After `\begin{something}` press Enter and the matching `\end{something}` is added.
 - **Style** in the toolbar sets the paragraph the cursor is in as normal text, a chapter (in a report or thesis), Heading 1 to 3, or a run-in heading. Ctrl+B, Ctrl+I and Ctrl+U set bold, italic and underline.
-- **Insert** also has a numbered list, a footnote, a table of contents, a page break, and the bibliography. A project with no `.bib` file is given `references.bib`, with an example reference to copy.
+- **Insert** also has a numbered list, a footnote, a table of contents, a page break, and the bibliography. A project with no `.bib` file is given `references.bib`, with an example reference to copy. Citations have a section of their own, below.
 - Text pasted from another program, such as Word or a web page, has `%`, `&`, `#`, `_`, `$` and the like written so that they print, and each paragraph kept as a paragraph. LaTeX you paste, and text copied in Emquad, goes in as it is.
 - The status line shows how many words the file on screen has, not counting commands, mathematics or the settings at the top.
 - An orange dot on a tab means the file has unsaved changes. Ctrl+S saves, and recompiles if "Compile when saving" is on in Settings. Opening another project, or closing the window, saves them first.
+
+### References and citations
+
+Your references live in a `.bib` file in the project, `references.bib` in a new thesis. Emquad adds to it for you:
+
+- **Insert ▸ Citation…** lists the references you have. Type an author, a word of the title or a year to find one, tick it (or several), and press **Cite**. The citation goes where the cursor is.
+- **Add a reference…** in the same dialog is a form, like Word's Add New Source: the kind (article, book, conference paper, thesis, web page), the authors one to a line, the title, the year, where it was published, and the pages, DOI or web address if you have them. **Add and cite** writes it at the end of your `.bib` file, gives it a key such as `lovelace1843`, and cites it.
+- **Insert ▸ Citation from Zotero…** (or **From Zotero…** in the dialog) opens Zotero's own quick search, if Zotero is running on this computer with the free Better BibTeX add-on. Choose references there and press Enter: Emquad adds them to your `.bib` file, leaving any it has already as they are, and cites them. This is the only time Emquad connects to anything, and only to Zotero on your own computer.
+- **Insert ▸ Citation style…** chooses how citations and the list of references look: numbered in the order cited, numbered alphabetically, IEEE, author and year (Harvard), APA, or abbreviated labels such as [Knu84]. Emquad writes the style, adds the package an author-and-year style needs, and compiles to show it. A document that uses biblatex sets its style in `\usepackage[style=…]{biblatex}` instead.
+
+With an author-and-year style a citation is written `\citep{…}`, which prints as (Knuth, 1984); with biblatex it is `\autocite{…}`. Citations show in the PDF once the document has a list of references: **Insert ▸ Bibliography** adds one.
 
 ### When a compile fails
 

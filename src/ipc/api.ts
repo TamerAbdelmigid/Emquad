@@ -13,6 +13,7 @@ import type { Manifest } from "./bindings/Manifest";
 import type { OpenedProject } from "./bindings/OpenedProject";
 import type { PackagesInfo } from "./bindings/PackagesInfo";
 import type { PdfRect } from "./bindings/PdfRect";
+import type { Picked } from "./bindings/Picked";
 import type { ProjectIndex } from "./bindings/ProjectIndex";
 import type { ProjectInfo } from "./bindings/ProjectInfo";
 import type { Review } from "./bindings/Review";
@@ -34,6 +35,7 @@ export type {
   OpenedProject,
   PackagesInfo,
   PdfRect,
+  Picked,
   ProjectIndex,
   ProjectInfo,
   Review,
@@ -124,6 +126,9 @@ export const api = {
   historyFileDiff: (version: string, against: string | null, path: string) =>
     invoke<FileDiff>("history_file_diff", { version, against, path }),
   historyRestore: (version: string) => invoke<string>("history_restore", { version }),
+
+  /** References picked in Zotero, on this computer; null when the picker was closed without one. */
+  zoteroPick: () => invoke<Picked | null>("zotero_pick"),
 
   packagesInfo: () => invoke<PackagesInfo>("packages_info"),
   bundleExport: (dest: string, note: string, include: { pdf: boolean; packages: boolean; comments: boolean }) =>

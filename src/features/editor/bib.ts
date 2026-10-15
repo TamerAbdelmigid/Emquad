@@ -151,3 +151,16 @@ export function formatEntry(ref: Reference, key: string): string {
     .map(([name, v]) => `  ${name.padEnd(width)} = {${name === "title" || name === "url" || name === "doi" ? v.trim() : value(v)}},`);
   return `@${ref.kind}{${key},\n${lines.join("\n")}\n}\n`;
 }
+
+/**
+ * The first .bib file a document names, as written (with ".bib" added where \bibliography
+ * leaves it out), or null when it names none.
+ */
+export function namedBib(text: string): string | null {
+  const code = text.replace(/(?<!\\)%[^\n]*/g, "");
+  const resource = /\\addbibresource\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/.exec(code)?.[1].trim();
+  if (resource) return resource;
+  const first = /\\bibliography\s*\{([^}]+)\}/.exec(code)?.[1].split(",")[0].trim();
+  if (!first) return null;
+  return first.toLowerCase().endsWith(".bib") ? first : `${first}.bib`;
+}

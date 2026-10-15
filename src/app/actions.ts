@@ -1,7 +1,9 @@
 // What the app can do, as plain functions over the store, the editor buffers and the backend.
 // Components call these; they never talk to the backend for a multi-step action themselves.
-import { relativeTo } from "./paths";
+import { relativeTo, resolveFrom } from "./paths";
 import { documentStart } from "../features/editor/visualModel";
+import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib } from "../features/editor/bib";
+import { citeCommand, readStyle, styleChanges } from "../features/editor/citationStyle";
 import { type Setup, readSetup, setupChange } from "../features/editor/documentSetup";
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
 import { ensurePackage, packageNotice } from "../features/editor/tableModel";
@@ -164,7 +166,7 @@ export async function insertBibliography() {
       bib = `${folder}references.bib`;
       store().set({ tree: await api.fileCreate(bib, false) });
       await api.fileWrite(bib, FIRST_REFERENCE);
-      store().notify(`Added ${bib}, with an example reference. Add yours there, and cite them with Insert ▸ Citation.`);
+      store().notify(`Added ${bib}, with an example reference. Add yours there, and cite them with Insert ▸ Citation….`);
       void refreshIndex();
     }
     const name = relativeTo(folder, bib);
@@ -177,6 +179,108 @@ export async function insertBibliography() {
       }
       buffers.insert("\\printbibliography\n");
     } else buffers.insert(`\\bibliographystyle{plain}\n\\bibliography{${name.replace(/\.bib$/i, "")}}\n`);
+  });
+}
+
+// ---------- references ----------
+
+/** The main file's text, from its editor when it is open. */
+async function mainText(): Promise<string> {
+  const main = store().info?.mainFile;
+  if (!main) return "";
+  return buffers.text(main) ?? (await api.fileRead(main).catch(() => null))?.text ?? "";
+}
+
+/**
+ * The .bib file new references go in: the one the document names, else the project's first,
+ * else a new references.bib beside the main file.
+ */
+async function referencesFile(): Promise<string> {
+  const main = store().info?.mainFile ?? "main.tex";
+  const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/") + 1) : "";
+  const files = projectFiles();
+  const named = namedBib(await mainText());
+  // LaTeX looks for it from the main file's folder.
+  const namedPath = named ? resolveFrom(folder, named) : null;
+  const found = (namedPath && files.find((p) => p.toLowerCase() === namedPath.toLowerCase())) || files.find((p) => p.toLowerCase().endsWith(".bib"));
+  if (found) return found;
+  const bib = `${folder}references.bib`;
+  store().set({ tree: await api.fileCreate(bib, false) });
+  return bib;
+}
+
+/**
+ * Add BibTeX entries to the project's references, each one whose key is not there already;
+ * the keys added and the keys it had. Nothing in the file is changed: they go at its end.
+ */
+async function addToReferences(bibtex: string): Promise<{ bib: string; added: string[]; kept: string[] }> {
+  const bib = await referencesFile();
+  const open = buffers.text(bib);
+  const existing = open ?? (await api.fileRead(bib)).text;
+  if (existing === null) throw new Error(`${bib} is not a text file, so references cannot be added to it.`);
+  const { text, added, kept } = appendEntries(existing, bibtex);
+  if (added.length) {
+    if (open !== undefined) {
+      // Added in its editor and saved there, so edits not yet saved in it are kept too.
+      buffers.change(bib, { from: open.length, insert: text.slice(open.length) });
+      await save(bib);
+    } else await api.fileWrite(bib, text);
+    await refreshIndex();
+  }
+  return { bib, added, kept };
+}
+
+/** Cite `keys` where the cursor is, written the way the document's citation style reads best. */
+export async function cite(keys: string[]) {
+  if (!keys.length) return;
+  const command = citeCommand(await mainText());
+  buffers.insertInline(() => ({ before: `\\${command}{${keys.join(",")}}`, after: "" }));
+  // A citation shows only where the document prints a list of references.
+  const text = await mainText();
+  if (!/\\(bibliography|printbibliography)\b/.test(text.replace(/(?<!\\)%[^\n]*/g, ""))) {
+    store().notify("Cited. The document has no list of references yet: add one where it should go with Insert ▸ Bibliography.");
+  }
+}
+
+/** Pick references in Zotero, add them to the project's .bib file, and cite them where the cursor is. */
+export async function citeFromZotero() {
+  await guard(async () => {
+    store().notify("Choose the references in Zotero's window, then press Enter there.");
+    const picked = await api.zoteroPick();
+    if (!picked || !picked.keys.length) return;
+    const { bib, added } = await addToReferences(picked.bibtex);
+    store().set({ dialog: null });
+    await cite(picked.keys);
+    if (added.length) store().notify(`Added ${added.length === 1 ? "a reference" : `${added.length} references`} from Zotero to ${bib}.`);
+  });
+}
+
+/** Write a reference from the Add reference form into the project's .bib file, and cite it. */
+export async function addReference(ref: Reference) {
+  await guard(async () => {
+    const bib = await referencesFile();
+    const have = entries(buffers.text(bib) ?? (await api.fileRead(bib)).text ?? "").map((e) => e.key);
+    const key = makeKey(ref.authors, ref.year, ref.title, [...have, ...store().index.citeKeys]);
+    await addToReferences(formatEntry(ref, key));
+    store().set({ dialog: null });
+    await cite([key]);
+  });
+}
+
+/** The citation style the document names now. */
+export const currentCitationStyle = async () => readStyle(await mainText());
+
+/** Give the document a citation style, in its main file, and compile to show it. */
+export async function setCitationStyle(id: string) {
+  const main = store().info?.mainFile;
+  if (!main) return;
+  await guard(async () => {
+    await openFile(main, undefined, true);
+    const changes = styleChanges(buffers.text(main) ?? "", id);
+    if ("error" in changes) return store().notify(changes.error, true);
+    buffers.change(main, changes);
+    store().set({ dialog: null });
+    await compile();
   });
 }
 

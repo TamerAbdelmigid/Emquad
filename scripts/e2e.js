@@ -8,7 +8,7 @@
 //
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
 // lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
-// visual mode, comments, and a bundle that carries its LaTeX packages.
+// visual mode, comments, references and citation styles, and a bundle that carries its LaTeX packages.
 // Native file dialogs cannot be driven from a page, so those steps call the backend directly.
 // Lines starting "SHOT" mark moments worth a screenshot; the script pauses briefly after each.
 (async () => {
@@ -844,6 +844,51 @@
       // The template's comment names \onehalfspacing too; the setting is the line on its own.
       const set = buffers.text("main.tex");
       await ok(/^\\doublespacing$/m.test(set) && !/^\\onehalfspacing$/m.test(set) && !store().build.diagnostics.some((d) => d.severity === "error"), "Document setup sets the margins and line spacing, and the document compiles");
+      await act.save();
+    }
+
+    // References as Word's Add New Source and Insert Citation have them, and a style by name.
+    {
+      const { buffers } = await import("/src/features/editor/buffers.ts");
+      const line = buffers.text("main.tex").split("\n").findIndex((l) => l.includes("Start writing here")) + 1;
+      buffers.goToLine(line);
+      store().set({ dialog: "reference" });
+      type(await until("the Add a reference form", () => $("#ref-authors")), "Ada Lovelace\nCharles Babbage");
+      type($("#ref-title"), "Sketch of the Analytical Engine");
+      type($("#ref-year"), "1843");
+      type($("#ref-where"), "Scientific Memoirs");
+      await shot("11-reference");
+      await click("Add and cite");
+      await until("the reference cited", () => !$("#ref-authors") && buffers.text("main.tex").includes("\\cite{lovelace1843}"));
+      await ok(line > 0 && buffers.text("main.tex").split("\n")[line - 1].includes("\\cite{lovelace1843}"), "the citation goes where the cursor is");
+      const bib = (await invoke("file_read", { path: "references.bib" })).text;
+      await ok(
+        bib.includes("@article{lovelace1843,") && bib.includes("{Lovelace, Ada and Babbage, Charles}") && bib.includes("@book{knuth1984,"),
+        "a reference written in a form goes into the project's .bib file, after those it had, and is cited where the cursor is",
+      );
+      await until("the new reference in the index", () => store().index.citations.some((c) => c.key === "lovelace1843"));
+      store().set({ dialog: "cite" });
+      type(await until("the Cite dialog", () => $("#cite-search")), "babbage");
+      await until("one reference found", () => $$(".refs .ck").length === 1);
+      await shot("12-cite");
+      await click("Cite");
+      await until("the second citation", () => buffers.text("main.tex").split("\\cite{lovelace1843}").length === 3);
+      await ok(true, "the Cite dialog finds a reference by any of its authors, and cites it");
+      store().set({ dialog: "citationStyle" });
+      (await until("the Citation style dialog", () => $("#cs-apa"))).click();
+      await click("Apply");
+      await until("the style applied and compiled", () => !$("#cs-apa") && !store().compiling && buffers.text("main.tex").includes("{apalike}"));
+      const styled = buffers.text("main.tex");
+      await ok(
+        styled.includes("\\usepackage{natbib}") && !store().build.diagnostics.some((d) => d.severity === "error" || /Citation .* undefined/.test(d.message)),
+        "choosing APA loads what it needs, and the document compiles with every citation found",
+      );
+      store().set({ dialog: "cite" });
+      type(await until("the Cite dialog again", () => $("#cite-search")), "knuth");
+      await until("Knuth found", () => $$(".refs .ck").length === 1);
+      await click("Cite");
+      await until("the citation in parentheses", () => buffers.text("main.tex").includes("\\citep{knuth1984}"));
+      await ok(true, "with an author-and-year style, a citation is written to print in parentheses");
       await act.save();
     }
 

@@ -61,3 +61,17 @@ export function styleChanges(text: string, id: string): { from: number; to?: num
   }
   return changes.sort((a, b) => a.from - b.from);
 }
+
+/**
+ * The command a citation is written with, so that it reads as a Word user expects: in
+ * brackets or parentheses after the words it supports. natbib's \cite names the authors in the
+ * running text instead, and biblatex cites best with \autocite.
+ */
+export function citeCommand(text: string): string {
+  const code = text.replace(/(?<!\\)%[^\n]*/g, "");
+  const begin = documentStart(code);
+  const preamble = begin >= 0 ? code.slice(0, begin) : code;
+  if (/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bbiblatex\b/.test(preamble)) return "autocite";
+  if (/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bnatbib\b/.test(preamble)) return "citep";
+  return "cite";
+}

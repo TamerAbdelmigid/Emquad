@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Reference, appendEntries, entries, formatEntry, makeKey, people } from "./bib";
+import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, people } from "./bib";
 
 const BIB = "% my references\n@book{knuth1984,\n  author = {Donald E. Knuth},\n  title = {The {\\TeX}book},\n  year = {1984},\n}\n\n@string{tug = \"TUGboat\"}\n@article(lamport1994, title = {A {nested} title}, year = 1994)\n";
 
@@ -60,5 +60,14 @@ describe("making a reference from a form", () => {
         "}\n",
     );
     expect(entries(formatEntry(ref, "k")).map((e) => e.key)).toEqual(["k"]);
+  });
+});
+
+describe("the .bib file a document names", () => {
+  it("reads it from \\bibliography or \\addbibresource, and not from a comment", () => {
+    expect(namedBib("\\bibliography{refs,more}")).toBe("refs.bib");
+    expect(namedBib("\\addbibresource[datatype=bibtex]{lib/refs.bib}")).toBe("lib/refs.bib");
+    expect(namedBib("% \\bibliography{old}\n\\bibliography{new.bib}")).toBe("new.bib");
+    expect(namedBib("No list of references")).toBeNull();
   });
 });

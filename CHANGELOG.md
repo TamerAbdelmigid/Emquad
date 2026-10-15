@@ -4,6 +4,17 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.11.0 - 2026-10-15
+
+References and citations, as Word's References tab has them.
+
+- Insert ▸ Citation… opens a list of the project's references, found by an author, a word of the title or the year. Tick one or several and press Cite.
+- Add a reference… is a form for a new reference: kind, authors, title, year, where it was published, pages, DOI and web address. Emquad writes it at the end of the project's `.bib` file, with a key such as `lovelace1843`, and cites it.
+- Insert ▸ Citation from Zotero… opens Zotero's quick search when Zotero runs on this computer with the Better BibTeX add-on, adds the references chosen to the `.bib` file and cites them. It is the only connection Emquad makes itself, and only to your own computer.
+- Insert ▸ Citation style… sets numbered, IEEE, author and year (Harvard), APA or abbreviated labels, adding the package an author-and-year style needs.
+- With an author-and-year style a new citation is written to print in parentheses, as (Knuth, 1984).
+- The choices in dialogs (Document setup, Settings, and the new ones) now look like the other fields, in every theme.
+
 ## 0.10.0 - 2026-10-15
 
 Compile errors you can understand, and a page setup.

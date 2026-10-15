@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readStyle, styleChanges } from "./citationStyle";
+import { citeCommand, readStyle, styleChanges } from "./citationStyle";
 
 const apply = (text: string, changes: ReturnType<typeof styleChanges>) => {
   if ("error" in changes) throw new Error(changes.error);
@@ -28,5 +28,14 @@ describe("citation styles", () => {
     expect(apply(none, styleChanges(none, "numbered"))).toBe(DOC.replace("{plain}", "{unsrt}"));
     expect(styleChanges("\\documentclass{article}\n\\begin{document}\n\\end{document}", "plain")).toEqual({ error: expect.stringMatching(/Bibliography first/) });
     expect(styleChanges(DOC.replace("\\usepackage{amsmath}", "\\usepackage[style=apa]{biblatex}"), "plain")).toEqual({ error: expect.stringMatching(/biblatex/) });
+  });
+});
+
+describe("the command a citation is written with", () => {
+  it("cites in brackets or parentheses, whichever package the document loads", () => {
+    expect(citeCommand(DOC)).toBe("cite");
+    expect(citeCommand(DOC.replace("\\usepackage{amsmath}", "\\usepackage[round]{natbib}"))).toBe("citep");
+    expect(citeCommand(DOC.replace("\\usepackage{amsmath}", "\\usepackage[style=apa]{biblatex}"))).toBe("autocite");
+    expect(citeCommand(DOC.replace("\\usepackage{amsmath}", "% \\usepackage{natbib}"))).toBe("cite");
   });
 });
