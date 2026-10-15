@@ -1012,6 +1012,23 @@
       typeIn(again, "_0");
       await click("Change");
       await until("the formula changed", () => buffers.text("main.tex").includes("where $c_0$ is"));
+      // A formula nothing is changed in goes back exactly as it was written, and LaTeX typed under
+      // the formula goes in as typed: the editor never rewrites what it was not asked to.
+      buffers.change("main.tex", { from: buffers.text("main.tex").indexOf("where $c_0$ is"), insert: "With $\\boldsymbol{v}\\hspace{1em}w$ kept.\n\n" });
+      buffers.run((v) => (v.dispatch({ selection: { anchor: buffers.text("main.tex").indexOf("\\boldsymbol{v}") + 2 } }), true));
+      store().set({ dialog: "equation" });
+      await until("the editor on the bold v", () => $("math-field.eq-field"));
+      await click("Change");
+      await until("the editor closed", () => !$("math-field.eq-field"));
+      const kept = buffers.text("main.tex").includes("With $\\boldsymbol{v}\\hspace{1em}w$ kept.\n\n");
+      buffers.run((v) => (v.dispatch({ selection: { anchor: buffers.text("main.tex").indexOf("\\boldsymbol{v}") + 2 } }), true));
+      store().set({ dialog: "equation" });
+      await until("the editor on it again", () => $("math-field.eq-field"));
+      $(".eq-source summary").click();
+      type(await until("the LaTeX under the formula", () => $("#eq-tex")), "\\boldsymbol{u}\\hspace{2em}w");
+      await click("Change");
+      await until("the typed LaTeX", () => buffers.text("main.tex").includes("With $\\boldsymbol{u}\\hspace{2em}w$ kept.\n\n"));
+      await ok(kept, "a formula the equation editor changed nothing in goes back exactly as written, and LaTeX typed under it goes in as typed");
       await act.save();
       // In visual mode a double-click on a formula opens the editor on it, as in Word.
       store().set({ visual: true });
