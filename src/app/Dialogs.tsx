@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Dialog } from "../design/ui";
 import { type Engines, type PackagesInfo, api } from "../ipc/api";
 import { useStore } from "../state/store";
-import { applySpelling, createProject, exportBundle, guard } from "./actions";
+import { applyFix, applySpelling, createProject, exportBundle, guard, helpFor, openFile } from "./actions";
 
 const TEMPLATES = [
   { id: "article", label: "Article", note: "A paper with abstract and sections" },
@@ -259,21 +259,42 @@ function LogsDialog({ onClose }: { onClose: () => void }) {
   const build = useStore((s) => s.build);
   const log = useStore((s) => s.log);
   const [raw, setRaw] = useState(false);
-  const items = build?.diagnostics ?? [];
+  const all = (build?.diagnostics ?? []).map((d) => ({ d, help: helpFor(d) }));
+  // Notes on how the text is set (a line a little too wide) are kept apart, out of the way.
+  const items = all.filter((x) => !x.help?.note);
+  const notes = all.filter((x) => x.help?.note);
+  const row = ({ d, help }: (typeof all)[number], i: number) => (
+    <li key={i} className={help?.note ? "note" : d.severity}>
+      <b>{help?.note ? "Note" : d.severity === "error" ? "Error" : "Warning"}</b>
+      <span className="where">{d.line ? `${d.file}, line ${d.line}` : d.file}</span>
+      <span className="said">{help ? help.text : d.message}</span>
+      {help && <small className="latex-said">LaTeX says: {d.message}</small>}
+      <span className="acts">
+        {help?.fix && (
+          <button className="btn" onClick={() => (onClose(), void applyFix(help.fix!))}>
+            {help.fix.label}
+          </button>
+        )}
+        {d.line > 0 && help?.fix?.kind !== "go" && (
+          <button className="btn" onClick={() => (onClose(), void openFile(d.file, d.line))}>
+            Go to line {d.line}
+          </button>
+        )}
+      </span>
+    </li>
+  );
   return (
     <Dialog title="Logs and messages" onClose={onClose} wide>
       {!build && <p>Nothing has been compiled yet.</p>}
       {build && items.length === 0 && <p>The last compile finished with no errors or warnings.</p>}
-      {items.length > 0 && (
-        <ul className="diags">
-          {items.map((d, i) => (
-            <li key={i} className={d.severity}>
-              <b>{d.severity === "error" ? "Error" : "Warning"}</b>
-              <span className="where">{d.line ? `${d.file}, line ${d.line}` : d.file}</span>
-              <span>{d.message}</span>
-            </li>
-          ))}
-        </ul>
+      {items.length > 0 && <ul className="diags">{items.map(row)}</ul>}
+      {notes.length > 0 && (
+        <details className="diag-notes">
+          <summary>
+            {notes.length} {notes.length === 1 ? "note" : "notes"} on how the text is set, usually nothing to worry about
+          </summary>
+          <ul className="diags">{notes.map(row)}</ul>
+        </details>
       )}
       {raw && <pre className="rawlog">{log.join("\n") || "No output was captured."}</pre>}
       <div className="end">

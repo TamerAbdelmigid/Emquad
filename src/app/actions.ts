@@ -2,6 +2,9 @@
 // Components call these; they never talk to the backend for a multi-step action themselves.
 import { relativeTo } from "./paths";
 import { documentStart } from "../features/editor/visualModel";
+import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
+import { ensurePackage, packageNotice } from "../features/editor/tableModel";
+import type { Diagnostic } from "../ipc/api";
 import type { TreeNode } from "../ipc/bindings/TreeNode";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { buffers } from "../features/editor/buffers";
@@ -375,13 +378,56 @@ export async function compile() {
   const out = await guard(() => api.compileRun());
   store().set({ compiling: false });
   if (!out || out.cancelled) return;
-  buffers.setDiagnostics(out.diagnostics);
+  // An error the compiler gave no line for is placed where something begun was never ended.
+  for (const d of out.diagnostics) {
+    const found = locate(d, (path) => buffers.text(path));
+    if (found?.kind === "go") d.line = found.line;
+  }
+  buffers.setDiagnostics(out.diagnostics, helpFor, (fix) => void applyFix(fix));
   const s = store();
   s.set({ build: out, pdfVersion: out.hasPdf ? s.pdfVersion + 1 : s.pdfVersion });
   // References are numbered by the compile, so visual mode can show their numbers now.
   void refreshIndex();
   const first = out.diagnostics.find((d) => d.severity === "error");
   if (first && first.line > 0) await openFile(first.file, first.line, true);
+}
+
+/** Whether the document loads a package, as its main file's settings say. */
+function packageLoaded(name: string): boolean {
+  const main = store().info?.mainFile;
+  const text = main ? buffers.text(main) : undefined;
+  return text !== undefined && ensurePackage(text, name, store().index.stylePackages) === "present";
+}
+
+/** A compile message in plain words, with its fix when one is certain. */
+export function helpFor(d: Diagnostic): Help | null {
+  return explain(d, (path) => buffers.text(path), packageLoaded);
+}
+
+/** Put a compile error right as its fix says, then compile again to show it is gone. */
+export async function applyFix(fix: Fix) {
+  await guard(async () => {
+    if (fix.kind === "go") return void (await openFile(fix.file, fix.line));
+    if (fix.kind === "package") {
+      const main = store().info?.mainFile;
+      if (!main) return;
+      await openFile(main, undefined, true);
+      const need = ensurePackage(buffers.text(main) ?? "", fix.name, store().index.stylePackages);
+      if (typeof need !== "object") {
+        return store().notify(packageNotice(fix.name, need) ?? `The document loads ${fix.name} already.`, need !== "present");
+      }
+      buffers.change(main, need);
+      store().notify(`Added \\usepackage{${fix.name}} to the settings at the top of ${main}.`);
+    } else {
+      await openFile(fix.file, fix.line, true);
+      const text = buffers.text(fix.file) ?? "";
+      const lines = text.split("\n");
+      const at = lines.slice(0, fix.line - 1).reduce((n, l) => n + l.length + 1, 0) + fix.column - 1;
+      if (text[at] !== fix.char) return store().notify("The text there has changed since the compile; compile again to see what is wrong now.", true);
+      buffers.change(fix.file, { from: at, insert: "\\" });
+    }
+    await compile();
+  });
 }
 
 export async function jumpToPdf() {

@@ -160,7 +160,8 @@ export function App() {
 
   const openComments = s.comments.filter((c) => !c.resolved).length;
   const errors = s.build?.diagnostics.filter((d) => d.severity === "error") ?? [];
-  const warnings = s.build?.diagnostics.filter((d) => d.severity === "warning").length ?? 0;
+  // Notes on how the text is set are not counted as warnings; the logs keep them apart.
+  const warnings = useMemo(() => s.build?.diagnostics.filter((d) => d.severity === "warning" && !act.helpFor(d)?.note).length ?? 0, [s.build]);
   const errorCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const d of errors) counts[d.file] = (counts[d.file] ?? 0) + 1;

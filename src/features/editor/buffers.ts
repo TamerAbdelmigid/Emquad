@@ -29,6 +29,7 @@ import type { Comment, Diagnostic } from "../../ipc/api";
 import { store } from "../../state/store";
 import { type Anchor, describe, locate, relocate } from "./commentAnchor";
 import { commenting, focusComment, placeComments, placedComments } from "./comments";
+import type { Fix, Help } from "./errorHelp";
 import { COMMANDS, ENVIRONMENTS, completionAt, setHeading, toggleCommand } from "./latex";
 import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
@@ -478,7 +479,11 @@ export const buffers = {
   },
 
   /** Show compile errors and warnings in every open file they belong to. */
-  setDiagnostics(all: Diagnostic[]) {
+  /**
+   * Mark the compile's errors and warnings in the files they are in, each explained in plain
+   * words where it can be, with a button for its fix when one is certain.
+   */
+  setDiagnostics(all: Diagnostic[], help: (d: Diagnostic) => Help | null = () => null, fix: (f: Fix) => void = () => {}) {
     for (const path of states.keys()) {
       const state = buffers.current(path);
       if (!state) continue;
@@ -486,11 +491,14 @@ export const buffers = {
         .filter((d) => d.file === path && d.line > 0 && d.line <= state.doc.lines)
         .map((d) => {
           const line = state.doc.line(d.line);
+          const said = help(d);
+          const action = said?.fix && said.fix.kind !== "go" ? said.fix : undefined;
           return {
             from: line.from,
             to: Math.max(line.to, line.from),
-            severity: d.severity === "error" ? "error" : "warning",
-            message: d.message,
+            severity: said?.note ? "info" : d.severity === "error" ? "error" : "warning",
+            message: said ? `${said.text}\n\nLaTeX says: ${d.message}` : d.message,
+            ...(action ? { actions: [{ name: action.label, apply: () => fix(action) }] } : {}),
           };
         });
       const spec = setDiagnostics(state, mine);
