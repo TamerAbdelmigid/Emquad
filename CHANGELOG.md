@@ -4,6 +4,10 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.13.1 - 2026-10-15
+
+Nothing changes for users: the check run on a release build before an installer is made now expects a project to open in visual mode, as it has since 0.9.0.
+
 ## 0.13.0 - 2026-10-15
 
 Working with people who use Word.

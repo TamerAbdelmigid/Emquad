@@ -19,6 +19,9 @@
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
   const text = (selector) => $(selector)?.textContent ?? "";
+  // The project's main file is in the editor: as source, or in visual mode, where a project
+  // opens, with its settings folded into one line named by its title.
+  const editorShows = (title) => text(".cm-content").includes("\\documentclass") || text(".cm-v-fold").includes(title);
   let step = Number(sessionStorage.getItem("smoke-step") ?? 0);
 
   async function until(what, check, timeout = 20000) {
@@ -54,7 +57,7 @@
       // Second run: the app was started with a bundle that belongs to the project made earlier.
       await until("the app to act on the bundle", () => /already part of your project/.test(text(".toast")), 60000);
       await ok(true, "started with a bundle, the app found its project and saw the bundle is already merged");
-      await ok(text(".cm-content").includes("\\documentclass"), "with the project open in the editor");
+      await ok(editorShows("smoke paper"), "with the project open in the editor");
       await log(`PASS: all ${step} checks passed`);
       return invoke("e2e_exit", { code: 0 });
     }
@@ -72,7 +75,7 @@
     const recent = await until("the recent project", () => $$(".recent").find((b) => b.textContent.includes("smoke paper")));
     await ok(!$("dialog[open]"), "the start screen shows without the welcome prompt once a name is set");
     recent.click();
-    await until("the editor", () => text(".cm-content").includes("\\documentclass"));
+    await until("the editor", () => editorShows("smoke paper"));
     await ok(true, "a recent project opens in the editor");
 
     await document.fonts.ready;
@@ -102,7 +105,12 @@
     button("Code").click();
 
     // Spelling: the dictionary is a large file loaded on demand, which must work when packaged.
-    await invoke("file_write", { path: "main.tex", text: (await invoke("file_read", { path: "main.tex" })).text.replace("\\end{document}", "A sentense to check.\n\\end{document}") });
+    // Pasted where the cursor is, as a user would: a file written by the app itself is not read
+    // back into the editor, which has the text already.
+    const words = new DataTransfer();
+    words.setData("text/plain", "A sentense to check. ");
+    $(".cm-content").focus();
+    $(".cm-content").dispatchEvent(new ClipboardEvent("paste", { clipboardData: words, bubbles: true, cancelable: true }));
     await until("the misspelled word to be underlined", () => $$(".cm-misspelled").some((w) => w.textContent === "sentense"), 30000);
     await ok(true, "the bundled dictionary loads and a misspelled word is underlined");
 
