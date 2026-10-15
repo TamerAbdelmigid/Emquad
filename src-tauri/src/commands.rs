@@ -375,6 +375,132 @@ pub async fn zotero_pick() -> Result<Option<crate::zotero::Picked>> {
         .map_err(|e| Error::app("zotero_failed", format!("Asking Zotero stopped: {e}")))?
 }
 
+// ---------- Word, and PDFs with notes ----------
+
+/// Whether Pandoc, which Word documents need, is on this computer.
+#[tauri::command(async)]
+pub fn pandoc_available() -> bool {
+    crate::pandoc::find().is_some()
+}
+
+/// Turn the document into a Word file where the user chose, with the references of the .bib
+/// file `bibliography` (a project path) when one is given. What Pandoc warned about.
+#[tauri::command(async)]
+pub fn word_export(
+    window: tauri::Window,
+    state: State<AppState>,
+    dest: String,
+    bibliography: Option<String>,
+) -> Result<Vec<String>> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
+    let pandoc = crate::pandoc::require()?;
+    let main = p.resolve(&p.info.main_file)?;
+    let bib = match bibliography {
+        Some(b) => Some(p.resolve(&b)?).filter(|b| b.is_file()),
+        None => None,
+    };
+    crate::pandoc::to_word(&pandoc, &main, bib.as_deref(), Path::new(&dest))
+}
+
+/// Make a new project, in a folder named after it inside `parent_dir`, from a Word file, and
+/// open it.
+#[tauri::command(async)]
+pub fn word_import(
+    app: AppHandle,
+    window: tauri::Window,
+    state: State<AppState>,
+    source: String,
+    parent_dir: String,
+) -> Result<OpenedProject> {
+    let session = state.session(window.label());
+    let pandoc = crate::pandoc::require()?;
+    let source = PathBuf::from(source);
+    let stem = source
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let name: String = stem
+        .chars()
+        .map(|c| {
+            if "/\\:*?\"<>|".contains(c) || c.is_control() {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let name = name.trim().trim_end_matches('.');
+    let name = if name.is_empty() { "From Word" } else { name };
+    crate::project::check_component(name)?;
+    let _one_at_a_time = session.opening.lock().unwrap_or_else(|e| e.into_inner());
+    let dest = Path::new(&parent_dir).join(name);
+    let held = claim_for(&app, &state, window.label(), &dest, "")?;
+    let opened = crate::pandoc::from_word(&pandoc, &source, &dest)
+        .and_then(|_| Project::open(&dest))
+        .and_then(|project| activate(&app, &window, &state, &session, project));
+    if opened.is_err() {
+        state.release(window.label(), &held);
+    }
+    opened
+}
+
+/// The compiled PDF, which the notes go on a copy of.
+fn compiled_pdf(project: &Project) -> Result<PathBuf> {
+    let pdf = compile::pdf_path(project);
+    if !pdf.is_file() {
+        return Err(Error::app(
+            "no_pdf",
+            "There is no PDF yet. Compile the document first.",
+        ));
+    }
+    Ok(pdf)
+}
+
+/// Save a copy of the PDF where the user chose with each open comment on it, as a PDF viewer
+/// shows comments. How many were put on.
+#[tauri::command(async)]
+pub fn pdf_save_with_comments(
+    window: tauri::Window,
+    state: State<AppState>,
+    dest: String,
+) -> Result<usize> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
+    let pdf = compiled_pdf(&p)?;
+    let sync = synctex(&session, &p)?;
+    let comments = comments::visible(comments::load(&p)?);
+    let notes = crate::pdfnotes::comment_notes(&comments, &|file, line| sync.forward(file, line));
+    crate::pdfnotes::annotate(&pdf, Path::new(&dest), &notes)
+}
+
+/// Save a copy of the PDF where the user chose with what changed since `version` marked on
+/// it, that version named `label` in the notes. How many marks were put on.
+#[tauri::command(async)]
+pub fn pdf_save_with_changes(
+    window: tauri::Window,
+    state: State<AppState>,
+    version: String,
+    label: String,
+    dest: String,
+) -> Result<usize> {
+    let session = state.session(window.label());
+    let p = current(&session)?;
+    let pdf = compiled_pdf(&p)?;
+    let sync = synctex(&session, &p)?;
+    let h = History::open(&p)?;
+    let (old, new) = trees(&p, &h, WORKING, Some(&version))?;
+    let mut diffs = Vec::new();
+    for file in h.changed_files(old, new)? {
+        if file.status != "deleted" && file.path.to_lowercase().ends_with(".tex") {
+            diffs.push(h.file_diff(old, new, &file.path)?);
+        }
+    }
+    let notes =
+        crate::pdfnotes::change_notes(&diffs, &label, &|file, line| sync.forward(file, line));
+    crate::pdfnotes::annotate(&pdf, Path::new(&dest), &notes)
+}
+
 // ---------- windows ----------
 
 /// Open another window, at the start screen, for another project. Asynchronous: on Windows a

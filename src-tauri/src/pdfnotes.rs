@@ -161,6 +161,114 @@ pub fn annotate(from: &Path, to: &Path, notes: &[Note]) -> Result<usize> {
     Ok(placed)
 }
 
+/// Where a line of a file landed in the PDF, as SyncTeX finds it.
+pub type Locate<'a> = &'a dyn Fn(&str, u32) -> Option<crate::synctex::PdfRect>;
+
+/// Text cut to `most` characters, for a note that should stay readable.
+fn shortened(text: &str, most: usize) -> String {
+    let text = text.trim();
+    match text.char_indices().nth(most) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text.to_string(),
+    }
+}
+
+fn note_at(rect: &crate::synctex::PdfRect, kind: NoteKind, author: &str, text: String) -> Note {
+    Note {
+        page: rect.page,
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        kind,
+        author: author.to_string(),
+        text,
+    }
+}
+
+/// A note for each comment still open, on the line it is on, with its replies.
+pub fn comment_notes(comments: &[crate::comments::Comment], locate: Locate) -> Vec<Note> {
+    comments
+        .iter()
+        .filter(|c| !c.resolved && !c.deleted)
+        .filter_map(|c| {
+            let rect = locate(&c.path, c.anchor.line.max(1))?;
+            let mut text = c.text.trim().to_string();
+            for reply in &c.replies {
+                text.push_str(&format!("\n\n{}: {}", reply.author_name, reply.text.trim()));
+            }
+            Some(note_at(&rect, NoteKind::Comment, &c.author_name, text))
+        })
+        .collect()
+}
+
+/// Notes for the changes in `diffs`, each against the version called `since`: the lines
+/// written or changed marked where they print, one note for each run of them on a page, with
+/// what was there before; text taken out marked where it was.
+pub fn change_notes(diffs: &[crate::history::FileDiff], since: &str, locate: Locate) -> Vec<Note> {
+    let mut notes = Vec::new();
+    for diff in diffs.iter().filter(|d| !d.binary) {
+        for block in &diff.blocks {
+            let crate::diff::Block::Change {
+                new_start,
+                old_text,
+                new_text,
+                ..
+            } = block
+            else {
+                continue;
+            };
+            let was = shortened(old_text, 600);
+            let count = new_text.lines().count() as u32;
+            if count == 0 {
+                if let Some(rect) = locate(&diff.path, *new_start) {
+                    notes.push(note_at(
+                        &rect,
+                        NoteKind::Removed,
+                        "Emquad",
+                        format!("Taken out since {since}:\n{was}"),
+                    ));
+                }
+                continue;
+            }
+            let text = if was.is_empty() {
+                format!("Written since {since}.")
+            } else {
+                format!("Changed since {since}. It was:\n{was}")
+            };
+            // The lines of the change, joined where they follow one another on a page.
+            let mut runs: Vec<crate::synctex::PdfRect> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for line in *new_start..*new_start + count {
+                let Some(rect) = locate(&diff.path, line) else {
+                    continue;
+                };
+                // A line with no output of its own is found at the next that has some.
+                if !seen.insert((rect.page, rect.y.to_bits())) {
+                    continue;
+                }
+                match runs.last_mut() {
+                    Some(run)
+                        if run.page == rect.page
+                            && rect.y >= run.y
+                            && rect.y <= run.y + run.height + 14.0 =>
+                    {
+                        let right = (run.x + run.width).max(rect.x + rect.width);
+                        run.x = run.x.min(rect.x);
+                        run.width = right - run.x;
+                        run.height = (rect.y + rect.height - run.y).max(run.height);
+                    }
+                    _ => runs.push(rect),
+                }
+            }
+            for run in &runs {
+                notes.push(note_at(run, NoteKind::Changed, "Emquad", text.clone()));
+            }
+        }
+    }
+    notes
+}
+
 fn set_annots(doc: &mut Document, page: ObjectId, list: Object) -> Result<()> {
     match doc.get_object_mut(page).map_err(failed)? {
         Object::Dictionary(dict) => {
@@ -275,6 +383,107 @@ mod tests {
         let second = annots(2);
         assert_eq!(second.len(), 2);
         assert_eq!(second[1].get(b"Subtype").unwrap(), &name("Text"));
+    }
+
+    /// Each line of main.tex prints 14 points below the last, from 100 down, on page 1; line 50
+    /// and on, on page 2; other files print nowhere.
+    fn locate(file: &str, line: u32) -> Option<crate::synctex::PdfRect> {
+        (file == "main.tex").then_some(crate::synctex::PdfRect {
+            page: if line < 50 { 1 } else { 2 },
+            x: 72.0,
+            y: 100.0 + 14.0 * (line % 50) as f64,
+            width: 400.0,
+            height: 10.0,
+        })
+    }
+
+    #[test]
+    fn open_comments_become_notes_with_their_replies() {
+        let comment = |text: &str, line: u32, resolved: bool| crate::comments::Comment {
+            id: text.into(),
+            path: "main.tex".into(),
+            anchor: crate::comments::Anchor {
+                quote: "w".into(),
+                before: String::new(),
+                after: String::new(),
+                line,
+            },
+            author_id: "a".into(),
+            author_name: "Lina".into(),
+            created_at: String::new(),
+            text: text.into(),
+            resolved,
+            deleted: false,
+            updated_at: String::new(),
+            placed_at: String::new(),
+            replies: vec![crate::comments::Reply {
+                id: "r".into(),
+                author_id: "b".into(),
+                author_name: "Sam".into(),
+                created_at: String::new(),
+                text: "Agreed".into(),
+            }],
+        };
+        let notes = comment_notes(
+            &[comment("Check this", 3, false), comment("Done", 4, true)],
+            &locate,
+        );
+        assert_eq!(notes.len(), 1);
+        assert_eq!((notes[0].page, notes[0].y), (1, 142.0));
+        assert_eq!(notes[0].text, "Check this\n\nSam: Agreed");
+        assert_eq!(notes[0].author, "Lina");
+    }
+
+    #[test]
+    fn changes_are_marked_in_runs_with_what_was_there() {
+        use crate::diff::Block;
+        let change = |new_start: u32, old: &str, new: &str| Block::Change {
+            old_start: new_start,
+            new_start,
+            old_text: old.into(),
+            new_text: new.into(),
+            segments: Vec::new(),
+        };
+        let diff = crate::history::FileDiff {
+            path: "main.tex".into(),
+            blocks: vec![
+                Block::Equal {
+                    new_start: 1,
+                    text: "a\n".into(),
+                },
+                // Three lines rewritten, running over onto the next page.
+                change(48, "old one\nold two\n", "new 48\nnew 49\nnew 50\n"),
+                change(60, "", "added\n"),
+                change(70, "gone for good\n", ""),
+            ],
+            binary: false,
+        };
+        let notes = change_notes(&[diff], "Draft 2", &locate);
+        let kinds: Vec<(NoteKind, u32)> = notes.iter().map(|n| (n.kind, n.page)).collect();
+        assert_eq!(
+            kinds,
+            [
+                (NoteKind::Changed, 1),
+                (NoteKind::Changed, 2),
+                (NoteKind::Changed, 2),
+                (NoteKind::Removed, 2)
+            ]
+        );
+        // Lines 48 and 49 make one run, as tall as both.
+        assert_eq!((notes[0].y, notes[0].height), (100.0 + 14.0 * 48.0, 24.0));
+        assert_eq!(
+            notes[0].text,
+            "Changed since Draft 2. It was:\nold one\nold two"
+        );
+        assert_eq!(notes[2].text, "Written since Draft 2.");
+        assert_eq!(notes[3].text, "Taken out since Draft 2:\ngone for good");
+        // A file that is not in the PDF has no notes.
+        let elsewhere = crate::history::FileDiff {
+            path: "notes.txt".into(),
+            blocks: vec![change(1, "", "x\n")],
+            binary: false,
+        };
+        assert!(change_notes(&[elsewhere], "Draft 2", &locate).is_empty());
     }
 
     #[test]

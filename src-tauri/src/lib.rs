@@ -9,6 +9,7 @@ pub mod history;
 pub mod index;
 pub mod lsp;
 pub mod packages;
+pub mod pandoc;
 pub mod pdfnotes;
 pub mod project;
 pub mod review;
@@ -82,6 +83,11 @@ macro_rules! handlers {
             commands::project_image,
             commands::window_new,
             commands::zotero_pick,
+            commands::pandoc_available,
+            commands::word_export,
+            commands::word_import,
+            commands::pdf_save_with_comments,
+            commands::pdf_save_with_changes,
             $($extra),*
         ]
     };
