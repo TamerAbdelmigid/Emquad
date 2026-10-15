@@ -34,12 +34,16 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 ### Spelling
 
 - **Languages:** English (US and UK), French, Spanish, Dutch and Russian ship. German and Italian word lists are offered only under the GPL and are not shipped. Portuguese and Polish were left out because nspell takes from 8 seconds to several minutes to load them.
-- **Loading blocks the editor** for a moment the first time a language is chosen (about three seconds for French), because nspell builds its tables on the page's own thread. Loading it in a worker would avoid that.
 
 ### Language server and compiler
 
 - **Rename (F2) changes only the file on screen.** The editor shows one file at a time, and the language server's edits to other files (the `\ref`s of a renamed `\label`) are not applied. The references panel also closes after the first jump into another file.
 - **A document that names a file on another computer.** The app never looks up a `.bib` name that points at a network share, but texlab, and the compiler when the user compiles, read the files a document names wherever they are. A project from someone else that names `//host/share/…` could make them contact that computer.
+
+### Speed
+
+- **Opening History, or a project,** works out whether anything changed since the last version by reading every file of the project, which takes about a second for 200 MB of pictures. Remembering each file's size and time of change would avoid it, but on file systems that keep times only to two seconds an edit of the same length could then go unseen by a snapshot, so it has not been done.
+- **Very long documents** are drawn again in about 14 ms (5,000 lines, 50 tables) once typing pauses, and read for spelling in about 100 ms; both happen only after a pause, not while typing.
 
 ### Comments
 
@@ -56,6 +60,6 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 ## Suggested order
 
-1. Load the spelling dictionary in a worker.
+1. The versions planned after 0.8.2, in `05-implementation-plan.md`.
 2. Apply the language server's edits to other files, so rename works across a project.
 3. Add prose commands to `PROSE` as users meet them.

@@ -4,6 +4,18 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.8.2 - 2026-10-15
+
+Deleting a file can be undone from History, and long documents stay quick to type in.
+
+- Deleting a file or folder takes a snapshot first, as the confirmation always said, so History can bring it back.
+- Typing and moving the cursor in visual mode no longer redraw the whole document: in a 5,000-line document with 50 tables, a keystroke went from about 50 ms to well under 1 ms. What is drawn catches up when typing pauses.
+- Spelling no longer freezes the window: dictionaries load and words are checked in the background, and the document is read again only when typing pauses. A word taken out of your own dictionary is now really forgotten.
+- The PDF preview no longer goes blank while a recompiled document is drawn, and uses far less memory on long documents.
+- Long bibliographies are read about 90 times faster (a 3,000-entry `.bib` in 12 ms instead of 1.1 s), and saving no longer reads the project's files twice over.
+- Visual mode typesets `alignat`, `flalign`, `eqnarray`, `gather` and the `math` environment.
+- Typing in a long table cell, going between source and PDF, searching a project with pictures, and placing comments on open are quicker. The app starts lighter: the PDF viewer loads when first needed, and unused copies of the fonts (1.2 MB) are no longer installed.
+
 ## 0.8.1 - 2026-10-15
 
 Emquad keeps a changelog and numbers each version.
