@@ -23,9 +23,19 @@ interface Props {
   onSymbols: (open: boolean) => void;
   recentSymbols: string[];
   onSymbolUsed: (id: string) => void;
+  /** The document's class has chapters. */
+  chapters: boolean;
 }
 
-const HEADINGS = ["section", "subsection", "subsubsection", "paragraph"];
+/** The heading levels, named as a word processor names them, with the command each writes. */
+const HEADINGS: [string, string][] = [
+  ["section", "Heading 1"],
+  ["subsection", "Heading 2"],
+  ["subsubsection", "Heading 3"],
+  ["paragraph", "Run-in heading"],
+];
+/** The document classes that have chapters; `\chapter` in any other stops the compile. */
+export const WITH_CHAPTERS = /^(?:report|book|memoir|scrbook|scrreprt|thesis|ut-thesis|amsbook)$/;
 const PICK_ROWS = 8;
 const PICK_COLS = 10;
 
@@ -143,10 +153,11 @@ export function EditorPane(p: Props) {
         <Menu
           className="ib tool-text"
           ariaLabel="Heading level"
-          label={<>Tт<Icon name="chev" size={12} /></>}
+          label={<>Style<Icon name="chev" size={12} /></>}
           items={[
             { label: "Normal text", run: () => buffers.heading(null) },
-            ...HEADINGS.map((h) => ({ label: h[0].toUpperCase() + h.slice(1), run: () => buffers.heading(h) })),
+            ...(p.chapters ? [{ label: "Chapter", run: () => buffers.heading("chapter") }] : []),
+            ...HEADINGS.map(([command, name]) => ({ label: name, hint: `\\${command}`, run: () => buffers.heading(command) })),
           ]}
         />
         <button className="ib" aria-label="Bold" title="Bold: the selection, or the selected table cells" onMouseDown={(e) => e.preventDefault()} onClick={() => buffers.format("textbf")}>

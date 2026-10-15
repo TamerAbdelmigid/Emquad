@@ -10,4 +10,8 @@ uiState: string | null,
 /**
  * The language server is running for this project.
  */
-languageServer: boolean, };
+languageServer: boolean, 
+/**
+ * A PDF from an earlier compile is there to show.
+ */
+hasPdf: boolean, };

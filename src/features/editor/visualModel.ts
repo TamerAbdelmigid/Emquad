@@ -15,8 +15,16 @@ export type Piece =
   | { kind: "image"; from: number; to: number; path: string }
   /** Draw this range, a citation command, as the references it names. */
   | { kind: "cite"; from: number; to: number; keys: string[] }
-  /** Draw this range as a list bullet. */
-  | { kind: "bullet"; from: number; to: number }
+  /** Draw this range, an \item, as its bullet, or as its number in a numbered list. */
+  | { kind: "bullet"; from: number; to: number; label?: string }
+  /** Draw this range, a \ref and the like, as what the PDF prints for it. */
+  | { kind: "ref"; from: number; to: number; command: string; keys: string[] }
+  /** Draw this range, a \footnote, as its number raised, with its text to read on hover. */
+  | { kind: "footnote"; from: number; to: number; number: number; text: string }
+  /** Draw this range, a command that makes something of its own, as a labelled block. */
+  | { kind: "block"; from: number; to: number; label: string }
+  /** Draw this range, the preamble, folded away as one line. */
+  | { kind: "fold"; from: number; to: number; title: string }
   /** Style the whole line that starts at `from`. */
   | { kind: "line"; from: number; style: string };
 
@@ -58,7 +66,44 @@ const INLINE: Record<string, string> = {
 const CITES = new Set(["cite", "citep", "citet", "parencite", "textcite", "autocite", "footcite"]);
 const TABLE = /\\begin\{(tabular\*?|tabularx|longtable)\}/g;
 const RULE = /^\s*(?:\\(?:hline|toprule|midrule|bottomrule)\b|\\(?:cline|cmidrule)(?:\([^)]*\))?\{[^}]*\})/;
-const CHIPS = new Set(["label", "ref", "eqref", "pageref", "footnote", "includegraphics", "input", "include", ...CITES]);
+const CHIPS = new Set(["label", "includegraphics", "input", "include", ...CITES]);
+/** Commands that print what the last compile numbered a label. */
+const REFS = new Set(["ref", "eqref", "pageref", "autoref", "cref", "Cref", "vref", "nameref"]);
+/** Commands with no argument that make something of their own, and what to call it. */
+const BLOCKS: Record<string, string> = {
+  maketitle: "Title, author and date",
+  tableofcontents: "Table of contents",
+  listoffigures: "List of figures",
+  listoftables: "List of tables",
+  printbibliography: "Bibliography",
+  newpage: "Page break",
+  clearpage: "Page break",
+  pagebreak: "Page break",
+};
+/** The environments that make lists, and how each level of a numbered one is numbered. */
+const LISTS = /\\(begin|end)\{(itemize|enumerate|description)\}/g;
+const NUMBERING = [(n: number) => `${n}.`, (n: number) => `(${String.fromCharCode(96 + n)})`, (n: number) => `${roman(n)}.`, (n: number) => `${String.fromCharCode(64 + n)}.`];
+
+function roman(n: number): string {
+  const parts: [number, string][] = [[10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
+  let out = "";
+  for (const [value, letters] of parts) {
+    while (n >= value) {
+      out += letters;
+      n -= value;
+    }
+  }
+  return out;
+}
+
+/** Text with its commands and braces taken out, as a tooltip shows it. */
+export function plainText(tex: string): string {
+  return tex
+    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?/g, "")
+    .replace(/[{}$~]/g, (c) => (c === "~" ? " " : ""))
+    .replace(/\s+/g, " ")
+    .trim();
+}
 const MATH_ENV = new RegExp(String.raw`\\begin\{(${MATH_NAMES})\}([\s\S]*?)\\end\{\1\}`, "g");
 
 /** Offset just past the brace that closes the one at `open`, or -1 if it never closes. */
@@ -140,6 +185,7 @@ class Taken {
  */
 export function visualPieces(text: string, selection: Range[], report?: { touched: boolean }): Piece[] {
   const pieces: Piece[] = [];
+  let footnotes = 0;
   // Whether the selection made any construct show as source, for `report`: when it made none,
   // moving it elsewhere that touches nothing draws the same pieces.
   const touched = (from: number, to: number) => {
@@ -156,8 +202,15 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
   for (const m of text.matchAll(/(?<!\\)%.*$/gm)) taken.add(m.index, m.index + m[0].length);
 
   const begin = text.indexOf("\\begin{document}");
-  if (begin > 0) {
-    // The preamble is set-up, not content: draw it quietly.
+  // The preamble is set-up, not content: folded away into one line, unless the cursor is in it.
+  const foldTo = begin < 0 ? -1 : begin + "\\begin{document}".length;
+  const folded = begin > 0 && !touched(0, foldTo);
+  if (folded) {
+    const title = /\\title\s*(?:\[[^\]]*\])?\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/.exec(text.slice(0, begin));
+    pieces.push({ kind: "fold", from: 0, to: foldTo, title: title ? plainText(title[1]) : "" });
+    taken.add(0, foldTo);
+  } else if (begin > 0) {
+    // Shown, but quietly.
     for (let at = 0; at < begin; at = text.indexOf("\n", at) + 1 || begin) {
       // The title is content even though it is written in the preamble.
       if (!text.startsWith("\\title", at)) pieces.push({ kind: "line", from: at, style: "preamble" });
@@ -232,6 +285,7 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
     if (begin >= 0 && from < begin && name !== "title") continue;
     const end = closingBrace(text, open);
     if (end < 0) continue;
+    if (!free(from, end)) continue;
 
     if (name in HEADINGS || name in INLINE) {
       const style = HEADINGS[name] ?? INLINE[name];
@@ -247,18 +301,52 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
       const keys = text.slice(open + 1, end - 1).split(",").map((k) => k.trim()).filter(Boolean);
       if (keys.length) pieces.push({ kind: "cite", from, to: end, keys });
       else pieces.push({ kind: "style", from, to: end, style: "chip" });
-    } else if (CHIPS.has(name)) {
+    } else if (REFS.has(name) && !touched(from, end)) {
+      const keys = text.slice(open + 1, end - 1).split(",").map((k) => k.trim()).filter(Boolean);
+      if (keys.length) pieces.push({ kind: "ref", from, to: end, command: name, keys });
+    } else if (name === "footnote" && !touched(from, end)) {
+      footnotes++;
+      pieces.push({ kind: "footnote", from, to: end, number: footnotes, text: plainText(text.slice(open + 1, end - 1)) });
+      taken.add(from, end);
+    } else if ((name === "bibliography" || name === "addbibresource") && from > begin && !touched(from, end)) {
+      pieces.push({ kind: "block", from, to: end, label: "Bibliography" });
+    } else if (CHIPS.has(name) || REFS.has(name) || name === "footnote") {
       pieces.push({ kind: "style", from, to: end, style: "chip" });
     } else if (name === "begin" || name === "end") {
       pieces.push({ kind: "style", from, to: end, style: "env" });
     }
   }
 
-  // List items.
-  for (const m of text.matchAll(/\\item\b[ \t]?/g)) {
-    const from = m.index;
-    const to = from + m[0].length;
-    if (free(from, to) && !touched(from, to)) pieces.push({ kind: "bullet", from, to });
+  // Commands that make something of their own, such as the title or the table of contents.
+  for (const m of text.matchAll(/\\([a-zA-Z]+)(?![a-zA-Z@])\*?/g)) {
+    const label = BLOCKS[m[1]];
+    const [from, to] = [m.index, m.index + m[0].length];
+    if (label && from > begin && free(from, to) && !touched(from, to)) pieces.push({ kind: "block", from, to, label });
+  }
+
+  // Lists: each item drawn as its bullet or number, and a line that only begins or ends a list
+  // left out, as a word processor shows a list.
+  const lists: { kind: string; count: number }[] = [];
+  const marks = [...text.matchAll(LISTS), ...text.matchAll(/\\item\b[ \t]?/g)].sort((a, b) => a.index - b.index);
+  for (const m of marks) {
+    const [from, to] = [m.index, m.index + m[0].length];
+    if (!free(from, to)) continue;
+    if (m[1] === "begin" || m[1] === "end") {
+      if (m[1] === "begin") lists.push({ kind: m[2], count: 0 });
+      else if (lists[lists.length - 1]?.kind === m[2]) lists.pop();
+      const lineFrom = lineStart(from);
+      const lineEnd = text.indexOf("\n", to);
+      const lineTo = lineEnd < 0 ? text.length : lineEnd;
+      const alone = /^[ \t]*$/.test(text.slice(lineFrom, from)) && /^(?:\[[^\]\n]*\])?[ \t]*$/.test(text.slice(to, lineTo));
+      if (alone && lineEnd >= 0 && !touched(lineFrom, lineTo)) pieces.push({ kind: "hide", from: lineFrom, to: lineTo + 1 });
+      continue;
+    }
+    const list = lists[lists.length - 1];
+    if (list) list.count++;
+    if (touched(from, to)) continue;
+    const depth = lists.filter((l) => l.kind === "enumerate").length;
+    const label = list?.kind === "enumerate" ? NUMBERING[(depth - 1) % NUMBERING.length](list.count) : list?.kind === "description" ? "" : undefined;
+    pieces.push({ kind: "bullet", from, to, ...(label !== undefined ? { label } : {}) });
   }
   return pieces;
 }

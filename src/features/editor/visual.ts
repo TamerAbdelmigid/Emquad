@@ -5,6 +5,7 @@ import { type ChangeSet, type EditorSelection, type EditorState, type Extension,
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
 import { openPdf } from "../../shared/pdf";
 import { api } from "../../ipc/api";
+import type { ProjectIndex } from "../../ipc/bindings/ProjectIndex";
 import { store } from "../../state/store";
 import { renderInline, typeset } from "./inlineTex";
 import { EditableTable } from "./tableEditor";
@@ -34,15 +35,86 @@ class MathWidget extends WidgetType {
 }
 
 class BulletWidget extends WidgetType {
-  eq() {
-    return true;
+  constructor(readonly label = "•") {
+    super();
+  }
+  eq(other: BulletWidget) {
+    return other.label === this.label;
   }
   toDOM() {
     const el = document.createElement("span");
-    el.className = "cm-v-bullet";
-    el.textContent = "•";
+    el.className = this.label === "•" ? "cm-v-bullet" : "cm-v-bullet cm-v-number";
+    el.textContent = this.label;
     return el;
   }
+}
+
+/** A short piece of text drawn in place of some source: a reference's number, a footnote's mark, a block's name. */
+class LabelWidget extends WidgetType {
+  constructor(
+    readonly text: string,
+    readonly detail: string,
+    readonly className: string,
+  ) {
+    super();
+  }
+  eq(other: LabelWidget) {
+    return other.text === this.text && other.detail === this.detail && other.className === this.className;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = this.className;
+    el.textContent = this.text;
+    if (this.detail) el.title = this.detail;
+    return el;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
+/** The preamble, folded into one line; clicking it opens it. */
+class FoldWidget extends WidgetType {
+  constructor(readonly title: string) {
+    super();
+  }
+  eq(other: FoldWidget) {
+    return other.title === this.title;
+  }
+  toDOM(view: EditorView) {
+    const el = document.createElement("div");
+    el.className = "cm-v-fold";
+    el.title = "The document's settings: its class, the packages it uses, the title. Click to see and change them.";
+    el.textContent = this.title ? `Document settings · ${this.title}` : "Document settings";
+    el.onmousedown = (e) => {
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: 0 }, scrollIntoView: true });
+      view.focus();
+    };
+    return el;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/** What a reference prints, as the last compile numbered it; "?" before the first compile. */
+export function describeReference(command: string, keys: string[], numbers: ProjectIndex["labelNumbers"]): { text: string; detail: string } {
+  const one = (key: string) => {
+    const found = numbers[key];
+    if (!found) return "?";
+    if (command === "pageref") return found.page;
+    if (command === "eqref") return `(${found.number})`;
+    const named = command === "autoref" || command === "cref" || command === "Cref" || command === "vref";
+    const kind = found.kind && named ? `${found.kind[0].toUpperCase()}${found.kind.slice(1)} ` : "";
+    return `${kind}${found.number}`;
+  };
+  const text = keys.map(one).join(", ");
+  const unknown = keys.filter((k) => !numbers[k]);
+  const detail = unknown.length
+    ? `Refers to ${keys.join(", ")}. ${Object.keys(numbers).length ? `No label called ${unknown.join(", ")} was numbered in the last compile.` : "Numbered when the document is compiled."}`
+    : `Refers to ${keys.join(", ")}`;
+  return { text, detail };
 }
 
 /** A table that is drawn but not edited in place, because it could not be written back exactly. */
@@ -224,7 +296,17 @@ function build(state: EditorState): Drawn {
   for (const p of visualPieces(text, selection, report)) {
     if (p.kind === "line") out.push(Decoration.line({ class: `cm-v-line-${p.style}` }).range(p.from));
     else if (p.kind === "hide") out.push(hidden.range(p.from, p.to));
-    else if (p.kind === "bullet") out.push(bullet.range(p.from, p.to));
+    else if (p.kind === "bullet") out.push((p.label === undefined ? bullet : Decoration.replace({ widget: new BulletWidget(p.label) })).range(p.from, p.to));
+    else if (p.kind === "ref") {
+      const { text, detail } = describeReference(p.command, p.keys, index.labelNumbers);
+      out.push(Decoration.replace({ widget: new LabelWidget(text, detail, "cm-v-ref") }).range(p.from, p.to));
+    } else if (p.kind === "footnote") {
+      out.push(Decoration.replace({ widget: new LabelWidget(String(p.number), `Footnote: ${p.text}`, "cm-v-footnote") }).range(p.from, p.to));
+    } else if (p.kind === "block") {
+      out.push(Decoration.replace({ widget: new LabelWidget(p.label, "", "cm-v-block") }).range(p.from, p.to));
+    } else if (p.kind === "fold") {
+      out.push(Decoration.replace({ widget: new FoldWidget(p.title), block: true }).range(p.from, p.to));
+    }
     else if (p.kind === "style") out.push(Decoration.mark({ class: `cm-v-${p.style}` }).range(p.from, p.to));
     else if (p.kind === "table") {
       const reason = readingOf(p.source);

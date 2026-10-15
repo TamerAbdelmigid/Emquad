@@ -29,6 +29,10 @@ pattern!(
     r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}"
 );
 pattern!(LABEL, r"\\label\{([^}]+)\}");
+pattern!(
+    CLASS,
+    r"\\documentclass\s*(?:\[[^\]]*\])?\s*\{\s*([^}\s]+)\s*\}"
+);
 pattern!(BIB_ITEM, r"\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}");
 pattern!(
     BIB_NAMED,
@@ -46,6 +50,115 @@ pub struct ProjectIndex {
     pub citations: Vec<Citation>,
     /// For each style or class file of the project's own, by name, the packages it loads.
     pub style_packages: BTreeMap<String, Vec<String>>,
+    /// How the last compile numbered each label, by label: what `\ref` prints for it.
+    pub label_numbers: BTreeMap<String, Numbered>,
+    /// The class the main file's document is of, such as "article" or "report"; empty when it
+    /// names none.
+    pub document_class: String,
+}
+
+/// How the last compile numbered a label.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Numbered {
+    /// What `\ref` prints: "2", "3.1", "A".
+    pub number: String,
+    /// What `\pageref` prints.
+    pub page: String,
+    /// What is numbered, when the compile said (with hyperref): "section", "figure", "table",
+    /// "equation"; empty otherwise.
+    pub kind: String,
+}
+
+/// The largest `.aux` file read for label numbers.
+const MAX_AUX: u64 = 4 << 20;
+
+/// The braced groups that follow one another from `at`, each without its braces; reading stops
+/// at anything else.
+fn groups(text: &str, mut at: usize) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    while bytes.get(at) == Some(&b'{') {
+        let mut depth = 0;
+        let mut end = None;
+        let mut i = at;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'\\' => i += 1,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        let Some(end) = end else { break };
+        out.push(text[at + 1..end].to_string());
+        at = end + 1;
+    }
+    out
+}
+
+/// The labels an `.aux` file records, as `\newlabel{key}{{number}{page}{title}{anchor}…}`.
+fn label_numbers(aux: &str, out: &mut BTreeMap<String, Numbered>) {
+    for (at, _) in aux.match_indices("\\newlabel{") {
+        let found = groups(aux, at + "\\newlabel".len());
+        let [key, data] = found.as_slice() else {
+            continue;
+        };
+        // cleveref writes a second entry for each label, under key@cref.
+        if key.contains('@') {
+            continue;
+        }
+        let fields = groups(data, 0);
+        let clean = |s: &str| s.replace("\\relax", "").trim().to_string();
+        let kind = fields
+            .get(3)
+            .map(|anchor| anchor.split('.').next().unwrap_or("").to_lowercase())
+            .filter(|k| k.chars().all(|c| c.is_ascii_alphabetic()) && k != "doc-start")
+            .unwrap_or_default();
+        out.insert(
+            key.clone(),
+            Numbered {
+                number: fields.first().map(|s| clean(s)).unwrap_or_default(),
+                page: fields.get(1).map(|s| clean(s)).unwrap_or_default(),
+                kind,
+            },
+        );
+    }
+}
+
+/// The label numbers of the last compile: every `.aux` file it wrote, the included files' too.
+fn compiled_numbers(project: &Project) -> BTreeMap<String, Numbered> {
+    let mut out = BTreeMap::new();
+    let mut folders = vec![(project.build_dir(), 0)];
+    while let Some((dir, depth)) = folders.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() && depth < 4 {
+                folders.push((path, depth + 1));
+            } else if kind.is_file()
+                && path.extension().is_some_and(|e| e == "aux")
+                && entry.metadata().is_ok_and(|m| m.len() <= MAX_AUX)
+                && let Ok(text) = fs::read_to_string(&path)
+            {
+                label_numbers(&text, &mut out);
+            }
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, TS)]
@@ -194,6 +307,7 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
     let mut style_packages = BTreeMap::new();
     let mut named_bibs = BTreeSet::new();
     let mut inside_bibs = BTreeSet::new();
+    let mut document_class = String::new();
     for (rel, path) in project.walk_files()? {
         let is_tex = rel.ends_with(".tex");
         let is_style = rel.ends_with(".sty") || rel.ends_with(".cls");
@@ -205,6 +319,11 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
             continue;
         };
         if is_tex {
+            if rel == project.info.main_file
+                && let Some(c) = text.lines().map(uncomment).find_map(|l| CLASS.captures(l))
+            {
+                document_class = c[1].to_string();
+            }
             labels.extend(LABEL.captures_iter(text).map(|c| c[1].to_string()));
             keys.extend(BIB_ITEM.captures_iter(text).map(|c| c[1].to_string()));
             for line in text.lines() {
@@ -267,6 +386,8 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
         cite_keys: keys.into_iter().collect(),
         citations: found.into_values().collect(),
         style_packages,
+        label_numbers: compiled_numbers(project),
+        document_class,
     })
 }
 
@@ -328,6 +449,68 @@ mod tests {
         p.write_file("main.tex", "\\bibliography{../secret.txt}\n")
             .unwrap();
         assert!(build(&p).unwrap().cite_keys.is_empty());
+    }
+
+    #[test]
+    fn labels_are_numbered_as_the_last_compile_numbered_them() {
+        let mut found = BTreeMap::new();
+        label_numbers(
+            concat!(
+                "\\relax\n",
+                "\\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}\n",
+                "\\newlabel{fig:x}{{2.1}{4}{A {\\em nested} caption}{figure.caption.3}{}}\n",
+                "\\newlabel{eq:y}{{\\relax 3}{5}}\n",
+                "\\newlabel{fig:x@cref}{{[figure][1][2]2.1}{[1][4][]4}}\n",
+                "\\newlabel{broken}{{9}\n",
+            ),
+            &mut found,
+        );
+        let get = |k: &str| found.get(k).cloned().unwrap_or_default();
+        assert_eq!(
+            get("sec:intro"),
+            Numbered {
+                number: "1".into(),
+                page: "1".into(),
+                kind: "section".into()
+            }
+        );
+        assert_eq!(
+            get("fig:x"),
+            Numbered {
+                number: "2.1".into(),
+                page: "4".into(),
+                kind: "figure".into()
+            }
+        );
+        assert_eq!(
+            get("eq:y"),
+            Numbered {
+                number: "3".into(),
+                page: "5".into(),
+                kind: String::new()
+            }
+        );
+        assert!(!found.contains_key("fig:x@cref") && !found.contains_key("broken"));
+        // Read from every .aux file the compile wrote, an included file's in a subfolder too.
+        let tmp = tempfile::tempdir().unwrap();
+        let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();
+        fs::create_dir_all(p.build_dir().join("chapters")).unwrap();
+        fs::write(p.build_dir().join("main.aux"), "\\newlabel{a}{{1}{1}}\n").unwrap();
+        fs::write(
+            p.build_dir().join("chapters/one.aux"),
+            "\\newlabel{b}{{2}{3}}\n",
+        )
+        .unwrap();
+        let index = build(&p).unwrap();
+        assert_eq!(index.label_numbers.keys().collect::<Vec<_>>(), ["a", "b"]);
+        // The main file's class, read past a comment and options.
+        assert_eq!(index.document_class, "article");
+        p.write_file(
+            "main.tex",
+            "% \\documentclass{book}\n\\documentclass[12pt, a4paper]{ report }\n",
+        )
+        .unwrap();
+        assert_eq!(build(&p).unwrap().document_class, "report");
     }
 
     #[test]

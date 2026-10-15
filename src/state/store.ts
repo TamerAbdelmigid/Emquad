@@ -83,7 +83,8 @@ export const useStore = create<State>((set) => ({
   layout: "split",
   filesOpen: true,
   languageServer: false,
-  visual: false,
+  // Visual mode is what a newcomer expects; the source is a click away.
+  visual: true,
   symbols: false,
   sidePanel: "files",
   comments: [],
@@ -93,7 +94,7 @@ export const useStore = create<State>((set) => ({
   root: null,
   info: null,
   tree: [],
-  index: { labels: [], citeKeys: [], citations: [], stylePackages: {} },
+  index: { labels: [], citeKeys: [], citations: [], stylePackages: {}, labelNumbers: {}, documentClass: "" },
   tabs: [],
   active: null,
   cursor: { line: 1, column: 1 },

@@ -30,7 +30,7 @@ function makeDoc() {
 
 test("visual mode keeps up with typing and moving in a long document", { timeout: 120000 }, () => {
   const citations = Array.from({ length: 3000 }, (_, i) => ({ key: `key${i}`, authors: `Author${i}`, year: "2020", title: `Title ${i}` }));
-  store().set({ index: { labels: [], citeKeys: citations.map((c) => c.key), citations, stylePackages: {} } });
+  store().set({ index: { labels: [], citeKeys: citations.map((c) => c.key), citations, stylePackages: {}, labelNumbers: {}, documentClass: "" } });
   const doc = makeDoc();
   let state = EditorState.create({ doc, extensions: [visualMode] });
   const prose = doc.indexOf("Some prose line 3001 with");

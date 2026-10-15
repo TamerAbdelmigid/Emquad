@@ -1226,6 +1226,12 @@ class Controller {
       this.view.requestMeasure({ read: () => null, write: stay });
       return;
     }
+    if (mod && !e.altKey && !e.shiftKey && (lower === "b" || lower === "i" || lower === "u")) {
+      // Bold, italic and underline, as in a word processor: on the text selected in the cell, or the selected cells.
+      done();
+      this.format(lower === "b" ? "textbf" : lower === "i" ? "textit" : "underline");
+      return;
+    }
     if (target.closest(".cm-v-tbar")) {
       if (key === "Escape") {
         done();

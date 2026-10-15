@@ -7,6 +7,7 @@ import { applySpelling, createProject, exportBundle, guard } from "./actions";
 const TEMPLATES = [
   { id: "article", label: "Article", note: "A paper with abstract and sections" },
   { id: "report", label: "Report", note: "Chapters and a table of contents" },
+  { id: "thesis", label: "Thesis", note: "Title page, abstract, contents, chapters and references" },
   { id: "exam", label: "Exam", note: "Header, name line and numbered questions" },
   { id: "letter", label: "Letter", note: "A formal letter" },
 ];
@@ -38,6 +39,7 @@ const megabytes = (bytes: number) => `${Math.max(1, Math.round(bytes / (1 << 20)
 const SHORTCUTS: [string, string][] = [
   ["Recompile", "Ctrl+Enter"],
   ["Save (and recompile, when compile on save is on)", "Ctrl+S"],
+  ["Bold, italic, underline", "Ctrl+B, Ctrl+I, Ctrl+U"],
   ["Go to this place in the PDF", "Ctrl+Alt+J"],
   ["Go to the source", "Double-click in the PDF"],
   ["Find and replace", "Ctrl+F"],
@@ -53,7 +55,7 @@ const SHORTCUTS: [string, string][] = [
   ["Find references (with texlab)", "Shift+F12"],
   ["Rename a label or command (with texlab)", "F2"],
   ["Leave the editor with the keyboard", "Esc, then Tab"],
-  ["Show or hide the file panel", "Ctrl+B"],
+  ["Show or hide the file panel", "Ctrl+Shift+B"],
   ["Save snapshot", "Ctrl+Shift+S"],
   ["Open History", "Ctrl+Shift+H"],
   ["Export bundle", "Ctrl+Shift+E"],

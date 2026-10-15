@@ -1,16 +1,33 @@
 //! Built-in starting points for a new project.
 
-pub const NAMES: [&str; 4] = ["article", "report", "exam", "letter"];
+pub const NAMES: [&str; 5] = ["article", "report", "thesis", "exam", "letter"];
 
 pub fn files(template: &str, title: &str) -> Vec<(&'static str, String)> {
     let body = match template {
         "report" => REPORT,
+        "thesis" => THESIS,
         "exam" => EXAM,
         "letter" => LETTER,
         _ => ARTICLE,
     };
-    vec![("main.tex", body.replace("{{title}}", title))]
+    let mut out = vec![("main.tex", body.replace("{{title}}", title))];
+    if template == "thesis" {
+        out.push(("references.bib", REFERENCES.to_string()));
+    }
+    out
 }
+
+/// A first reference, to show how one is written and cited.
+pub const REFERENCES: &str = "% Your references. Each one has a key, here knuth1984, which \\cite{knuth1984}
+% writes in the text. Add yours below, or copy them from a reference manager as BibTeX.
+
+@book{knuth1984,
+  author    = {Donald E. Knuth},
+  title     = {The {\\TeX}book},
+  publisher = {Addison-Wesley},
+  year      = {1984},
+}
+";
 
 const ARTICLE: &str = r"\documentclass[11pt]{article}
 \usepackage{amsmath, amssymb}
@@ -47,6 +64,61 @@ const REPORT: &str = r"\documentclass[11pt]{report}
 
 \chapter{Introduction}
 Start writing here.
+
+\end{document}
+";
+
+const THESIS: &str = r"\documentclass[12pt, a4paper]{report}
+% The page: margins, and the spacing between lines (\onehalfspacing or \doublespacing).
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx}
+
+\title{{{title}}}
+\author{Your name}
+\date{\today}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries {{title}}\par}
+  \vspace{2cm}
+  {\Large Your name\par}
+  \vfill
+  A thesis submitted for the degree of \ldots\par
+  \vspace{1cm}
+  {\large \today\par}
+\end{titlepage}
+
+\begin{abstract}
+A short summary of the thesis: the question, how it was answered, and what was found.
+\end{abstract}
+
+\chapter*{Acknowledgements}
+Thank the people who helped here.
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+\chapter{Introduction}
+Start writing here. A reference is cited like this~\cite{knuth1984}, and the list of
+references at the end is made from \texttt{references.bib}.
+
+\chapter{Literature review}
+
+\chapter{Method}
+
+\chapter{Results}
+
+\chapter{Conclusion}
+
+\bibliographystyle{plain}
+\bibliography{references}
 
 \end{document}
 ";

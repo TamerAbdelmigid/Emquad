@@ -1,5 +1,6 @@
 // What the app can do, as plain functions over the store, the editor buffers and the backend.
 // Components call these; they never talk to the backend for a multi-step action themselves.
+import type { TreeNode } from "../ipc/bindings/TreeNode";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { buffers } from "../features/editor/buffers";
 import { startLsp, stopLsp } from "../features/editor/lsp";
@@ -24,7 +25,7 @@ export const clampSplit = (share: number) => Math.min(0.8, Math.max(0.2, share))
 export function persistUi() {
   const s = store();
   if (!s.root) return;
-  const state = { tabs: s.tabs.map((t) => t.path), active: s.active, filesWidth: s.filesWidth, split: s.split };
+  const state = { tabs: s.tabs.map((t) => t.path), active: s.active, filesWidth: s.filesWidth, split: s.split, visual: s.visual };
   void api.uiStateSave(JSON.stringify(state)).catch(() => {});
 }
 
@@ -52,7 +53,7 @@ async function enter(opened: OpenedProject) {
   });
   // The project may check its spelling in a language of its own.
   void applySpelling();
-  let remembered: { tabs?: string[]; active?: string | null; filesWidth?: number; split?: number } = {};
+  let remembered: { tabs?: string[]; active?: string | null; filesWidth?: number; split?: number; visual?: boolean } = {};
   try {
     remembered = JSON.parse(opened.uiState ?? "{}");
   } catch {
@@ -60,6 +61,8 @@ async function enter(opened: OpenedProject) {
   }
   if (typeof remembered.filesWidth === "number") store().set({ filesWidth: clampFiles(remembered.filesWidth) });
   if (typeof remembered.split === "number") store().set({ split: clampSplit(remembered.split) });
+  // Visual mode as the project was last left, and on for a project never opened before.
+  store().set({ visual: remembered.visual ?? true });
   const wanted = remembered.tabs?.length ? remembered.tabs : [opened.info.mainFile];
   for (const path of wanted.filter(Boolean)) await openFile(path, undefined, true);
   const active = remembered.active && buffers.has(remembered.active) ? remembered.active : store().tabs[0]?.path;
@@ -67,8 +70,10 @@ async function enter(opened: OpenedProject) {
   void refreshIndex();
   void refreshPending();
   void refreshComments();
-  // Show the last PDF if one exists from an earlier session.
+  // Show the last PDF if one exists from an earlier session; a project never compiled is
+  // compiled at once, so its document is there to see from the start.
   store().set({ pdfVersion: store().pdfVersion + 1 });
+  if (!opened.hasPdf) void compile();
 }
 
 // Unsaved edits are saved before another project is opened: once it is, a save would go to it.
@@ -111,6 +116,41 @@ export async function closeProject() {
   void applySpelling();
 }
 
+/** Every file of the project, by its path. */
+export function projectFiles(nodes: TreeNode[] = store().tree): string[] {
+  return nodes.flatMap((n) => (n.isDir ? projectFiles(n.children) : [n.path]));
+}
+
+/** An example reference for a project's first .bib file, to show how one is written. */
+const FIRST_REFERENCE = `% Your references. Each one has a key, here knuth1984, which \\cite{knuth1984} writes in
+% the text. Add yours below, or copy them from a reference manager as BibTeX.
+
+@book{knuth1984,
+  author    = {Donald E. Knuth},
+  title     = {The {\\TeX}book},
+  publisher = {Addison-Wesley},
+  year      = {1984},
+}
+`;
+
+/**
+ * Put the list of references where the cursor is, made from the project's .bib file. A
+ * project with none is given references.bib, with an example to copy.
+ */
+export async function insertBibliography() {
+  await guard(async () => {
+    let bib = projectFiles().find((p) => p.toLowerCase().endsWith(".bib"));
+    if (!bib) {
+      bib = "references.bib";
+      store().set({ tree: await api.fileCreate(bib, false) });
+      await api.fileWrite(bib, FIRST_REFERENCE);
+      store().notify("Added references.bib, with an example reference. Add yours there, and cite them with Insert ▸ Citation.");
+      void refreshIndex();
+    }
+    buffers.insert(`\\bibliographystyle{plain}\n\\bibliography{${bib.replace(/\.bib$/i, "")}}\n`);
+  });
+}
+
 export const refreshTree = () => guard(async () => store().set({ tree: await api.projectTree() }));
 /**
  * Read the project index again. Asked for while a reading is under way, it is read once more
@@ -123,7 +163,7 @@ export const refreshIndex = coalesced(() =>
     store().set({ index });
     // Visual mode names references from the index, so it is redrawn when they changed.
     const changed = (pick: (i: typeof index) => unknown) => JSON.stringify(pick(before)) !== JSON.stringify(pick(index));
-    if (changed((i) => i.citations) || changed((i) => i.citeKeys) || changed((i) => i.labels)) buffers.redrawVisual();
+    if (changed((i) => i.citations) || changed((i) => i.citeKeys) || changed((i) => i.labels) || changed((i) => i.labelNumbers)) buffers.redrawVisual();
   }),
 );
 
@@ -302,6 +342,8 @@ export async function compile() {
   buffers.setDiagnostics(out.diagnostics);
   const s = store();
   s.set({ build: out, pdfVersion: out.hasPdf ? s.pdfVersion + 1 : s.pdfVersion });
+  // References are numbered by the compile, so visual mode can show their numbers now.
+  void refreshIndex();
   const first = out.diagnostics.find((d) => d.severity === "error");
   if (first && first.line > 0) await openFile(first.file, first.line, true);
 }

@@ -259,6 +259,8 @@ pub struct OpenedProject {
     pub ui_state: Option<String>,
     /// The language server is running for this project.
     pub language_server: bool,
+    /// A PDF from an earlier compile is there to show.
+    pub has_pdf: bool,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -350,6 +352,7 @@ fn start_project(
         tree: project.tree()?,
         ui_state: fs::read_to_string(project.data_dir().join("state.json")).ok(),
         language_server,
+        has_pdf: compile::pdf_path(&project).is_file(),
     };
     // Nothing of the new project is put in place until all of it has been made: if any part
     // fails, the window keeps the project it had, with its watcher and language server.

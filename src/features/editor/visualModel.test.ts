@@ -65,23 +65,37 @@ describe("visualPieces", () => {
     expect(of(pieces, "hide")).toHaveLength(0);
   });
 
-  it("draws list items as bullets and marks references and environments", () => {
-    const text = "\\begin{itemize}\n\\item one \\ref{a}\n\\item two\n\\end{itemize}";
+  it("draws a list as a word processor does: bullets or numbers, without the lines that begin and end it", () => {
+    const text = "Before\n\\begin{itemize}\n\\item one \\ref{a}\n\\item two\n  \\begin{enumerate}\n  \\item first\n  \\item second\n  \\end{enumerate}\n\\end{itemize}\nAfter";
     const pieces = visualPieces(text, []);
-    expect(of(pieces, "bullet")).toHaveLength(2);
-    expect(of(pieces, "style").map((p) => [slice(text, p), (p as Extract<Piece, { kind: "style" }>).style])).toEqual([
-      ["\\begin{itemize}", "env"],
-      ["\\ref{a}", "chip"],
-      ["\\end{itemize}", "env"],
-    ]);
+    const bullets = of(pieces, "bullet") as Extract<Piece, { kind: "bullet" }>[];
+    expect(bullets.map((b) => b.label)).toEqual([undefined, undefined, "1.", "2."]);
+    expect(of(pieces, "hide").map((p) => slice(text, p))).toEqual(["\\begin{itemize}\n", "  \\begin{enumerate}\n", "  \\end{enumerate}\n", "\\end{itemize}\n"]);
+    expect(of(pieces, "ref").map((p) => slice(text, p))).toEqual(["\\ref{a}"]);
+    // A line being worked on is shown as it is written.
+    const at = text.indexOf("\\begin{enumerate}") + 3;
+    expect(of(visualPieces(text, [{ from: at, to: at }]), "hide").map((p) => slice(text, p))).not.toContain("  \\begin{enumerate}\n");
   });
 
-  it("quiets the preamble but still shows the title as a heading", () => {
-    const text = "\\documentclass{article}\n\\title{My Paper}\n\\begin{document}\n\\section{One}";
+  it("draws references, footnotes and the parts LaTeX makes itself", () => {
+    const text = "\\begin{document}\n\\maketitle\n\\tableofcontents\nSee \\ref{fig:a} and \\eqref{eq:b}.\\footnote{A \\emph{short} note.} More.\\footnote{Second.}\n\\newpage\n\\bibliography{refs}\n\\end{document}";
     const pieces = visualPieces(text, []);
-    expect(of(pieces, "line").filter((p) => (p as Extract<Piece, { kind: "line" }>).style === "preamble")).toHaveLength(1);
-    expect(of(pieces, "style").map((p) => slice(text, p))).toContain("My Paper");
-    expect(of(pieces, "style").map((p) => slice(text, p))).not.toContain("\\documentclass{article}");
+    expect(of(pieces, "block").map((p) => (p as Extract<Piece, { kind: "block" }>).label)).toEqual(["Bibliography", "Title, author and date", "Table of contents", "Page break"]);
+    expect(of(pieces, "ref").map((p) => (p as Extract<Piece, { kind: "ref" }>).command)).toEqual(["ref", "eqref"]);
+    const notes = of(pieces, "footnote") as Extract<Piece, { kind: "footnote" }>[];
+    expect(notes.map((n) => [n.number, n.text])).toEqual([[1, "A short note."], [2, "Second."]]);
+  });
+
+  it("folds the preamble into one line, named by the title, until the cursor goes into it", () => {
+    const text = "\\documentclass{article}\n\\usepackage{amsmath}\n\\title{My \\emph{Great} Paper}\n\\begin{document}\n\\section{One}";
+    const folded = visualPieces(text, [{ from: text.length, to: text.length }]);
+    expect(of(folded, "fold").map((p) => [slice(text, p), (p as Extract<Piece, { kind: "fold" }>).title])).toEqual([[text.slice(0, text.indexOf("\n\\section")), "My Great Paper"]]);
+    expect(of(folded, "line").filter((p) => (p as Extract<Piece, { kind: "line" }>).style === "preamble")).toHaveLength(0);
+    // With the cursor in it, it is shown, quietly, with the title as a heading.
+    const open = visualPieces(text, [{ from: 5, to: 5 }]);
+    expect(of(open, "fold")).toHaveLength(0);
+    expect(of(open, "line").filter((p) => (p as Extract<Piece, { kind: "line" }>).style === "preamble")).toHaveLength(2);
+    expect(of(open, "style").map((p) => slice(text, p))).toContain("My \\emph{Great} Paper");
   });
 });
 

@@ -189,6 +189,10 @@ function extensions(path: string): Extension[] {
       { key: "Mod-s", run: () => (handlers.save(), true) },
       { key: "Mod-Enter", run: () => (handlers.compile(), true) },
       { key: "Mod-Alt-m", run: () => (handlers.comment(), true) },
+      // As in a word processor. Before the default keys, where Ctrl+I selects the enclosing syntax.
+      { key: "Mod-b", run: () => (buffers.format("textbf"), true) },
+      { key: "Mod-i", run: () => (buffers.format("textit"), true) },
+      { key: "Mod-u", run: () => (buffers.format("underline"), true) },
       { key: "Enter", run: closeEnvironment },
       ...closeBracketsKeymap,
       ...defaultKeymap,

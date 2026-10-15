@@ -5,7 +5,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Mark, Menu } from "../design/ui";
-import { EditorPane } from "../features/editor/EditorPane";
+import { EditorPane, WITH_CHAPTERS } from "../features/editor/EditorPane";
 import { buffers, setHandlers } from "../features/editor/buffers";
 import { outline } from "../features/editor/latex";
 import { lspReceive, setDisplay, stopLsp } from "../features/editor/lsp";
@@ -150,7 +150,7 @@ export function App() {
       else if (e.shiftKey && key === "i") run(() => void act.importBundle());
       else if (e.shiftKey && key === "n") run(() => void act.guard(() => api.windowNew()));
       else if (e.altKey && key === "j") run(() => void act.jumpToPdf());
-      else if (!e.shiftKey && key === "b") run(() => set({ filesOpen: !store().filesOpen }));
+      else if (e.shiftKey && key === "b") run(() => set({ filesOpen: !store().filesOpen }));
       else if (!e.shiftKey && key === "enter") run(() => void act.compile());
       else if (!e.shiftKey && key === "s") run(() => void act.saveAndMaybeCompile());
     };
@@ -265,12 +265,19 @@ export function App() {
               <Menu
                 label="Insert"
                 items={[
+                  ...(WITH_CHAPTERS.test(s.index.documentClass) ? [{ label: "Chapter", run: () => buffers.insert("\\chapter{", "}") }] : []),
                   { label: "Section", run: () => buffers.insert("\\section{", "}") },
                   { label: "Figure", run: () => buffers.insert("\\begin{figure}[h]\n  \\centering\n  \\includegraphics[width=0.8\\linewidth]{", "}\n  \\caption{}\n  \\label{fig:}\n\\end{figure}\n") },
                   { label: "Numbered equation", run: () => buffers.insert("\\begin{equation}\n  ", "\n\\end{equation}\n") },
                   { label: "Bulleted list", run: () => buffers.insert("\\begin{itemize}\n  \\item ", "\n\\end{itemize}\n") },
+                  { label: "Numbered list", run: () => buffers.insert("\\begin{enumerate}\n  \\item ", "\n\\end{enumerate}\n") },
+                  { label: "Footnote", run: () => buffers.insertInline(() => ({ before: "\\footnote{", after: "}" })) },
                   { label: "Citation", run: () => buffers.insertInline(() => ({ before: "\\cite{", after: "}" })) },
                   { label: "Cross-reference", run: () => buffers.insertInline(() => ({ before: "\\ref{", after: "}" })) },
+                  "separator",
+                  { label: "Table of contents", run: () => buffers.insert("\\tableofcontents\n") },
+                  { label: "Page break", run: () => buffers.insert("\\newpage\n") },
+                  { label: "Bibliography", run: () => void act.insertBibliography() },
                   "separator",
                   { label: "Formula in the line", run: () => buffers.insertInline((inMath) => (inMath ? { before: "", after: "" } : { before: "$", after: "$" })) },
                   { label: "Symbol…", run: () => set({ symbols: true }) },
@@ -283,7 +290,7 @@ export function App() {
                   layoutItem("Source only", "editor"),
                   layoutItem("PDF only", "pdf"),
                   "separator",
-                  { label: s.filesOpen ? "Hide file panel" : "Show file panel", hint: "Ctrl+B", run: () => set({ filesOpen: !s.filesOpen }) },
+                  { label: s.filesOpen ? "Hide file panel" : "Show file panel", hint: "Ctrl+Shift+B", run: () => set({ filesOpen: !s.filesOpen }) },
                   { label: "Logs and messages", run: () => set({ dialog: "logs" }) },
                   { label: "History", hint: "Ctrl+Shift+H", run: () => openHistory() },
                 ]}
@@ -291,8 +298,9 @@ export function App() {
               <Menu
                 label="Format"
                 items={[
-                  { label: "Bold", run: () => buffers.format("textbf") },
-                  { label: "Italic", run: () => buffers.format("textit") },
+                  { label: "Bold", hint: "Ctrl+B", run: () => buffers.format("textbf") },
+                  { label: "Italic", hint: "Ctrl+I", run: () => buffers.format("textit") },
+                  { label: "Underline", hint: "Ctrl+U", run: () => buffers.format("underline") },
                   { label: "Monospace", run: () => buffers.format("texttt") },
                   { label: "Emphasis", run: () => buffers.format("emph") },
                 ]}
@@ -352,7 +360,7 @@ export function App() {
               className="rb"
               aria-pressed={s.filesOpen && s.sidePanel === "files"}
               aria-label="File tree"
-              title="File tree (Ctrl+B)"
+              title="File tree (Ctrl+Shift+B)"
               onClick={() => set(s.filesOpen && s.sidePanel === "files" ? { filesOpen: false } : { filesOpen: true, sidePanel: "files" })}
             >
               <Icon name="file" />
@@ -443,7 +451,10 @@ export function App() {
               languageServer={s.languageServer}
               fontSize={s.settings?.editorFontSize ?? 13}
               visual={s.visual}
-              onVisual={(visual) => set({ visual })}
+              onVisual={(visual) => {
+                set({ visual });
+                act.persistUi();
+              }}
               onSelect={(path) => set({ active: path })}
               onClose={(path) => void act.closeTab(path)}
               onComment={act.startComment}
@@ -451,6 +462,7 @@ export function App() {
               onSymbols={(symbols) => set({ symbols })}
               recentSymbols={s.settings?.recentSymbols ?? []}
               onSymbolUsed={act.symbolUsed}
+              chapters={WITH_CHAPTERS.test(s.index.documentClass)}
             onShowChanges={() => openHistory(s.active)}
             />
           )}

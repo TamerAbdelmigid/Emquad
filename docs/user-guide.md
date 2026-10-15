@@ -192,6 +192,7 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Go to this place in the PDF | Ctrl+Alt+J |
 | Go to the source | Double-click in the PDF |
 | Find and replace | Ctrl+F |
+| Bold, italic, underline | Ctrl+B, Ctrl+I, Ctrl+U |
 | Search the project | Ctrl+Shift+F |
 | Comment on the selected text | Ctrl+Alt+M |
 | In a table: next or previous cell | Tab, Shift+Tab |
@@ -206,7 +207,7 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Go to definition, find references, rename | F12, Shift+F12, F2 |
 | New window, for another project | Ctrl+Shift+N |
 | Leave the editor with the keyboard | Esc, then Tab |
-| Show or hide the file panel | Ctrl+B |
+| Show or hide the file panel | Ctrl+Shift+B |
 | Save snapshot | Ctrl+Shift+S |
 | Open History | Ctrl+Shift+H |
 | Export bundle | Ctrl+Shift+E |
