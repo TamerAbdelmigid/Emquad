@@ -289,7 +289,11 @@ export const buffers = {
 
   open(path: string, text: string) {
     saved.set(path, text);
-    states.set(path, EditorState.create({ doc: text, extensions: extensions(path) }));
+    // The cursor starts where the writing does: past the settings at the top, so they stay
+    // folded away in visual mode until they are wanted.
+    const body = text.indexOf("\\begin{document}");
+    const start = body < 0 ? 0 : text.indexOf("\n", body) + 1 || text.length;
+    states.set(path, EditorState.create({ doc: text, selection: { anchor: start }, extensions: extensions(path) }));
     place(path, true);
   },
 

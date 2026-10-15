@@ -96,6 +96,12 @@
     // --- a new project opens in the editor
     const a = await invoke("project_create", { parentDir: work, name: "e2e paper", template: "article" });
     await act.openProject(a.root);
+    // A project opens in visual mode, its settings folded into one line, and is compiled at once.
+    await until("the folded settings", () => $(".cm-v-fold"));
+    await ok(text(".cm-v-fold").includes("e2e paper"), "a new project opens in visual mode, its settings folded into one line named by its title");
+    await until("the first compile", () => store().build && !store().compiling, 120000);
+    await ok(store().build.hasPdf, "a project never compiled is compiled as soon as it opens");
+    await click("Code");
     await until("the editor", () => text(".cm-content").includes("\\documentclass"));
     await ok(true, "the main file is open in the editor");
     await ok(text(".file-row.on").includes("main.tex"), "the file tree marks the open file");
@@ -766,13 +772,40 @@
     await invoke("settings_update", { displayName: "Lina" });
     const c = await invoke("bundle_import_new", { path: full, parentDir: `${work}\\offline` });
     await act.openProject(c.root);
-    await until("the bundle's project", () => store().root === c.root && text(".cm-content").includes("\\documentclass"));
+    // Opened for the first time, so in visual mode, its settings folded away.
+    await until("the bundle's project", () => store().root === c.root && ($(".cm-v-fold") || text(".cm-content").includes("\\documentclass")));
     await until("its comments", () => store().comments.length === 1);
     await ok(store().comments[0].replies.length === 1 && !store().comments[0].resolved, "the recipient gets the comment and its reply, as they were when the bundle was made");
     await click("Recompile");
     await until("a PDF from the bundle's own packages", () => text(".proj .st") === "Compiled", 300000);
     await ok(true, "and compiles the project from the packages that came with it");
     await invoke("settings_update", { displayName: "Tamer" });
+
+    // A thesis, and what a Word user reaches for first.
+    {
+      const t = await invoke("project_create", { parentDir: work, name: "my thesis", template: "thesis" });
+      await act.openProject(t.root);
+      await until("the thesis to compile", () => store().root === t.root && store().build && !store().compiling, 300000);
+      await ok(store().build.hasPdf && !store().build.diagnostics.some((d) => d.severity === "error"), "the Thesis template compiles at once, its reference and contents with it");
+      await until("the drawn contents", () => $$(".cm-v-block").some((b) => b.textContent === "Table of contents"));
+      await until("the reference by name", () => $$(".cm-v-cite").some((c) => c.textContent.includes("Knuth")));
+      await ok(true, "visual mode draws the contents as a block and the citation by its author");
+      await until("the word count", () => /\d+ words/.test(text(".sfoot")));
+      await ok(true, "the status line counts the words of the file");
+      const { buffers } = await import("/src/features/editor/buffers.ts");
+      const line = buffers.text("main.tex").split("\n").findIndex((l) => l.startsWith("Start writing here")) + 1;
+      buffers.goToLine(line);
+      const editor = $(".cm-content");
+      editor.focus();
+      editor.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true, cancelable: true }));
+      await ok(buffers.text("main.tex").includes("\\textbf{}Start writing here") && store().filesOpen, "Ctrl+B starts bold text, as in a word processor, and leaves the file panel alone");
+      const fromWord = new DataTransfer();
+      fromWord.setData("text/plain", "Costs rose 50% for R&D.\r\nA second paragraph.");
+      fromWord.setData("text/html", "<p>Costs rose 50% for R&amp;D.</p><p>A second paragraph.</p>");
+      editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: fromWord, bubbles: true, cancelable: true }));
+      await ok(buffers.text("main.tex").includes("Costs rose 50\\% for R\\&D.\n\nA second paragraph."), "text pasted from Word prints as it reads, each paragraph kept");
+      await act.save();
+    }
 
     // Deleting a file takes a version first, so History can bring it back.
     {

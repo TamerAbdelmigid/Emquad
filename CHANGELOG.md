@@ -4,6 +4,21 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.9.0 - 2026-10-15
+
+What someone coming from Word reaches for first.
+
+- Ctrl+B, Ctrl+I and Ctrl+U set bold, italic and underline, in the text and in tables. The file panel moves to Ctrl+Shift+B. Format has Underline.
+- A project opens in visual mode, and each project remembers whether it was left in Visual or Code. A newly opened file starts where the writing does, past the settings at the top.
+- Visual mode now draws references as the numbers the PDF shows (after the first compile), footnotes as raised numbers whose text shows when pointed at, numbered lists with their numbers, and the title, table of contents, lists of figures and tables, page breaks and the bibliography as labelled blocks. The settings at the top are folded into one "Document settings" line, and lines that only begin or end a list are left out.
+- The heading menu is now Style: Normal text, Chapter (in a report or thesis), Heading 1 to 3 and Run-in heading.
+- Insert has Numbered list, Footnote, Table of contents, Page break and Bibliography. A project with no `.bib` file is given `references.bib`, with an example reference.
+- A Thesis template: title page, abstract, acknowledgements, contents, chapters, margins and line spacing ready to change, and a bibliography.
+- Text pasted from Word, a web page or an e-mail has `%`, `&`, `#`, `_`, `$` and the like written so that they print, and each paragraph kept as one. LaTeX, and text copied in Emquad, goes in as it is.
+- A project never compiled is compiled as soon as it opens.
+- The status line counts the words of the file on screen.
+- While you write, a version is kept after a save at most every ten minutes, so History has your work even if you never take a snapshot.
+
 ## 0.8.2 - 2026-10-15
 
 Deleting a file can be undone from History, and long documents stay quick to type in.
