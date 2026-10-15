@@ -7,3 +7,4 @@ src-tauri/gen/
 src-tauri/sidecars/*
 !src-tauri/sidecars/README.md
 release/
+*.tsbuildinfo
