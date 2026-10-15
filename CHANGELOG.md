@@ -4,6 +4,15 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.10.0 - 2026-10-15
+
+Compile errors you can understand, and a page setup.
+
+- Compile errors are explained in plain words, under LaTeX's own message, in the editor and in Logs and messages. Where the fix is certain there is a button for it: add the package a command or environment needs, write a stray `&`, `#` or `_` so that it prints, or go to the `{` or `\begin` that was never closed. Emquad compiles again after a fix.
+- An error LaTeX reports at the end of the file, such as an unclosed brace, is marked where the brace was opened.
+- Notes on how a line is set (a little too wide or too loose) are folded away in the logs and no longer counted as warnings.
+- File ▸ Document setup sets the paper, the size of the text, margins, line spacing, typeface, page numbers and paragraph style, writing the ordinary LaTeX for each at the top of the main file.
+
 ## 0.9.0 - 2026-10-15
 
 What someone coming from Word reaches for first.

@@ -131,7 +131,13 @@ The magnifier in the left rail (Ctrl+Shift+F) searches every text file in the pr
 
 ### When a compile fails
 
-The top bar shows the number of errors, the line is marked in the source, and the previous PDF stays on screen. The page icon next to Recompile opens **Logs and messages**, which lists each error and warning with its file and line, and can show the compiler's full output.
+The top bar shows the number of errors, the line is marked in the source, and the previous PDF stays on screen. Emquad says what each error means in plain words, under LaTeX's own message: point at the marked line, or open **Logs and messages** with the page icon next to Recompile. Where the fix is certain it offers it as a button:
+
+- a command or environment from a package the document does not load: **Add \usepackage{…}** adds the package to the settings at the top;
+- an `&`, `#` or `_` typed in ordinary text: **Write it as \&** (and so on) puts the backslash before it;
+- a `{` or a `\begin{…}` that is never closed, which LaTeX reports at the end of the file: **Go to** takes you to where it was opened.
+
+After a fix Emquad compiles again. Notes on how a line is set (a line a little too wide or too loose) are kept apart in the logs, folded away, and not counted as warnings.
 
 ### Moving between source and PDF
 
@@ -181,6 +187,10 @@ Import the returned bundle. Emquad opens History with the bundle selected and a 
 If you change your mind, **Start this review over** clears your choices. If you edit your files while a review is open, Emquad will ask you to start the review again, because the merge was worked out against your files as they were.
 
 The state of your project from just before the import is always kept as a version called "Before import from …", so a merge can be undone by restoring it.
+
+## Document setup
+
+**File ▸ Document setup…** sets the page as a word processor's page setup does: the paper (A4 or US Letter), the size of the text, the margins, the line spacing (single, 1.5 lines, double), the typeface (Computer Modern, Times, Palatino or sans serif), whether pages are numbered, and whether paragraphs start with an indent or are set apart by space. Emquad writes the ordinary LaTeX for each choice at the top of the main file (class options, `geometry`, `setspace`, the font packages, `parskip`, `\pagestyle`) and compiles. Everything else in your settings stays as you wrote it, and Ctrl+Z takes the change back.
 
 ## Settings
 
