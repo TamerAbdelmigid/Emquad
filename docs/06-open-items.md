@@ -26,6 +26,10 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 - **A merged cell over columns with a width** takes the first column's description, width and all, so its text wraps at that width rather than at the width of all the columns it covers.
 - **Structural changes lay the table out again**, one row to a line; only typing, clearing, pasting and bold or italic keep a hand-made layout.
 
+### Visual mode
+
+- **A line that only begins or ends a list is hidden**, and Backspace at the start of the line after it joins the two lines, showing the source; nothing is lost, and Ctrl+Z puts it back.
+
 ### Caption tool
 
 - **Definitions in other files** (a class, a style file of the user's own, a file brought in with `\input`) are not read; a preamble that reads another file is declined, and what a class or style file defines is taken on trust.

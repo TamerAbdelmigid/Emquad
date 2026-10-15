@@ -2,6 +2,7 @@
 // mouse or the keyboard, merged, split, formatted and so on, much as in a word processor. Every
 // action is worked out on the grid in tableModel.ts and written straight back to the LaTeX
 // source as one editor change, so the source stays the only truth and undo works.
+import { pastedText } from "./paste";
 import { closeCompletion } from "@codemirror/autocomplete";
 import { isolateHistory, redo, undo } from "@codemirror/commands";
 import { type ChangeSpec, type Extension } from "@codemirror/state";
@@ -1465,7 +1466,8 @@ export const tablePaste: Extension = EditorView.domEventHandlers({
     event.preventDefault();
     const size = `${table.rows.length} ${table.rows.length === 1 ? "row" : "rows"} and ${table.aligns.length} ${table.aligns.length === 1 ? "column" : "columns"}`;
     void confirm("Paste as a table?", `The clipboard holds a table of ${size}. Cancel pastes it as plain text instead.`, "Paste as table").then((yes) => {
-      const insert = yes ? `${writeTable(table)}\n` : plain;
+      // Declined, the text goes in as text pasted from elsewhere does: written so that it prints.
+      const insert = yes ? `${writeTable(table)}\n` : (pastedText(plain, false, false) ?? plain);
       const main = view.state.selection.main;
       const changes: ChangeSpec[] = [{ from: main.from, to: main.to, insert }];
       let cursor = main.from + insert.length;

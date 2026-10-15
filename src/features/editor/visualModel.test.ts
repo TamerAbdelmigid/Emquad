@@ -86,6 +86,21 @@ describe("visualPieces", () => {
     expect(notes.map((n) => [n.number, n.text])).toEqual([[1, "A short note."], [2, "Second."]]);
   });
 
+  it("still draws headings and bold text that hold a formula, and numbers footnotes as the PDF does", () => {
+    const text = "\\documentclass{report}\n\\begin{document}\n\\section{The $n$-body problem}\nText \\textbf{bold $x$}.\\footnote{see $y$} Then\\footnote{plain}.\n\\chapter{Two}\nMore\\footnote{again}.\n\\end{document}";
+    const pieces = visualPieces(text, []);
+    expect(of(pieces, "line").map((p) => (p as Extract<Piece, { kind: "line" }>).style)).toContain("h1");
+    expect(of(pieces, "style").map((p) => slice(text, p))).toEqual(expect.arrayContaining(["The $n$-body problem", "bold $x$", "\\footnote{see $y$}"]));
+    // The footnote with a formula is a chip, but still counted: the next is 2, and a chapter starts again at 1.
+    expect((of(pieces, "footnote") as Extract<Piece, { kind: "footnote" }>[]).map((f) => [f.text, f.number])).toEqual([["plain", 2], ["again", 1]]);
+  });
+
+  it("takes no \\begin{document} in a comment for the real one", () => {
+    const text = "\\documentclass{article}\n% put the text after \\begin{document}\n\\usepackage{amsmath}\n\\begin{document}\nBody";
+    const fold = of(visualPieces(text, [{ from: text.length, to: text.length }]), "fold");
+    expect(fold.map((p) => slice(text, p))).toEqual([text.slice(0, text.indexOf("\nBody"))]);
+  });
+
   it("folds the preamble into one line, named by the title, until the cursor goes into it", () => {
     const text = "\\documentclass{article}\n\\usepackage{amsmath}\n\\title{My \\emph{Great} Paper}\n\\begin{document}\n\\section{One}";
     const folded = visualPieces(text, [{ from: text.length, to: text.length }]);

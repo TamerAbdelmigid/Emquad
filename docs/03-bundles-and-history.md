@@ -46,6 +46,8 @@ On Windows and macOS, two paths that differ only in capital letters cannot both 
 | Immediately before an import is reviewed | automatic | "Before import from <author>" |
 | Immediately before a restore | automatic | "Before restoring <label>" |
 | Finish merge | merge | "Merged bundle from <author>" |
+| Immediately before a file or folder is deleted | automatic | "Before deleting <path>" |
+| After a save, when the latest version is ten minutes old or more | automatic | "Saved while writing" |
 
 Automatic snapshots are skipped when the working copy is identical to the current head. They are shown in History, visually quieter than named snapshots.
 
@@ -54,7 +56,7 @@ Automatic snapshots are skipped when the working copy is identical to the curren
 The app does not record edits as they are typed and does not put markers in source files. Every "tracked change" the user sees is the result of comparing two versions:
 
 - **In History:** the selected version compared with its parent (or, for a bundle, with the common ancestor).
-- **In the editor's changes mode:** the working copy compared with a chosen snapshot, by default the current head.
+- **In the editor's changes mode:** the working copy compared with a chosen snapshot, by default the latest version the user made: automatic versions are passed over, so that the changes since the last snapshot, export or merge read as a whole. With none yet, the current head.
 - **In review:** a three-way comparison, defined below.
 
 "Accept" means keep the new text. "Reject" means put back the old text for that hunk. Both are ordinary edits to the working copy.

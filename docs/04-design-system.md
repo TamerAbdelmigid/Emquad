@@ -147,7 +147,8 @@ Initial set; make them discoverable in menus and tooltips.
 | In a table: select cells | Shift+arrow keys |
 | In a table: the table's menu | Shift+F10 |
 | Correct the word at the cursor | Ctrl+. |
-| Toggle file panel | Ctrl+B |
+| Toggle file panel | Ctrl+Shift+B |
+| Bold, italic, underline | Ctrl+B, Ctrl+I, Ctrl+U |
 | Save snapshot | Ctrl+Shift+S |
 | Open History | Ctrl+Shift+H |
 | Export bundle / import bundle | Ctrl+Shift+E / Ctrl+Shift+I |

@@ -14,7 +14,7 @@ What someone coming from Word reaches for first.
 - The heading menu is now Style: Normal text, Chapter (in a report or thesis), Heading 1 to 3 and Run-in heading.
 - Insert has Numbered list, Footnote, Table of contents, Page break and Bibliography. A project with no `.bib` file is given `references.bib`, with an example reference.
 - A Thesis template: title page, abstract, acknowledgements, contents, chapters, margins and line spacing ready to change, and a bibliography.
-- Text pasted from Word, a web page or an e-mail has `%`, `&`, `#`, `_`, `$` and the like written so that they print, and each paragraph kept as one. LaTeX, and text copied in Emquad, goes in as it is.
+- Text pasted from Word, a web page or an e-mail has `%`, `&`, `#`, `_`, `$` and the like written so that they print, and each paragraph kept as one (joined into one inside a command's braces, where a paragraph cannot end). LaTeX, text copied in Emquad, and anything pasted into an address, a label, a citation key or a code listing goes in as it is.
 - A project never compiled is compiled as soon as it opens.
 - The status line counts the words of the file on screen.
 - While you write, a version is kept after a save at most every ten minutes, so History has your work even if you never take a snapshot.

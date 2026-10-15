@@ -66,6 +66,9 @@ pub struct Numbered {
     pub number: String,
     /// What `\pageref` prints.
     pub page: String,
+    /// What `\nameref` prints: the title of what is numbered, when the compile said (with
+    /// hyperref); empty otherwise.
+    pub title: String,
     /// What is numbered, when the compile said (with hyperref): "section", "figure", "table",
     /// "equation"; empty otherwise.
     pub kind: String,
@@ -107,8 +110,13 @@ fn groups(text: &str, mut at: usize) -> Vec<String> {
 
 /// The labels an `.aux` file records, as `\newlabel{key}{{number}{page}{title}{anchor}…}`.
 fn label_numbers(aux: &str, out: &mut BTreeMap<String, Numbered>) {
-    for (at, _) in aux.match_indices("\\newlabel{") {
-        let found = groups(aux, at + "\\newlabel".len());
+    // Each entry is one line, and is read within it: a group never closed cannot make reading
+    // one entry run through the rest of the file.
+    for line in aux.lines() {
+        let Some(at) = line.find("\\newlabel{") else {
+            continue;
+        };
+        let found = groups(line, at + "\\newlabel".len());
         let [key, data] = found.as_slice() else {
             continue;
         };
@@ -128,6 +136,7 @@ fn label_numbers(aux: &str, out: &mut BTreeMap<String, Numbered>) {
             Numbered {
                 number: fields.first().map(|s| clean(s)).unwrap_or_default(),
                 page: fields.get(1).map(|s| clean(s)).unwrap_or_default(),
+                title: fields.get(2).map(|s| clean(s)).unwrap_or_default(),
                 kind,
             },
         );
@@ -471,6 +480,7 @@ mod tests {
             Numbered {
                 number: "1".into(),
                 page: "1".into(),
+                title: "Introduction".into(),
                 kind: "section".into()
             }
         );
@@ -479,6 +489,7 @@ mod tests {
             Numbered {
                 number: "2.1".into(),
                 page: "4".into(),
+                title: "A {\\em nested} caption".into(),
                 kind: "figure".into()
             }
         );
@@ -487,10 +498,20 @@ mod tests {
             Numbered {
                 number: "3".into(),
                 page: "5".into(),
+                title: String::new(),
                 kind: String::new()
             }
         );
         assert!(!found.contains_key("fig:x@cref") && !found.contains_key("broken"));
+        // A group never closed, in a large file, is read within its own line, and quickly.
+        let crafted = "\\newlabel{x}{{1}{2}\n".repeat(50_000);
+        let started = std::time::Instant::now();
+        label_numbers(&crafted, &mut BTreeMap::new());
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
         // Read from every .aux file the compile wrote, an included file's in a subfolder too.
         let tmp = tempfile::tempdir().unwrap();
         let p = Project::create(&tmp.path().join("p"), "p", "article").unwrap();

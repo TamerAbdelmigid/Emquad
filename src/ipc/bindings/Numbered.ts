@@ -13,6 +13,11 @@ number: string,
  */
 page: string, 
 /**
+ * What `\nameref` prints: the title of what is numbered, when the compile said (with
+ * hyperref); empty otherwise.
+ */
+title: string, 
+/**
  * What is numbered, when the compile said (with hyperref): "section", "figure", "table",
  * "equation"; empty otherwise.
  */

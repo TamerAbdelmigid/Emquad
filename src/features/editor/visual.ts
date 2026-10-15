@@ -104,6 +104,7 @@ export function describeReference(command: string, keys: string[], numbers: Proj
     const found = numbers[key];
     if (!found) return "?";
     if (command === "pageref") return found.page;
+    if (command === "nameref") return found.title || found.number;
     if (command === "eqref") return `(${found.number})`;
     const named = command === "autoref" || command === "cref" || command === "Cref" || command === "vref";
     const kind = found.kind && named ? `${found.kind[0].toUpperCase()}${found.kind.slice(1)} ` : "";

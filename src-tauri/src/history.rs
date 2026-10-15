@@ -308,10 +308,21 @@ impl History {
     /// a pending bundle against the common ancestor, anything else against its first parent.
     pub fn natural_base(&self, spec: &str) -> Result<Oid> {
         if spec == WORKING {
-            return match self.head() {
-                Some(h) => Ok(self.repo.find_commit(h)?.tree_id()),
-                None => self.empty_tree(),
+            // The working copy is compared with the latest version the user made, passing over
+            // the automatic ones kept while writing or before a delete, so that the changes since
+            // read as a whole. With none of the user's own yet, with the latest there is.
+            let Some(head) = self.head() else {
+                return self.empty_tree();
             };
+            let mut at = Some(head);
+            while let Some(oid) = at {
+                let commit = self.repo.find_commit(oid)?;
+                if trailer(commit.message().unwrap_or(""), "Emquad-Kind") != Some("automatic") {
+                    return Ok(commit.tree_id());
+                }
+                at = commit.parent_id(0).ok();
+            }
+            return Ok(self.repo.find_commit(head)?.tree_id());
         }
         let oid = self.parse_id(spec)?;
         if let Some(head) = self.head()
@@ -569,6 +580,33 @@ pub mod tests {
         let p = Project::create(dir, "paper", "article").unwrap();
         let h = History::open(&p).unwrap();
         (p, h)
+    }
+
+    #[test]
+    fn changes_are_shown_since_the_users_own_version_not_one_kept_automatically() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (p, h) = new_project(&tmp.path().join("p"));
+        let me = author("Tamer");
+        // With only automatic versions, the latest is the base.
+        h.snapshot(&p, &me, "automatic", "Saved while writing")
+            .unwrap();
+        assert_eq!(
+            h.natural_base(WORKING).unwrap(),
+            h.tree_of_dir(&p.root).unwrap()
+        );
+        p.write_file("main.tex", "Sent to my supervisor.\n")
+            .unwrap();
+        let sent = h.snapshot(&p, &me, "snapshot", "Sent").unwrap();
+        p.write_file("main.tex", "An hour later.\n").unwrap();
+        h.snapshot(&p, &me, "automatic", "Saved while writing")
+            .unwrap();
+        p.write_file("main.tex", "Two hours later.\n").unwrap();
+        h.snapshot(&p, &me, "automatic", "Before deleting x")
+            .unwrap();
+        assert_eq!(
+            h.natural_base(WORKING).unwrap(),
+            h.repo.find_commit(sent).unwrap().tree_id()
+        );
     }
 
     #[test]

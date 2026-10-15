@@ -36,6 +36,7 @@ import { type Insertion, type Sym, insertion, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
 import { drawingStale, forgetPictures, redrawVisual, visualMode } from "./visual";
+import { documentStart } from "./visualModel";
 
 const states = new Map<string, EditorState>();
 /** Text as last read from or written to disk, to tell whether a buffer has unsaved edits. */
@@ -231,6 +232,11 @@ export const buffers = {
     for (const path of states.keys()) apply(path, { effects });
   },
 
+  /** Make a change to an open file, as one step of its undo history. */
+  change(path: string, changes: { from: number; to?: number; insert: string } | { from: number; to?: number; insert: string }[]) {
+    apply(path, { changes, userEvent: "input", annotations: isolateHistory.of("full") });
+  },
+
   /** Draw visual mode again: the references or the pictures changed, not the text. */
   redrawVisual() {
     if (!visualOn) return;
@@ -291,7 +297,7 @@ export const buffers = {
     saved.set(path, text);
     // The cursor starts where the writing does: past the settings at the top, so they stay
     // folded away in visual mode until they are wanted.
-    const body = text.indexOf("\\begin{document}");
+    const body = documentStart(text);
     const start = body < 0 ? 0 : text.indexOf("\n", body) + 1 || text.length;
     states.set(path, EditorState.create({ doc: text, selection: { anchor: start }, extensions: extensions(path) }));
     place(path, true);

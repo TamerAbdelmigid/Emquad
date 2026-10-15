@@ -230,7 +230,8 @@ function WordCount({ path }: { path: string | null }) {
       if (text === last) return;
       last = text;
       cancelIdleCallback(idle);
-      idle = requestIdleCallback(() => setWords(text === undefined ? null : countWords(text)), { timeout: 3000 });
+      // A very long file is not counted: it would hold up typing each time.
+      idle = requestIdleCallback(() => setWords(text === undefined || text.length > 400_000 ? null : countWords(text)), { timeout: 3000 });
     };
     count();
     const timer = window.setInterval(count, 2000);

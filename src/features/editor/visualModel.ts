@@ -96,6 +96,15 @@ function roman(n: number): string {
   return out;
 }
 
+/** Where the document's body begins: its \\begin{document}, not one written in a comment. -1 when there is none. */
+export function documentStart(text: string): number {
+  for (const m of text.matchAll(/\\begin\{document\}/g)) {
+    const lineStart = text.lastIndexOf("\n", m.index - 1) + 1;
+    if (!/(?<!\\)%/.test(text.slice(lineStart, m.index))) return m.index;
+  }
+  return -1;
+}
+
 /** Text with its commands and braces taken out, as a tooltip shows it. */
 export function plainText(tex: string): string {
   return tex
@@ -186,6 +195,7 @@ class Taken {
 export function visualPieces(text: string, selection: Range[], report?: { touched: boolean }): Piece[] {
   const pieces: Piece[] = [];
   let footnotes = 0;
+  const chapters = /\\documentclass\s*(?:\[[^\]]*\])?\s*\{\s*(?:report|book|memoir|scrbook|scrreprt)\s*\}/.test(text);
   // Whether the selection made any construct show as source, for `report`: when it made none,
   // moving it elsewhere that touches nothing draws the same pieces.
   const touched = (from: number, to: number) => {
@@ -201,7 +211,7 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
   // Comments first: nothing inside one is a command.
   for (const m of text.matchAll(/(?<!\\)%.*$/gm)) taken.add(m.index, m.index + m[0].length);
 
-  const begin = text.indexOf("\\begin{document}");
+  const begin = documentStart(text);
   // The preamble is set-up, not content: folded away into one line, unless the cursor is in it.
   const foldTo = begin < 0 ? -1 : begin + "\\begin{document}".length;
   const folded = begin > 0 && !touched(0, foldTo);
@@ -285,7 +295,13 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
     if (begin >= 0 && from < begin && name !== "title") continue;
     const end = closingBrace(text, open);
     if (end < 0) continue;
-    if (!free(from, end)) continue;
+    // What replaces the whole command must not cover anything drawn already, such as a formula
+    // in it; what only styles its text, as a heading or bold does, may hold one.
+    const whole = free(from, end);
+    // Footnotes are numbered as the PDF numbers them: every one, drawn or not, and afresh with
+    // each chapter where the class has chapters.
+    if (name === "footnote") footnotes++;
+    if (name === "chapter" && chapters) footnotes = 0;
 
     if (name in HEADINGS || name in INLINE) {
       const style = HEADINGS[name] ?? INLINE[name];
@@ -301,14 +317,13 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
       const keys = text.slice(open + 1, end - 1).split(",").map((k) => k.trim()).filter(Boolean);
       if (keys.length) pieces.push({ kind: "cite", from, to: end, keys });
       else pieces.push({ kind: "style", from, to: end, style: "chip" });
-    } else if (REFS.has(name) && !touched(from, end)) {
+    } else if (REFS.has(name) && whole && !touched(from, end)) {
       const keys = text.slice(open + 1, end - 1).split(",").map((k) => k.trim()).filter(Boolean);
       if (keys.length) pieces.push({ kind: "ref", from, to: end, command: name, keys });
-    } else if (name === "footnote" && !touched(from, end)) {
-      footnotes++;
+    } else if (name === "footnote" && whole && !touched(from, end)) {
       pieces.push({ kind: "footnote", from, to: end, number: footnotes, text: plainText(text.slice(open + 1, end - 1)) });
       taken.add(from, end);
-    } else if ((name === "bibliography" || name === "addbibresource") && from > begin && !touched(from, end)) {
+    } else if ((name === "bibliography" || name === "addbibresource") && from > begin && whole && !touched(from, end)) {
       pieces.push({ kind: "block", from, to: end, label: "Bibliography" });
     } else if (CHIPS.has(name) || REFS.has(name) || name === "footnote") {
       pieces.push({ kind: "style", from, to: end, style: "chip" });

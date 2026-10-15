@@ -1,5 +1,7 @@
 // What the app can do, as plain functions over the store, the editor buffers and the backend.
 // Components call these; they never talk to the backend for a multi-step action themselves.
+import { relativeTo } from "./paths";
+import { documentStart } from "../features/editor/visualModel";
 import type { TreeNode } from "../ipc/bindings/TreeNode";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { buffers } from "../features/editor/buffers";
@@ -73,7 +75,16 @@ async function enter(opened: OpenedProject) {
   // Show the last PDF if one exists from an earlier session; a project never compiled is
   // compiled at once, so its document is there to see from the start.
   store().set({ pdfVersion: store().pdfVersion + 1 });
-  if (!opened.hasPdf) void compile();
+  // Only with the built-in compiler, which runs nothing from the project: latexmk reads a
+  // project's own latexmkrc, so a project from someone else is compiled with it only when asked.
+  if (!opened.hasPdf && opened.info.engine !== "latexmk") {
+    void api
+      .enginesAvailable()
+      .then((engines) => {
+        if (engines.tectonic && store().root === opened.root) void compile();
+      })
+      .catch(() => {});
+  }
 }
 
 // Unsaved edits are saved before another project is opened: once it is, a save would go to it.
@@ -139,17 +150,30 @@ const FIRST_REFERENCE = `% Your references. Each one has a key, here knuth1984, 
  */
 export async function insertBibliography() {
   await guard(async () => {
+    const main = store().info?.mainFile ?? "main.tex";
+    // LaTeX looks for the .bib file from the main file's folder.
+    const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/") + 1) : "";
     let bib = projectFiles().find((p) => p.toLowerCase().endsWith(".bib"));
     if (!bib) {
-      bib = "references.bib";
+      bib = `${folder}references.bib`;
       store().set({ tree: await api.fileCreate(bib, false) });
       await api.fileWrite(bib, FIRST_REFERENCE);
-      store().notify("Added references.bib, with an example reference. Add yours there, and cite them with Insert ▸ Citation.");
+      store().notify(`Added ${bib}, with an example reference. Add yours there, and cite them with Insert ▸ Citation.`);
       void refreshIndex();
     }
-    buffers.insert(`\\bibliographystyle{plain}\n\\bibliography{${bib.replace(/\.bib$/i, "")}}\n`);
+    const name = relativeTo(folder, bib);
+    const mainText = buffers.text(main) ?? (await api.fileRead(main).catch(() => null))?.text ?? "";
+    if (/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bbiblatex\b[^}]*\}/.test(mainText)) {
+      // biblatex names its .bib files in the settings and prints the list with \printbibliography.
+      if (!/\\addbibresource\s*\{/.test(mainText) && buffers.has(main)) {
+        const at = documentStart(mainText);
+        if (at >= 0) buffers.change(main, { from: at, insert: `\\addbibresource{${name}}\n` });
+      }
+      buffers.insert("\\printbibliography\n");
+    } else buffers.insert(`\\bibliographystyle{plain}\n\\bibliography{${name.replace(/\.bib$/i, "")}}\n`);
   });
 }
+
 
 export const refreshTree = () => guard(async () => store().set({ tree: await api.projectTree() }));
 /**
@@ -208,6 +232,9 @@ export async function closeTab(path: string) {
   persistUi();
 }
 
+/** When a version of the work while writing was last asked for. */
+let lastKeptAsked = 0;
+
 export async function save(path: string | null = store().active): Promise<boolean> {
   if (!path) return true;
   const text = buffers.text(path);
@@ -229,8 +256,12 @@ export async function save(path: string | null = store().active): Promise<boolea
   if (done) {
     void refreshIndex();
     // A version of the work is kept every ten minutes or so of saving, so History has it even
-    // when no snapshot was ever taken.
-    void api.historyKeepWhileWriting().catch(() => {});
+    // when no snapshot was ever taken. Asked for no more often: working out whether one is due
+    // can read the whole project.
+    if (Date.now() - lastKeptAsked > 10 * 60 * 1000) {
+      lastKeptAsked = Date.now();
+      void api.historyKeepWhileWriting().catch(() => {});
+    }
   }
   return done === true;
 }
