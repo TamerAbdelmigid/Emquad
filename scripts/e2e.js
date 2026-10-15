@@ -690,7 +690,8 @@
       $(".cm-content").dispatchEvent(new ClipboardEvent("paste", { clipboardData: copied, bubbles: true, cancelable: true }));
       await until("the paste question again", () => text("dialog[open]").includes("2 rows and 2 columns"));
       await click("Cancel");
-      await until("the plain text", () => src().includes("2025\t50%"));
+      // Declined, it goes in as text, written so that it prints.
+      await until("the plain text", () => src().includes("2025\t50\\%"));
       await ok(true, "declining pastes the plain text instead");
       const ours = new DataTransfer();
       ours.setData("application/x-emquad-cells", JSON.stringify([["\\textbf{a}", "$x^2$"]]));
@@ -803,7 +804,11 @@
       fromWord.setData("text/plain", "Costs rose 50% for R&D.\r\nA second paragraph.");
       fromWord.setData("text/html", "<p>Costs rose 50% for R&amp;D.</p><p>A second paragraph.</p>");
       editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: fromWord, bubbles: true, cancelable: true }));
-      await ok(buffers.text("main.tex").includes("Costs rose 50\\% for R\\&D.\n\nA second paragraph."), "text pasted from Word prints as it reads, each paragraph kept");
+      // Pasted inside the bold just begun, where a paragraph cannot end: the two are joined.
+      await ok(buffers.text("main.tex").includes("\\textbf{Costs rose 50\\% for R\\&D. A second paragraph.}"), "text pasted from Word prints as it reads, and inside bold its paragraphs are joined so it compiles");
+      buffers.goToLine(line + 2);
+      editor.dispatchEvent(new ClipboardEvent("paste", { clipboardData: fromWord, bubbles: true, cancelable: true }));
+      await ok(buffers.text("main.tex").includes("Costs rose 50\\% for R\\&D.\n\nA second paragraph."), "in ordinary text each pasted paragraph is kept");
       await act.save();
     }
 
