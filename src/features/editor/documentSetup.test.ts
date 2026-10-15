@@ -61,6 +61,11 @@ describe("setting a document's page", () => {
     expect(set(text, { margins: "2.5cm" })).toBe(doc("\\documentclass{article}\n\\usepackage[\n  colorlinks\n]{hyperref}\n\\usepackage[margin=2.5cm]{geometry}"));
   });
 
+  it("changes the paper where geometry is given it, since that one counts", () => {
+    const text = doc("\\documentclass{article}\n\\usepackage[a4paper,margin=2cm]{geometry}");
+    expect(set(text, { paper: "letterpaper" })).toBe(doc("\\documentclass{article}\n\\usepackage[letterpaper,margin=2cm]{geometry}"));
+  });
+
   it("changes a margin written with a comment after it, or given to \\geometry", () => {
     expect(set(doc("\\documentclass{article}\n\\usepackage[margin=2cm]{geometry} % page"), { margins: "3cm" })).toBe(doc("\\documentclass{article}\n\\usepackage[margin=3cm]{geometry} % page"));
     expect(set(doc("\\documentclass{article}\n\\usepackage{geometry}\n\\geometry{margin=1in}"), { margins: "2.5cm" })).toBe(doc("\\documentclass{article}\n\\usepackage{geometry}\n\\geometry{margin=2.5cm}"));

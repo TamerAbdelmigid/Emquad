@@ -140,6 +140,15 @@ export function setupChange(text: string, setup: Setup): { from: number; to: num
     if (lines.length) pre = pre.slice(0, at) + lines.map((l) => l + nl).join("") + pre.slice(at);
   };
 
+  // The paper, where geometry is given it: changed there, since geometry's is the one that counts.
+  const geometryPaper = packages(code()).find((p) => p.names.length === 1 && p.names[0] === "geometry" && p.options.split(",").some((o) => PAPERS.has(o.trim())));
+  if (setup.paper !== was.paper && geometryPaper) {
+    const statement = pre.slice(geometryPaper.from, geometryPaper.to);
+    const options = setOption(geometryPaper.options, (o) => PAPERS.has(o), setup.paper);
+    pre = pre.slice(0, geometryPaper.from) + statement.replace(/^\\usepackage\s*(?:\[[^\]]*\])?/, `\\usepackage${options ? `[${options}]` : ""}`) + pre.slice(geometryPaper.to);
+    was.paper = setup.paper;
+  }
+
   // The paper and the size of the text: options of the class.
   if (setup.size !== was.size || setup.paper !== was.paper) {
     const m = CLASS.exec(code())!;

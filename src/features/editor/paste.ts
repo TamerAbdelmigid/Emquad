@@ -32,8 +32,10 @@ export function looksLikeLatex(text: string): boolean {
 /** Commands whose argument is a name, an address or a key, written as it is. */
 const LITERAL_ARGUMENTS = new Set([
   "url", "href", "nolinkurl", "includegraphics", "input", "include", "label", "ref", "eqref", "pageref", "autoref", "cref", "Cref", "nameref",
-  "cite", "citep", "citet", "parencite", "textcite", "autocite", "footcite", "nocite", "bibliography", "addbibresource", "bibliographystyle",
-  "usepackage", "documentclass", "graphicspath", "lstinputlisting", "verb",
+  "vref", "cpageref", "Cpageref", "subref", "hyperref", "hyperlink", "hypertarget", "cite", "citep", "citet", "Citep", "Citet", "citealp",
+  "citealt", "citeauthor", "Citeauthor", "citeyear", "citeyearpar", "citetitle", "fullcite", "parencite", "Parencite", "textcite",
+  "Textcite", "autocite", "Autocite", "footcite", "smartcite", "supercite", "nocite", "bibitem", "bibliography", "addbibresource",
+  "bibliographystyle", "usepackage", "RequirePackage", "documentclass", "graphicspath", "lstinputlisting", "verb", "input", "subfile",
 ]);
 /** Environments whose text is taken as it is written. */
 const VERBATIM = /^(?:verbatim\*?|Verbatim|lstlisting|minted|comment|filecontents\*?|alltt)$/;
@@ -43,13 +45,14 @@ const VERBATIM = /^(?:verbatim\*?|Verbatim|lstlisting|minted|comment|filecontent
  * \url or \label, or inside a verbatim environment or a code listing.
  */
 export function literalAt(text: string, pos: number): boolean {
-  // The innermost group the place is in, and the command it belongs to.
+  // The innermost group the place is in, braces or the square brackets of an option such as
+  // \hyperref[label], and the command it belongs to.
   let depth = 0;
   for (let i = pos - 1; i >= 0 && pos - i < 4000; i--) {
     const ch = text[i];
     if (text[i - 1] === "\\") continue;
-    if (ch === "}") depth++;
-    else if (ch === "{" && depth-- === 0) {
+    if (ch === "}" || ch === "]") depth++;
+    else if ((ch === "{" || ch === "[") && depth-- === 0) {
       const name = /\\([a-zA-Z@]+)\*?(?:\[[^\]]*\])?\s*$/.exec(text.slice(Math.max(0, i - 80), i))?.[1];
       if (name && LITERAL_ARGUMENTS.has(name)) return true;
       break;

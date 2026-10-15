@@ -71,6 +71,9 @@ describe("fixes only where they are certain", () => {
     expect(fixFor("Missing $ inserted.", "$$a_1$$ and \\alpha")).toBeUndefined();
     // Two candidates: which one is at fault is not certain, so no fix is offered.
     expect(fixFor("Missing $ inserted.", "a_b and c_d")).toBeUndefined();
+    // Keys of natbib's and hyperref's commands too, in braces or in square brackets.
+    expect(fixFor("Missing $ inserted.", "As \\citeauthor{smith_2020} showed, \\alpha decays")).toBeUndefined();
+    expect(fixFor("Missing $ inserted.", "See \\hyperref[sec_a]{there} and \\alpha")).toBeUndefined();
     // Inside an equation over several lines.
     const eq = source(["\\begin{equation}", "x_1 + y", "\\end{equation}"]);
     expect(explain(error("Missing $ inserted.", 2), eq, none)?.fix).toBeUndefined();
