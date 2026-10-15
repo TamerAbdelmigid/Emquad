@@ -19,6 +19,8 @@
       `Start writing here.\n\n${B}begin{tabular}{|l|l|}\n${B}hline\nA & B ${B}${B}\nC & D ${B}${B}\n${B}hline\n${B}end{tabular}\n`,
     );
     await invoke("file_write", { path: "main.tex", text });
+    // As the file watcher would tell of a change another program made.
+    await act.filesChangedOnDisk(["main.tex"]);
     await sleep(1500);
     await log("READY");
     while (!window.__KB_DONE) await sleep(300);

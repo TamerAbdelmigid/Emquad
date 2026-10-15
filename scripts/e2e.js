@@ -81,6 +81,12 @@
     const work = window.__E2E_WORK;
     if (!work) throw new Error("EMQUAD_E2E_WORK is not set");
     const { act, store } = await until("the app", () => window.emquad);
+    // Write a file as another program would: the app's own writes are not reported back by its
+    // file watcher, so the app is told of the change as the watcher would tell it.
+    const writeOutside = async ({ path, text }) => {
+      await invoke("file_write", { path, text });
+      await act.filesChangedOnDisk([path]);
+    };
     await invoke("settings_update", { displayName: "Tamer" });
     store().set({ settings: await invoke("settings_get") });
     await until("the start screen", () => $(".start"));
@@ -130,7 +136,7 @@
       await until("the buffer to be clean again", () => !$(".stab.on .dot"));
       if (withServer) {
         // Go to definition opens the file the definition is in, though it is not open.
-        await invoke("file_write", { path: "defs.tex", text: "\\section{Defined}\\label{sec:defined}\n" });
+        await writeOutside({ path: "defs.tex", text: "\\section{Defined}\\label{sec:defined}\n" });
         b.goToLine(18);
         b.insert("\\input{defs}\n\\ref{sec:def", "ined}\n");
         const f12 = () => $(".cm-content").dispatchEvent(new KeyboardEvent("keydown", { key: "F12", bubbles: true, cancelable: true }));
@@ -199,7 +205,7 @@
       "Start writing here.",
       "Start \\textbf{writing} here, with $E = mc^2$ inline.\n\\begin{equation}\n  I = \\int_0^\\infty e^{-x^2}\\,dx\n\\end{equation}\n\\begin{itemize}\n\\item first\n\\end{itemize}",
     );
-    await invoke("file_write", { path: "main.tex", text: rich });
+    await writeOutside({ path: "main.tex", text: rich });
     await until("the richer document", () => text(".cm-content").includes("textbf"));
     buffers.goToLine(1);
     await click("Visual");
@@ -211,7 +217,7 @@
     await click("Code");
     await until("plain source again", () => !$(".cm-visual") && !$(".cm-v-math"));
     await ok(text(".cm-content").includes("\\begin{equation}"), "code mode shows the plain source again");
-    await invoke("file_write", { path: "main.tex", text: plain });
+    await writeOutside({ path: "main.tex", text: plain });
     await until("the original document", () => !text(".cm-content").includes("textbf"));
 
     // --- search across the project
@@ -260,7 +266,7 @@
 
     // --- an error is reported on its line and the last PDF stays
     const good = (await invoke("file_read", { path: "main.tex" })).text;
-    await invoke("file_write", { path: "main.tex", text: good.replace("Start writing here.", "Start \\undefinedthing here.") });
+    await writeOutside({ path: "main.tex", text: good.replace("Start writing here.", "Start \\undefinedthing here.") });
     await until("the reloaded buffer", () => text(".cm-content").includes("undefinedthing"));
     await ok(true, "a file changed on disk reloads into its clean buffer");
     await click("Recompile");
@@ -270,7 +276,7 @@
     await until("the gutter marker", () => $(".cm-lint-marker-error"));
     await ok(true, "the error is marked in the editor gutter");
     await shot("03-error");
-    await invoke("file_write", { path: "main.tex", text: good });
+    await writeOutside({ path: "main.tex", text: good });
     await until("the fixed buffer", () => !text(".cm-content").includes("undefinedthing"));
     await click("Recompile");
     await status("Compiled");
@@ -303,14 +309,14 @@
     const theirs = good
       .replace("Start writing here.", "Start writing here, said Lina.")
       .replace("A short summary of the paper.", "A short summary, tightened by Lina.");
-    await invoke("file_write", { path: "main.tex", text: theirs });
+    await writeOutside({ path: "main.tex", text: theirs });
     const back = `${work}\\back.emquad`;
     await invoke("bundle_export", { dest: back, note: "Tightened the wording", includePdf: false, includePackages: false, includeComments: true });
     await invoke("settings_update", { displayName: "Tamer" });
 
     await act.openProject(a.root);
     await until("project A again", () => store().root === a.root && text(".cm-content").includes("\\documentclass"));
-    await invoke("file_write", { path: "main.tex", text: good.replace("Start writing here.", "Start writing here, said Tamer.") });
+    await writeOutside({ path: "main.tex", text: good.replace("Start writing here.", "Start writing here, said Tamer.") });
     await until("our own edit", () => text(".cm-content").includes("said Tamer"));
     const before = (await invoke("file_read", { path: "main.tex" })).text;
 
@@ -360,7 +366,7 @@
     // --- spelling: prose is checked, LaTeX is not, and a correction is one click
     const figure = `${a.root}\\plot.pdf`;
     await invoke("pdf_save", { dest: figure });
-    await invoke("file_write", {
+    await writeOutside({
       path: "refs.bib",
       text: "@book{knuth84,\n  author = {Knuth, Donald E.},\n  title = {The TeXbook},\n  year = {1984}\n}\n",
     });
@@ -385,7 +391,7 @@
       "\\end{document}",
       "",
     ].join("\n");
-    await invoke("file_write", { path: "main.tex", text: paper });
+    await writeOutside({ path: "main.tex", text: paper });
     await until("the new text", () => text(".cm-content").includes("sentense"));
     const wrong = () => $$(".cm-misspelled").map((w) => w.textContent);
     await until("the misspelled words to be underlined", () => wrong().length === 2, 30000);
@@ -707,7 +713,7 @@
       await click("Code");
       await until("plain source", () => !$(".cm-visual"));
       buffers.replace("main.tex", before);
-      await invoke("file_write", { path: "main.tex", text: before });
+      await writeOutside({ path: "main.tex", text: before });
       await act.save();
       await click("Visual");
       await until("visual mode again", () => $(".cm-visual"));
@@ -771,7 +777,7 @@
     // Deleting a file takes a version first, so History can bring it back.
     {
       await invoke("file_create", { path: "scratch.tex", isDir: false });
-      await invoke("file_write", { path: "scratch.tex", text: "Kept by History.\n" });
+      await writeOutside({ path: "scratch.tex", text: "Kept by History.\n" });
       await invoke("file_delete", { path: "scratch.tex" });
       const before = (await invoke("history_list")).versions.find((v) => v.label === "Before deleting scratch.tex");
       const kept = before && (await invoke("history_changed_files", { version: before.id, against: null }));
