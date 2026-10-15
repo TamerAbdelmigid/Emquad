@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Icon, Menu } from "../../design/ui";
 import { type Tab, useStore } from "../../state/store";
 import { SymbolPicker } from "./SymbolPicker";
+import { countWords } from "./spellModel";
 import { buffers } from "./buffers";
 import { newTable, writeTable } from "./tableModel";
 
@@ -195,7 +196,7 @@ export function EditorPane(p: Props) {
         <span>
           <Position />
         </span>
-        <span>LaTeX</span>
+        <WordCount path={p.active} />
         {p.engine && <span>{p.engine === "tectonic" ? "Tectonic engine" : "latexmk engine"}</span>}
         {p.languageServer && <span title="Hover for information; F12 goes to a definition; Shift+F12 finds references; F2 renames">texlab</span>}
         <span style={{ marginLeft: "auto" }}>Works offline</span>
@@ -212,4 +213,32 @@ function Position() {
       Line <b>{cursor.line}</b>, column <b>{cursor.column}</b>
     </>
   );
+}
+
+/**
+ * How many words the file on screen has, as a reader would count them: commands, mathematics,
+ * comments and the preamble left out. Counted when the text has changed and the app is idle,
+ * since counting a long document takes a moment.
+ */
+function WordCount({ path }: { path: string | null }) {
+  const [words, setWords] = useState<number | null>(null);
+  useEffect(() => {
+    let last: string | undefined;
+    let idle = 0;
+    const count = () => {
+      const text = path ? buffers.text(path) : undefined;
+      if (text === last) return;
+      last = text;
+      cancelIdleCallback(idle);
+      idle = requestIdleCallback(() => setWords(text === undefined ? null : countWords(text)), { timeout: 3000 });
+    };
+    count();
+    const timer = window.setInterval(count, 2000);
+    return () => {
+      window.clearInterval(timer);
+      cancelIdleCallback(idle);
+    };
+  }, [path]);
+  if (words === null) return null;
+  return <span title="Words in this file's text, not counting commands, mathematics, comments or the preamble">{words.toLocaleString()} words</span>;
 }

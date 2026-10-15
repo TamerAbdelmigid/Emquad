@@ -30,6 +30,22 @@ const WORD = /(?<![\p{L}\p{N}_@\\'’-])\p{L}[\p{L}'’]*(?![\p{L}\p{N}_@])/gu;
 
 /** The prose words of `text`, in order. */
 export function spellWords(text: string): Word[] {
+  const out: Word[] = [];
+  for (const m of proseOnly(text).matchAll(WORD)) {
+    const word = m[0].replace(/['’]+$/, "");
+    if (word.length < 2) continue;
+    out.push({ from: m.index, to: m.index + word.length, word });
+  }
+  return out;
+}
+
+/** How many words of prose `text` has, as a reader would count them: numbers and one-letter words too. */
+export function countWords(text: string): number {
+  return proseOnly(text).match(/[\p{L}\p{N}]+(?:['’.,-][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+}
+
+/** `text` with everything that is not prose blanked out, every offset kept where it was. */
+function proseOnly(text: string): string {
   // Everything that is not prose is blanked out, keeping every offset where it was.
   const chars = Array.from({ length: text.length }, (_, i) => text[i]);
   const blank = (from: number, to: number) => {
@@ -141,14 +157,7 @@ export function spellWords(text: string): Word[] {
   }
   // What is left of other commands: a backslash and one character, such as \& or \%.
   for (const m of now.matchAll(/\\[^a-zA-Z\s]/g)) blank(m.index, m.index + 2);
-
-  const out: Word[] = [];
-  for (const m of current().matchAll(WORD)) {
-    const word = m[0].replace(/['’]+$/, "");
-    if (word.length < 2) continue;
-    out.push({ from: m.index, to: m.index + word.length, word });
-  }
-  return out;
+  return current();
 }
 
 /** Words that are not judged: abbreviations in capitals and names written in mixed case. */

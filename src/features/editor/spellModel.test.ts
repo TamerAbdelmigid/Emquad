@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { skipWord, spellWords } from "./spellModel";
+import { countWords, skipWord, spellWords } from "./spellModel";
+
+describe("countWords", () => {
+  it("counts the words a reader sees, numbers and one-letter words too, and nothing of the LaTeX", () => {
+    const text =
+      "\\documentclass{article}\n\\usepackage{amsmath}\n\\begin{document}\n\\section{Results}\nIn 2024 a test of R\\&D gave $x^2 + y$ and 3.5 points, see~\\ref{tab:a}. % not this\n\\end{document}";
+    // Results, In, 2024, a, test, of, R, D, gave, and, 3.5, points, see
+    expect(countWords(text)).toBe(13);
+    expect(countWords("")).toBe(0);
+  });
+});
 
 const words = (text: string) => spellWords(text).map((w) => w.word);
 

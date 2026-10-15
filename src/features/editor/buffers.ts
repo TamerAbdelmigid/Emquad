@@ -1,5 +1,6 @@
 // One CodeMirror state per open file, kept while its tab is open so undo history and the cursor
 // survive switching tabs. The single EditorView shows whichever state is active.
+import { prosePaste } from "./paste";
 import {
   autocompletion,
   closeBrackets,
@@ -183,6 +184,7 @@ function extensions(path: string): Extension[] {
     spell.of(spellOn ? spelling : []),
     commenting,
     tablePaste,
+    prosePaste,
     EditorView.lineWrapping,
     theme,
     keymap.of([
