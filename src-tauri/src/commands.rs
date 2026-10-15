@@ -362,6 +362,15 @@ fn start_project(
     Ok(opened)
 }
 
+// ---------- references ----------
+
+/// Let the user pick references in Zotero, on this computer, and give them with their BibTeX;
+/// null when the picker was closed without a choice.
+#[tauri::command(async)]
+pub fn zotero_pick() -> Result<Option<crate::zotero::Picked>> {
+    crate::zotero::pick()
+}
+
 // ---------- windows ----------
 
 /// Open another window, at the start screen, for another project. Asynchronous: on Windows a

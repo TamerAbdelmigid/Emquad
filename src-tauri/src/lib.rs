@@ -15,6 +15,7 @@ pub mod settings;
 pub mod synctex;
 pub mod templates;
 pub mod watch;
+pub mod zotero;
 
 use commands::AppState;
 use std::path::PathBuf;
@@ -77,6 +78,7 @@ macro_rules! handlers {
             commands::dictionary_remove,
             commands::project_image,
             commands::window_new,
+            commands::zotero_pick,
             $($extra),*
         ]
     };
