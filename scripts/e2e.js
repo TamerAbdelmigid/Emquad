@@ -1025,7 +1025,15 @@
       store().set({ dialog: "equation" });
       await until("the editor on it again", () => $("math-field.eq-field"));
       // The editor would write \boldsymbol its own way: it says so, with the LaTeX open.
-      await ok(!!(await until("the note", () => $(".eq-note"))) && $(".eq-source").open, "a formula the visual editor would write differently opens with its LaTeX shown, and a note on why");
+      const note = await until("the note", () => $(".eq-note"));
+      // Undo straight after opening has nothing of the editor's own to take back.
+      const shown = $("math-field.eq-field");
+      const asOpened = shown.getValue("latex");
+      shown.executeCommand("undo");
+      await ok(
+        note.textContent.includes("\\boldsymbol") && $(".eq-source").open && shown.getValue("latex") === asOpened,
+        "a formula the visual editor would write differently opens with its LaTeX shown, and a note naming what it would change",
+      );
       if (!$(".eq-source").open) $(".eq-source summary").click();
       type(await until("the LaTeX under the formula", () => $("#eq-tex")), "\\boldsymbol{u}\\hspace{2em}w");
       await click("Change");

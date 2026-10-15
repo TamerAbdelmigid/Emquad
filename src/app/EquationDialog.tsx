@@ -52,8 +52,8 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
   const opened = useRef("");
   /** The LaTeX under the formula was typed in last: it goes in as it was typed. */
   const [typedSource, setTypedSource] = useState(false);
-  /** The formula as written has parts the visual editor would write otherwise, such as a comment. */
-  const [rewrites, setRewrites] = useState(false);
+  /** What of the formula as written the visual editor would lose once it is changed: a comment, commands. */
+  const [rewrites, setRewrites] = useState<string[]>([]);
   /** The button of each group of the ribbon, to give the keyboard back to when its list closes. */
   const toolButtons = useRef(new Map<string, HTMLButtonElement>());
 
@@ -108,8 +108,13 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
         const rewritten = mf.getValue("latex").replace(/q$/, "");
         mf.value = was.tex;
         opened.current = mf.getValue("latex");
-        const bare = (t: string) => t.replace(/\s+/g, "");
-        if (bare(cleanFormula(rewritten, was.tex)) !== bare(was.tex)) setRewrites(true);
+        // The trial is no step of the user's to undo.
+        mf.resetUndo();
+        // Only what would be lost counts, not the same thing written another way (a_{i} for a_i).
+        const commands = (t: string) => new Set([...t.matchAll(/\\([a-zA-Z]+)/g)].map((m) => m[1]));
+        const kept = commands(cleanFormula(rewritten, was.tex));
+        const lost = [...commands(was.tex)].filter((c) => !kept.has(c)).map((c) => `\\${c}`);
+        setRewrites([...(/(?<!\\)%/.test(was.tex) ? ["a comment"] : []), ...lost]);
       }
       field.current = mf;
       setReady(true);
@@ -256,13 +261,13 @@ export function EquationDialog({ onClose }: { onClose: () => void }) {
         <div ref={holder} className="eq-holder">
           {!ready && <p>Opening the equation editor…</p>}
         </div>
-        {rewrites && (
+        {rewrites.length > 0 && (
           <p className="eq-note">
-            Parts of this formula are written in a way the visual editor would write differently, such as a comment or a bold symbol. Change it in the
-            LaTeX below to keep them as they are.
+            This formula has {rewrites.join(", ")}, which the visual editor would write differently once the formula is changed. Change it in the LaTeX
+            below to keep {rewrites.length === 1 ? "it" : "them"} as written.
           </p>
         )}
-        <details className="eq-source" open={rewrites || undefined}>
+        <details className="eq-source" open={rewrites.length > 0 || undefined}>
           <summary>LaTeX</summary>
           <label htmlFor="eq-tex" className="sr">
             The formula in LaTeX
