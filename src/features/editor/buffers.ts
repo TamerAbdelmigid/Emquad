@@ -60,8 +60,20 @@ let comments: Comment[] = [];
 function apply(path: string, spec: TransactionSpec) {
   const state = shownPath === path && view ? view.state : states.get(path);
   if (!state) return;
-  if (shownPath === path && view) view.dispatch(spec);
-  else states.set(path, state.update(spec).state);
+  if (shownPath === path && view) return view.dispatch(spec);
+  const next = state.update(spec).state;
+  states.set(path, next);
+  // A file not on screen has no editor to see the change: its tab is marked here, so that it is
+  // saved with the others.
+  if (next.doc !== state.doc) markDirty(path, next.doc.toString() !== saved.get(path));
+}
+
+/** Show whether a file has changes not saved, on its tab. */
+function markDirty(path: string, dirty: boolean) {
+  const s = store();
+  if (s.tabs.some((tab) => tab.path === path && tab.dirty !== dirty)) {
+    s.set({ tabs: s.tabs.map((tab) => (tab.path === path ? { ...tab, dirty } : tab)) });
+  }
 }
 
 /**
@@ -206,13 +218,7 @@ function extensions(path: string): Extension[] {
       indentWithTab,
     ]),
     EditorView.updateListener.of((update) => {
-      if (update.docChanged) {
-        const dirty = update.state.doc.toString() !== saved.get(path);
-        const s = store();
-        if (s.tabs.some((tab) => tab.path === path && tab.dirty !== dirty)) {
-          s.set({ tabs: s.tabs.map((tab) => (tab.path === path ? { ...tab, dirty } : tab)) });
-        }
-      }
+      if (update.docChanged) markDirty(path, update.state.doc.toString() !== saved.get(path));
       if (update.selectionSet || update.docChanged) {
         const head = update.state.selection.main.head;
         const line = update.state.doc.lineAt(head);

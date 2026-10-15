@@ -56,8 +56,19 @@ export function styleChanges(text: string, id: string): { from: number; to?: num
     changes.push({ from: bibliography.index, insert: `\\bibliographystyle{${style.bst}}\n` });
   }
   const begin = documentStart(text);
-  if (style.natbib && begin >= 0 && !/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bnatbib\b/.test(code.slice(0, begin))) {
+  const preamble = begin >= 0 ? code.slice(0, begin) : "";
+  if (style.natbib && begin >= 0 && !/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\bnatbib\b/.test(preamble)) {
     changes.push({ from: begin, insert: "\\usepackage{natbib}\n" });
+  }
+  // natbib, once loaded, puts numbers in round brackets unless told otherwise: a numbered style
+  // is given square ones, as the dialog shows it, and an author-and-year style its round ones.
+  const natbib = /\\usepackage\s*(?:\[([^\]]*)\])?\s*\{\s*natbib\s*\}/.exec(preamble);
+  if (natbib) {
+    const was = (natbib[1] ?? "").split(",").map((o) => o.trim()).filter(Boolean);
+    const options = style.natbib ? was.filter((o) => o !== "square") : [...was.filter((o) => o !== "round" && o !== "square"), "square"];
+    if (options.join(",") !== was.join(",")) {
+      changes.push({ from: natbib.index, to: natbib.index + natbib[0].length, insert: `\\usepackage${options.length ? `[${options.join(",")}]` : ""}{natbib}` });
+    }
   }
   return changes.sort((a, b) => a.from - b.from);
 }

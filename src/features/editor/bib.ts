@@ -9,48 +9,60 @@ export interface Entry {
   to: number;
 }
 
-/** The entries of BibTeX text, in order. @comment, @string and @preamble are not references. */
-export function entries(text: string): Entry[] {
-  const out: Entry[] = [];
-  for (const m of text.matchAll(/@\s*([a-zA-Z]+)\s*([{(])\s*([^,\s})]*)\s*,/g)) {
+/**
+ * The entries of BibTeX text, in order, read as BibTeX reads them: every brace counts, a
+ * backslash before it or not, and an entry in round brackets ends at the first one outside
+ * braces. @comment, @string and @preamble are not references. `unclosed` is the key of an entry
+ * that is never closed, which takes in everything after it.
+ */
+function scan(text: string): { found: Entry[]; unclosed: string | null } {
+  const found: Entry[] = [];
+  const start = /@\s*([a-zA-Z]+)\s*([{(])\s*([^,\s})]*)/g;
+  for (let m = start.exec(text); m; m = start.exec(text)) {
     const kind = m[1].toLowerCase();
-    // The entry runs to the bracket that closes the one it opened with.
     const open = m.index + m[0].indexOf(m[2]);
-    const close = m[2] === "{" ? "}" : ")";
-    let depth = 0;
+    let braces = 0;
     let to = -1;
-    for (let i = open; i < text.length; i++) {
+    for (let i = open + 1; i < text.length && to < 0; i++) {
       const ch = text[i];
-      if (ch === "\\") i++;
-      else if (ch === m[2] || (m[2] === "(" && ch === "{")) depth++;
-      else if (ch === close || (m[2] === "(" && ch === "}")) {
-        if (--depth === 0) {
-          to = i + 1;
-          break;
-        }
-      }
+      if (ch === "{") braces++;
+      else if (ch === "}") {
+        if (braces === 0 && m[2] === "{") to = i + 1;
+        else braces = Math.max(0, braces - 1);
+      } else if (ch === ")" && m[2] === "(" && braces === 0) to = i + 1;
     }
-    if (to < 0 || ["comment", "string", "preamble"].includes(kind) || !m[3]) continue;
-    out.push({ key: m[3], kind, from: m.index, to });
+    if (to < 0) return { found, unclosed: m[3] || kind };
+    // Whatever is inside an entry, an @ in an address too, is part of it.
+    start.lastIndex = to;
+    const key = m[3];
+    if (["comment", "string", "preamble"].includes(kind) || !key || !/^\s*,/.test(text.slice(m.index + m[0].length))) continue;
+    found.push({ key, kind, from: m.index, to });
   }
-  return out;
+  return { found, unclosed: null };
 }
+
+/** The entries of BibTeX text, in order. */
+export const entries = (text: string): Entry[] => scan(text).found;
+
+/** The key of an entry that is never closed, or null when every entry is. */
+export const unclosedEntry = (text: string): string | null => scan(text).unclosed;
 
 /**
  * `existing` with the entries of `incoming` added at its end, each one whose key is not there
- * already: what was added, and the keys left out because the file has them.
+ * already (BibTeX takes Knuth1984 and knuth1984 for the same key): what was added, and the
+ * keys left out because the file has them.
  */
 export function appendEntries(existing: string, incoming: string): { text: string; added: string[]; kept: string[] } {
-  const have = new Set(entries(existing).map((e) => e.key));
+  const have = new Set(entries(existing).map((e) => e.key.toLowerCase()));
   const added: string[] = [];
   const kept: string[] = [];
   const pieces: string[] = [];
   for (const e of entries(incoming)) {
-    if (have.has(e.key)) {
+    if (have.has(e.key.toLowerCase())) {
       kept.push(e.key);
       continue;
     }
-    have.add(e.key);
+    have.add(e.key.toLowerCase());
     added.push(e.key);
     pieces.push(incoming.slice(e.from, e.to).trim());
   }
@@ -86,14 +98,31 @@ const WHERE: Record<Reference["kind"], string> = {
   misc: "howpublished",
 };
 
-/** The people of a reference, each as "Surname, Given". */
+/**
+ * The people of a reference, each as "Surname, Given". An organisation written in braces,
+ * "{World Health Organization}", is kept as it is, "and" in it too.
+ */
 export function people(authors: string): string[] {
-  return authors
-    .split(/\s*(?:;|\n|\band\b)\s*/)
+  const parts: string[] = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i <= authors.length; i++) {
+    const ch = authors[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") depth = Math.max(0, depth - 1);
+    else if (i === authors.length || (depth === 0 && (ch === ";" || ch === "\n"))) {
+      parts.push(authors.slice(from, i));
+      from = i + 1;
+    } else if (depth === 0 && /^\sand\s/.test(authors.slice(i, i + 5))) {
+      parts.push(authors.slice(from, i));
+      from = i + 4;
+    }
+  }
+  return parts
     .map((p) => p.trim())
     .filter(Boolean)
     .map((p) => {
-      if (p.includes(",")) return p;
+      if (p.includes(",") || p.startsWith("{")) return p;
       const words = p.split(/\s+/);
       return words.length > 1 ? `${words[words.length - 1]}, ${words.slice(0, -1).join(" ")}` : p;
     });
@@ -101,8 +130,11 @@ export function people(authors: string): string[] {
 
 /** A key for a reference in the usual way, surname and year ("knuth1984"), made unique against `taken`. */
 export function makeKey(authors: string, year: string, title: string, taken: Iterable<string>): string {
-  const used = new Set(taken);
-  const surname = (people(authors)[0] ?? "").split(",")[0];
+  // BibTeX takes keys that differ only in case for the same key.
+  const used = new Set([...taken].map((k) => k.toLowerCase()));
+  // The surname of the first person, or the first word of an organisation's name.
+  const first = people(authors)[0] ?? "";
+  const surname = first.startsWith("{") ? first.slice(1).split(/[\s}]/)[0] : first.split(",")[0];
   const word = (s: string) =>
     s
       .normalize("NFD")
@@ -121,35 +153,59 @@ export function makeKey(authors: string, year: string, title: string, taken: Ite
   return `${base}-${n}`;
 }
 
-/** A field's value written so that BibTeX prints it as typed: &, %, #, _ and $ escaped, braces balanced. */
-function value(text: string): string {
-  const escaped = text.replace(/\s+/g, " ").trim().replace(/(?<!\\)([&%#_$])/g, "\\$1");
-  let depth = 0;
-  for (const ch of escaped.replace(/\\[{}]/g, "")) {
-    if (ch === "{") depth++;
-    else if (ch === "}" && --depth < 0) return escaped.replace(/(?<!\\)([{}])/g, "\\$1");
+/**
+ * `text` with any brace that has no partner left out. BibTeX counts every brace, one after a
+ * backslash too, so one without a partner would make the entry run on through the file.
+ */
+function balanced(text: string): string {
+  const drop = new Set<number>();
+  const open: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "{") open.push(i);
+    else if (text[i] === "}" && open.pop() === undefined) drop.add(i);
   }
-  return depth === 0 ? escaped : escaped.replace(/(?<!\\)([{}])/g, "\\$1");
+  for (const i of open) drop.add(i);
+  return text
+    .split("")
+    .filter((_, i) => !drop.has(i))
+    .join("");
 }
 
-/** A reference written as a BibTeX entry under `key`. */
+/** A field's value written so that BibTeX prints it as typed: &, %, #, _ and $ escaped, braces balanced. */
+const value = (text: string) =>
+  balanced(text)
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(?<!\\)([&%#_$])/g, "\\$1");
+
+/**
+ * A reference written as a BibTeX entry under `key`. A web page is written as @misc with its
+ * address in \url, which every style prints; @online is biblatex's alone.
+ */
 export function formatEntry(ref: Reference, key: string): string {
+  const url = balanced(ref.url.trim());
+  const online = ref.kind === "online";
+  const where: [string, string][] = online
+    ? [
+        ["howpublished", url ? `\\url{${url}}` : value(ref.where)],
+        ["note", url ? value(ref.where) : ""],
+      ]
+    : [[WHERE[ref.kind], value(ref.where)]];
   const fields: [string, string][] = [
-    ["author", people(ref.authors).join(" and ")],
+    ["author", value(people(ref.authors).join(" and "))],
     // Double braces keep the title's capitals as typed.
     ["title", ref.title.trim() ? `{${value(ref.title)}}` : ""],
-    [WHERE[ref.kind], ref.where],
-    ["year", ref.year],
-    ["volume", ref.volume],
-    ["pages", ref.pages.replace(/\s*[-–—]+\s*/g, "--")],
-    ["doi", ref.doi],
-    ["url", ref.url],
+    ...where,
+    ["year", value(ref.year)],
+    ["volume", value(ref.volume)],
+    ["pages", value(ref.pages.replace(/\s*[-–—]+\s*/g, "--"))],
+    ["doi", balanced(ref.doi.trim())],
+    ["url", online ? "" : url],
   ];
-  const width = Math.max(...fields.map(([name]) => name.length));
-  const lines = fields
-    .filter(([, v]) => v.trim())
-    .map(([name, v]) => `  ${name.padEnd(width)} = {${name === "title" || name === "url" || name === "doi" ? v.trim() : value(v)}},`);
-  return `@${ref.kind}{${key},\n${lines.join("\n")}\n}\n`;
+  const kept = fields.filter(([, v]) => v.trim());
+  const width = Math.max(...kept.map(([name]) => name.length));
+  const lines = kept.map(([name, v]) => `  ${name.padEnd(width)} = {${v}},`);
+  return `@${online ? "misc" : ref.kind}{${key},\n${lines.join("\n")}\n}\n`;
 }
 
 /**

@@ -366,9 +366,13 @@ fn start_project(
 
 /// Let the user pick references in Zotero, on this computer, and give them with their BibTeX;
 /// null when the picker was closed without a choice.
-#[tauri::command(async)]
-pub fn zotero_pick() -> Result<Option<crate::zotero::Picked>> {
-    crate::zotero::pick()
+/// The picker can stay open for minutes, so the wait is on a thread of its own, never holding one
+/// that other commands run on.
+#[tauri::command]
+pub async fn zotero_pick() -> Result<Option<crate::zotero::Picked>> {
+    tauri::async_runtime::spawn_blocking(crate::zotero::pick)
+        .await
+        .map_err(|e| Error::app("zotero_failed", format!("Asking Zotero stopped: {e}")))?
 }
 
 // ---------- windows ----------

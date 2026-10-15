@@ -42,15 +42,10 @@ fn ask(port: u16, method: &str, path: &str, body: Option<&str>, wait: Duration) 
     stream.set_read_timeout(Some(wait))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
     let body = body.unwrap_or("");
-    // Sent in one piece.
+    // Sent in one piece, each line ended with CR LF as HTTP has it: Zotero's server reads a line
+    // only to a CR LF, and never answers a request whose lines end otherwise.
     let request = format!(
-        "{method} {path} HTTP/1.1
-Host: 127.0.0.1:{port}
-Content-Type: application/json
-Content-Length: {}
-Connection: close
-
-{body}",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes())?;
@@ -72,39 +67,71 @@ Connection: close
                 Error::Io(e)
             }
         })?;
-    let reply = String::from_utf8_lossy(&reply).into_owned();
-    let (head, rest) = reply.split_once("\r\n\r\n").ok_or_else(missing)?;
-    let status = head.split_whitespace().nth(1).unwrap_or("");
-    if status != "200" {
+    if reply.len() as u64 >= MAX_REPLY {
         return Err(Error::app(
             "zotero_failed",
-            format!("Zotero answered {status}: {}", rest.trim()),
+            "Zotero's answer was too long to take. Choose fewer references at a time.",
         ));
     }
-    // Better BibTeX may send its reply in chunks.
-    if head
+    let split = find(&reply, b"\r\n\r\n").ok_or_else(missing)?;
+    let head = String::from_utf8_lossy(&reply[..split]).into_owned();
+    let rest = &reply[split + 4..];
+    let status = head.split_whitespace().nth(1).unwrap_or("");
+    if status != "200" {
+        // Only the start of what it said: an answer can be long.
+        let said: String = String::from_utf8_lossy(rest)
+            .trim()
+            .chars()
+            .take(200)
+            .collect();
+        return Err(Error::app(
+            "zotero_failed",
+            format!("Zotero answered {status}: {said}"),
+        ));
+    }
+    // A reply may come in chunks. They are joined as bytes and read as text once whole, since a
+    // chunk may end inside a character.
+    let body = if head
         .to_ascii_lowercase()
         .contains("transfer-encoding: chunked")
     {
-        return Ok(unchunk(rest));
-    }
-    Ok(rest.to_string())
+        unchunk(rest)?
+    } else {
+        rest.to_vec()
+    };
+    Ok(String::from_utf8_lossy(&body).into_owned())
 }
 
-/// The body of a reply sent in chunks.
-fn unchunk(mut rest: &str) -> String {
-    let mut out = String::new();
-    while let Some((size, after)) = rest.split_once("\r\n") {
-        let Ok(size) = usize::from_str_radix(size.trim(), 16) else {
-            break;
-        };
-        if size == 0 || after.len() < size {
-            break;
+/// Where `needle` first is in `haystack`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// The body of a reply sent in chunks; an error when the chunks are not as HTTP has them.
+fn unchunk(mut rest: &[u8]) -> Result<Vec<u8>> {
+    let broken = || {
+        Error::app(
+            "zotero_failed",
+            "Zotero's answer was cut short or garbled. Try again.",
+        )
+    };
+    let mut out = Vec::new();
+    loop {
+        let end = find(rest, b"\r\n").ok_or_else(broken)?;
+        // A size may be followed by extensions after a ";", which are of no use here.
+        let line = String::from_utf8_lossy(&rest[..end]);
+        let size = line.split(';').next().unwrap_or("").trim();
+        let size = usize::from_str_radix(size, 16).map_err(|_| broken())?;
+        rest = &rest[end + 2..];
+        if size == 0 {
+            return Ok(out);
         }
-        out.push_str(&after[..size]);
-        rest = after[size..].trim_start_matches("\r\n");
+        if rest.len() < size + 2 || &rest[size..size + 2] != b"\r\n" {
+            return Err(broken());
+        }
+        out.extend_from_slice(&rest[..size]);
+        rest = &rest[size + 2..];
     }
-    out
 }
 
 /// Ask the user to pick references in Zotero, and give their keys and their BibTeX; `None` when
@@ -207,11 +234,8 @@ mod tests {
                     let n = stream.read(&mut buf).unwrap();
                     request.extend_from_slice(&buf[..n]);
                     let text = String::from_utf8_lossy(&request).into_owned();
-                    if let Some((head, rest)) = text.split_once(
-                        "
-
-",
-                    ) {
+                    // As Zotero's server does, only CR LF ends a line.
+                    if let Some((head, rest)) = text.split_once("\r\n\r\n") {
                         let length = head
                             .lines()
                             .find_map(|l| l.strip_prefix("Content-Length: "))
@@ -255,7 +279,7 @@ mod tests {
             asked
                 .recv()
                 .unwrap()
-                .starts_with("GET /better-bibtex/cayw?probe=true HTTP/1.1")
+                .starts_with("GET /better-bibtex/cayw?probe=true HTTP/1.1\r\nHost: 127.0.0.1:")
         );
         assert!(
             asked
@@ -285,5 +309,24 @@ mod tests {
         // Something else answering there is not Better BibTeX.
         let (port, _asked) = zotero(vec!["HTTP/1.1 404 Not Found\r\n\r\nno"]);
         assert_eq!(pick_at(port).unwrap_err().code(), "zotero_failed");
+    }
+
+    #[test]
+    fn chunks_are_joined_as_bytes_and_a_garbled_reply_is_an_error_not_a_crash() {
+        // "Gödel" cut inside its ö.
+        let chunked = b"2\r\nG\xc3\r\n4\r\n\xb6del\r\n0\r\n\r\n";
+        assert_eq!(
+            String::from_utf8(unchunk(chunked).unwrap()).unwrap(),
+            "Gödel"
+        );
+        assert_eq!(unchunk(b"3;name=x\r\nabc\r\n0\r\n\r\n").unwrap(), b"abc");
+        for broken in [
+            &b"5\r\nab"[..],
+            b"zz\r\nab\r\n",
+            b"2\r\nabc\r\n0\r\n\r\n",
+            b"2\r\nab",
+        ] {
+            assert_eq!(unchunk(broken).unwrap_err().code(), "zotero_failed");
+        }
     }
 }

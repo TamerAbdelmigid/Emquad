@@ -446,7 +446,7 @@ function ReferenceDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="f">
           <label htmlFor="ref-authors">Authors</label>
-          <textarea id="ref-authors" rows={2} value={ref.authors} placeholder={"One to a line: Ada Lovelace\nor Lovelace, Ada"} onChange={(e) => change({ authors: e.target.value })} />
+          <textarea id="ref-authors" rows={2} value={ref.authors} placeholder={"One to a line: Ada Lovelace, or Lovelace, Ada\nAn organisation in braces: {World Health Organization}"} onChange={(e) => change({ authors: e.target.value })} />
         </div>
         {field("title", "Title")}
         <div className="ref-row">

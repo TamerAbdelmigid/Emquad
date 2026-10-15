@@ -182,7 +182,7 @@ A diagnostic is `{ severity, file, line, message }`.
 |---|---|
 | `zotero_pick()` | the citation keys picked in Zotero and their BibTeX, or nothing when the picker was closed; `zotero_missing` when Zotero with Better BibTeX is not running |
 
-The webview turns a reference into BibTeX (`bib.ts`), adds it at the end of the project's `.bib` file with `file_write` (never changing an entry already there), and sets the citation style (`citationStyle.ts`); all three are plain functions with tests.
+The webview turns a reference into BibTeX (`bib.ts`) and adds it at the end of the project's `.bib` file, never changing an entry already there: with `file_write`, or, when the file is open in a tab, in its editor, which is then saved with whatever else was typed in it. Keys are compared without regard to case, as BibTeX compares them, and entries are read as BibTeX reads them, counting every brace. A `.bib` file with an entry that is never closed is not added to, since what came after would be read as part of it, and one the document names outside the project is never written. `citationStyle.ts` sets the citation style. Both are plain functions with tests.
 
 **LSP**
 

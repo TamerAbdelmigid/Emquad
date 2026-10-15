@@ -2,7 +2,7 @@
 // Components call these; they never talk to the backend for a multi-step action themselves.
 import { relativeTo, resolveFrom } from "./paths";
 import { documentStart } from "../features/editor/visualModel";
-import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib } from "../features/editor/bib";
+import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, unclosedEntry } from "../features/editor/bib";
 import { citeCommand, readStyle, styleChanges } from "../features/editor/citationStyle";
 import { type Setup, readSetup, setupChange } from "../features/editor/documentSetup";
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
@@ -192,19 +192,29 @@ async function mainText(): Promise<string> {
 }
 
 /**
- * The .bib file new references go in: the one the document names, else the project's first,
- * else a new references.bib beside the main file.
+ * The .bib file new references go in: the one the document names, made if it is not there yet;
+ * for a document that names none, the project's first, else a new references.bib beside the
+ * main file. One the document names outside the project is never written: Emquad changes only
+ * the project's own files.
  */
 async function referencesFile(): Promise<string> {
   const main = store().info?.mainFile ?? "main.tex";
   const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/") + 1) : "";
   const files = projectFiles();
   const named = namedBib(await mainText());
-  // LaTeX looks for it from the main file's folder.
-  const namedPath = named ? resolveFrom(folder, named) : null;
-  const found = (namedPath && files.find((p) => p.toLowerCase() === namedPath.toLowerCase())) || files.find((p) => p.toLowerCase().endsWith(".bib"));
-  if (found) return found;
-  const bib = `${folder}references.bib`;
+  let bib: string;
+  if (named) {
+    // LaTeX looks for it from the main file's folder.
+    const path = resolveFrom(folder, named);
+    if (!path) throw new Error(`The document takes its references from ${named}, outside the project. Add them there, in your reference manager or another editor.`);
+    const found = files.find((p) => p.toLowerCase() === path.toLowerCase());
+    if (found) return found;
+    bib = path;
+  } else {
+    const found = files.find((p) => p.toLowerCase().endsWith(".bib"));
+    if (found) return found;
+    bib = `${folder}references.bib`;
+  }
   store().set({ tree: await api.fileCreate(bib, false) });
   return bib;
 }
@@ -218,6 +228,9 @@ async function addToReferences(bibtex: string): Promise<{ bib: string; added: st
   const open = buffers.text(bib);
   const existing = open ?? (await api.fileRead(bib)).text;
   if (existing === null) throw new Error(`${bib} is not a text file, so references cannot be added to it.`);
+  // What is added after an entry that is never closed would be read as part of it.
+  const unclosed = unclosedEntry(existing);
+  if (unclosed) throw new Error(`The entry ${unclosed} in ${bib} is never closed: a } is missing. Put it right, then add the reference again.`);
   const { text, added, kept } = appendEntries(existing, bibtex);
   if (added.length) {
     if (open !== undefined) {
@@ -242,17 +255,29 @@ export async function cite(keys: string[]) {
   }
 }
 
+/** Whether Zotero's picker is open, so that it is not opened twice. */
+let pickingInZotero = false;
+
 /** Pick references in Zotero, add them to the project's .bib file, and cite them where the cursor is. */
 export async function citeFromZotero() {
-  await guard(async () => {
-    store().notify("Choose the references in Zotero's window, then press Enter there.");
-    const picked = await api.zoteroPick();
-    if (!picked || !picked.keys.length) return;
-    const { bib, added } = await addToReferences(picked.bibtex);
-    store().set({ dialog: null });
-    await cite(picked.keys);
-    if (added.length) store().notify(`Added ${added.length === 1 ? "a reference" : `${added.length} references`} from Zotero to ${bib}.`);
-  });
+  if (pickingInZotero) return store().notify("Zotero's window is open already: choose the references there.");
+  pickingInZotero = true;
+  try {
+    await guard(async () => {
+      store().notify("Choose the references in Zotero's window, then press Enter there.");
+      const picked = await api.zoteroPick();
+      if (!picked || !picked.keys.length) return;
+      const { bib, added, kept } = await addToReferences(picked.bibtex);
+      store().set({ dialog: null });
+      await cite(picked.keys);
+      const known = new Set([...added, ...kept].map((k) => k.toLowerCase()));
+      const lost = picked.keys.filter((k) => !known.has(k.toLowerCase()));
+      if (lost.length) store().notify(`Zotero gave no entry for ${lost.join(", ")}, so ${lost.length === 1 ? "it is" : "they are"} cited but not in ${bib}.`, true);
+      else if (added.length) store().notify(`Added ${added.length === 1 ? "a reference" : `${added.length} references`} from Zotero to ${bib}.`);
+    });
+  } finally {
+    pickingInZotero = false;
+  }
 }
 
 /** Write a reference from the Add reference form into the project's .bib file, and cite it. */
@@ -264,6 +289,17 @@ export async function addReference(ref: Reference) {
     await addToReferences(formatEntry(ref, key));
     store().set({ dialog: null });
     await cite([key]);
+    // A web page's address is written with \url, which the url package gives (hyperref too).
+    const main = store().info?.mainFile;
+    const text = await mainText();
+    const styles = store().index.stylePackages;
+    if (main && ref.kind === "online" && ref.url.trim() && ensurePackage(text, "hyperref", styles) !== "present") {
+      const need = ensurePackage(text, "url", styles);
+      if (typeof need !== "object") return;
+      if (buffers.has(main)) buffers.change(main, need);
+      else await api.fileWrite(main, text.slice(0, need.from) + need.insert + text.slice(need.to));
+      store().notify(`Added \\usepackage{url} to the settings at the top of ${main}, to print the web address.`);
+    }
   });
 }
 

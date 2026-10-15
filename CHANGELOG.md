@@ -14,6 +14,7 @@ References and citations, as Word's References tab has them.
 - Insert ▸ Citation style… sets numbered, IEEE, author and year (Harvard), APA or abbreviated labels, adding the package an author-and-year style needs.
 - With an author-and-year style a new citation is written to print in parentheses, as (Knuth, 1984).
 - The choices in dialogs (Document setup, Settings, and the new ones) now look like the other fields, in every theme.
+- A line Emquad adds to a file that is open in a tab but not on screen, such as `\addbibresource` from Insert ▸ Bibliography, now marks that tab as changed, so it is saved with the rest.
 
 ## 0.10.0 - 2026-10-15
 

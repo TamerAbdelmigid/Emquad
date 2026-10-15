@@ -889,6 +889,12 @@
       await click("Cite");
       await until("the citation in parentheses", () => buffers.text("main.tex").includes("\\citep{knuth1984}"));
       await ok(true, "with an author-and-year style, a citation is written to print in parentheses");
+      // With Zotero not running on this computer, as on the machine these checks run on.
+      const zotero = await invoke("zotero_pick").then(
+        () => null,
+        (e) => e,
+      );
+      await ok(zotero?.code === "zotero_missing" && /Better BibTeX/.test(zotero.message), "a citation from Zotero, with Zotero not running, says how to start it");
       await act.save();
     }
 

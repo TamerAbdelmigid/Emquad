@@ -21,6 +21,12 @@ describe("citation styles", () => {
     expect(harvard).toBe(DOC.replace("{plain}", "{plainnat}").replace("\\begin{document}", "\\usepackage{natbib}\n\\begin{document}"));
     // natbib once only.
     expect(apply(harvard, styleChanges(harvard, "apa"))).toBe(harvard.replace("{plainnat}", "{apalike}"));
+    // Back to numbers: natbib stays, and is told to put them in square brackets, as shown.
+    const back = apply(harvard, styleChanges(harvard, "ieee"));
+    expect(back).toBe(harvard.replace("{plainnat}", "{ieeetr}").replace("\\usepackage{natbib}", "\\usepackage[square]{natbib}"));
+    expect(apply(back, styleChanges(back, "apa"))).toBe(harvard.replace("{plainnat}", "{apalike}"));
+    const round = DOC.replace("\\usepackage{amsmath}", "\\usepackage[round,sort]{natbib}");
+    expect(apply(round, styleChanges(round, "plain"))).toBe(DOC.replace("\\usepackage{amsmath}", "\\usepackage[sort,square]{natbib}"));
   });
 
   it("names a style where there is none yet, and says why it cannot otherwise", () => {
