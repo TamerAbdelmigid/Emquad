@@ -14,6 +14,7 @@ pub mod review;
 pub mod settings;
 pub mod synctex;
 pub mod templates;
+pub mod watch;
 
 use commands::AppState;
 use std::path::PathBuf;

@@ -16,9 +16,16 @@ describe("the spelling checker", () => {
     expect(misspelled("don’t")).toBe(false);
     expect(misspelled("Emquad")).toBe(false);
     expect(misspelled("NASA")).toBe(false);
-    expect(suggestions("teh")[0]).toBe("the");
-    expect(suggestions("recieve")[0]).toBe("receive");
+    expect((await suggestions("teh"))[0]).toBe("the");
+    expect((await suggestions("recieve"))[0]).toBe("receive");
     expect(misspelled("colour")).toBe(true);
+  });
+
+  it("forgets a word taken out of the user's own", async () => {
+    await loadSpelling("en-US", ["Emquad"], () => {});
+    expect(misspelled("Emquad")).toBe(false);
+    await loadSpelling("en-US", [], () => {});
+    expect(misspelled("Emquad")).toBe(true);
   });
 
   it("switches language, and switches off", async () => {

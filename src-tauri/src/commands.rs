@@ -12,7 +12,6 @@ use crate::project::{DATA_DIR, FileContent, Project, ProjectInfo, TreeNode, atom
 use crate::review::{self, Decision, Review};
 use crate::settings::Settings;
 use crate::synctex::{PdfRect, SourcePos, SyncTex};
-use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -60,6 +59,8 @@ pub struct Session {
     /// Held while a project is opened, created or imported in the window, so two at once
     /// cannot each let go of the other's claim and leave the window holding none.
     pub opening: Mutex<()>,
+    /// The files the window has just saved, so the watcher does not report them back.
+    pub own_writes: Arc<crate::watch::OwnWrites>,
 }
 
 impl AppState {
@@ -312,27 +313,12 @@ fn start_project(
 ) -> Result<OpenedProject> {
     Settings::update(&state.config_dir, |s| s.remember(&project))?;
 
-    let root = project.root.clone();
     let label = window.label().to_string();
     let handle = app.clone();
     let to = label.clone();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        let Ok(event) = event else { return };
-        let paths: Vec<String> = event
-            .paths
-            .iter()
-            .filter_map(|p| p.strip_prefix(&root).ok())
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .filter(|p| !p.starts_with(DATA_DIR) && !p.starts_with(".git/") && !p.is_empty())
-            .collect();
-        if !paths.is_empty() {
-            let _ = handle.emit_to(to.as_str(), "project://changed", paths);
-        }
-    })
-    .map_err(|e| Error::app("watch_failed", e.to_string()))?;
-    watcher
-        .watch(&project.root, RecursiveMode::Recursive)
-        .map_err(|e| Error::app("watch_failed", e.to_string()))?;
+    let watcher = crate::watch::start(&project.root, session.own_writes.clone(), move |paths| {
+        let _ = handle.emit_to(to.as_str(), "project://changed", paths);
+    })?;
 
     // One language server per open project; the previous project's is stopped by replacing it,
     // once the new project is known to open.
@@ -627,7 +613,10 @@ pub fn file_write(
     text: String,
 ) -> Result<()> {
     let session = state.session(window.label());
-    current(&session)?.write_file(&path, &text)
+    let project = current(&session)?;
+    project.write_file(&path, &text)?;
+    session.own_writes.record(&path, &project.resolve(&path)?);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -667,7 +656,7 @@ pub fn file_delete(
 ) -> Result<Vec<TreeNode>> {
     let session = state.session(window.label());
     let p = current(&session)?;
-    p.delete(&path)?;
+    History::open(&p)?.delete_kept(&p, &author(&state)?, &path)?;
     p.tree()
 }
 

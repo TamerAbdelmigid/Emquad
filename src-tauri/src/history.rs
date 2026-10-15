@@ -472,6 +472,19 @@ impl History {
         Ok(())
     }
 
+    /// Delete a file or folder of the project, taking an automatic snapshot first, so that
+    /// History can bring it back.
+    pub fn delete_kept(&self, project: &Project, author: &Author, rel: &str) -> Result<()> {
+        project.resolve(rel)?;
+        self.snapshot(
+            project,
+            author,
+            "automatic",
+            &format!("Before deleting {rel}"),
+        )?;
+        project.delete(rel)
+    }
+
     /// Go back to a version. Nothing is rewritten: the pre-restore state is snapshotted first and
     /// the restored state is recorded as a new version.
     pub fn restore(&self, project: &Project, author: &Author, version: &str) -> Result<Oid> {
@@ -533,6 +546,33 @@ pub mod tests {
         let p = Project::create(dir, "paper", "article").unwrap();
         let h = History::open(&p).unwrap();
         (p, h)
+    }
+
+    #[test]
+    fn a_deleted_file_can_be_brought_back_from_history() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (p, h) = new_project(&tmp.path().join("p"));
+        let me = author("Tamer");
+        p.write_file("chapters/one.tex", "Never snapshotted by hand.\n")
+            .unwrap();
+        h.delete_kept(&p, &me, "chapters").unwrap();
+        assert!(!p.root.join("chapters").exists());
+        let list = h.list(&p).unwrap();
+        let before = list
+            .versions
+            .iter()
+            .find(|v| v.label == "Before deleting chapters")
+            .expect("a version taken before the delete");
+        assert_eq!(before.kind, "automatic");
+        h.restore(&p, &me, &before.id).unwrap();
+        assert_eq!(
+            fs::read_to_string(p.root.join("chapters/one.tex")).unwrap(),
+            "Never snapshotted by hand.\n"
+        );
+        // A path outside the project is refused before anything is taken or deleted.
+        let versions = h.list(&p).unwrap().versions.len();
+        assert!(h.delete_kept(&p, &me, "../outside").is_err());
+        assert_eq!(h.list(&p).unwrap().versions.len(), versions);
     }
 
     #[test]

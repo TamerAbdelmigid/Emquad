@@ -8,7 +8,32 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, Prefix};
+use std::sync::LazyLock;
 use ts_rs::TS;
+
+/// A pattern made once, on first use: a project's bibliography can hold thousands of entries.
+macro_rules! pattern {
+    ($name:ident, $re:expr) => {
+        static $name: LazyLock<Regex> = LazyLock::new(|| Regex::new($re).unwrap());
+    };
+}
+pattern!(AUTHOR, r"(?i)(?:^|[,\s])author\s*=\s*");
+pattern!(EDITOR, r"(?i)(?:^|[,\s])editor\s*=\s*");
+pattern!(YEAR, r"(?i)(?:^|[,\s])year\s*=\s*");
+pattern!(DATE, r"(?i)(?:^|[,\s])date\s*=\s*");
+pattern!(TITLE, r"(?i)(?:^|[,\s])title\s*=\s*");
+pattern!(AND, r"(?i)\s+and\s+");
+pattern!(ENTRY, r"(?m)^\s*@(\w+)\s*\{\s*([^,\s}]+)\s*,");
+pattern!(
+    USES,
+    r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}"
+);
+pattern!(LABEL, r"\\label\{([^}]+)\}");
+pattern!(BIB_ITEM, r"\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}");
+pattern!(
+    BIB_NAMED,
+    r"\\(?:bibliography|addbibresource)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}"
+);
 
 #[derive(Debug, Clone, Default, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -34,10 +59,7 @@ pub struct Citation {
 }
 
 /// The value of one field of a `.bib` entry, with its braces and quotes removed.
-fn field(body: &str, name: &str) -> String {
-    let Ok(start) = Regex::new(&format!(r"(?i)(?:^|[,\s]){name}\s*=\s*")) else {
-        return String::new();
-    };
+fn field(body: &str, start: &Regex) -> String {
     let Some(found) = start.find(body) else {
         return String::new();
     };
@@ -69,8 +91,7 @@ fn short_authors(raw: &str) -> String {
             None => person.rsplit(' ').next().unwrap_or(person).to_string(),
         }
     };
-    let people: Vec<String> = Regex::new(r"(?i)\s+and\s+")
-        .unwrap()
+    let people: Vec<String> = AND
         .split(raw)
         .map(surname)
         .filter(|s| !s.is_empty())
@@ -84,8 +105,7 @@ fn short_authors(raw: &str) -> String {
 }
 
 fn citations(text: &str, out: &mut BTreeMap<String, Citation>) {
-    let entry = Regex::new(r"(?m)^\s*@(\w+)\s*\{\s*([^,\s}]+)\s*,").unwrap();
-    let starts: Vec<(usize, usize, String, String)> = entry
+    let starts: Vec<(usize, usize, String, String)> = ENTRY
         .captures_iter(text)
         .map(|c| {
             let all = c.get(0).unwrap();
@@ -103,12 +123,12 @@ fn citations(text: &str, out: &mut BTreeMap<String, Citation>) {
         }
         let body_end = starts.get(i + 1).map_or(text.len(), |next| next.0);
         let body = &text[*body_start..body_end];
-        let authors = match field(body, "author") {
-            a if a.is_empty() => field(body, "editor"),
+        let authors = match field(body, &AUTHOR) {
+            a if a.is_empty() => field(body, &EDITOR),
             a => a,
         };
-        let year = match field(body, "year") {
-            y if y.is_empty() => field(body, "date").chars().take(4).collect(),
+        let year = match field(body, &YEAR) {
+            y if y.is_empty() => field(body, &DATE).chars().take(4).collect(),
             y => y,
         };
         out.insert(
@@ -117,7 +137,7 @@ fn citations(text: &str, out: &mut BTreeMap<String, Citation>) {
                 key: key.clone(),
                 authors: short_authors(&authors),
                 year,
-                title: field(body, "title"),
+                title: field(body, &TITLE),
             },
         );
     }
@@ -142,12 +162,10 @@ const MAX_OUTSIDE_BIB: u64 = 8 << 20;
 
 /// The packages a piece of LaTeX loads with `\usepackage` or `\RequirePackage`, comments left out.
 fn loaded_packages(text: &str) -> Vec<String> {
-    let load =
-        Regex::new(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}").unwrap();
     let mut out = Vec::new();
     for line in text.lines() {
         let line = uncomment(line);
-        for c in load.captures_iter(line) {
+        for c in USES.captures_iter(line) {
             out.extend(
                 c[1].split(',')
                     .map(|p| p.trim().to_string())
@@ -171,10 +189,6 @@ fn uncomment(line: &str) -> &str {
 }
 
 pub fn build(project: &Project) -> Result<ProjectIndex> {
-    let label = Regex::new(r"\\label\{([^}]+)\}").unwrap();
-    let bib_item = Regex::new(r"\\bibitem(?:\[[^\]]*\])?\{([^}]+)\}").unwrap();
-    let bib_named =
-        Regex::new(r"\\(?:bibliography|addbibresource)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}").unwrap();
     let (mut labels, mut keys) = (BTreeSet::new(), BTreeSet::new());
     let mut found = BTreeMap::new();
     let mut style_packages = BTreeMap::new();
@@ -191,10 +205,10 @@ pub fn build(project: &Project) -> Result<ProjectIndex> {
             continue;
         };
         if is_tex {
-            labels.extend(label.captures_iter(text).map(|c| c[1].to_string()));
-            keys.extend(bib_item.captures_iter(text).map(|c| c[1].to_string()));
+            labels.extend(LABEL.captures_iter(text).map(|c| c[1].to_string()));
+            keys.extend(BIB_ITEM.captures_iter(text).map(|c| c[1].to_string()));
             for line in text.lines() {
-                for c in bib_named.captures_iter(uncomment(line)) {
+                for c in BIB_NAMED.captures_iter(uncomment(line)) {
                     named_bibs.extend(
                         c[1].split(',')
                             .map(|b| b.trim().to_string())

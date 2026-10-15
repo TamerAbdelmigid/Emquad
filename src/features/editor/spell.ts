@@ -3,76 +3,109 @@
 // nothing is looked up anywhere else.
 import { type Extension, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, type Tooltip, ViewPlugin, type ViewUpdate, keymap, showTooltip } from "@codemirror/view";
-import type NSpell from "nspell";
+import { type Answer, Dictionary, type Request } from "./spellCore";
 import { type Word, skipWord, spellWords } from "./spellModel";
 
-let checker: NSpell | null = null;
-let loaded = "off";
+/** Where the dictionary is asked: a worker in the app, so the window never waits on it. */
+interface Engine {
+  load(language: string, ownWords: string[]): Promise<void>;
+  check(words: string[]): Promise<boolean[]>;
+  suggest(word: string): Promise<string[]>;
+  /** Set where answers can be had at once, as in tests, which have no workers. */
+  now?: Dictionary;
+}
+
+function workerEngine(): Engine {
+  const worker = new Worker(new URL("./spellWorker.ts", import.meta.url), { type: "module" });
+  let next = 0;
+  const waiting = new Map<number, { done: (v: unknown) => void; fail: (e: Error) => void }>();
+  worker.onmessage = (event: MessageEvent<Answer>) => {
+    const { id, result, error } = event.data;
+    const wait = waiting.get(id);
+    waiting.delete(id);
+    if (error) wait?.fail(new Error(error));
+    else wait?.done(result);
+  };
+  type Ask = Request extends infer R ? (R extends { id: number } ? Omit<R, "id"> : never) : never;
+  const ask = <T>(request: Ask) =>
+    new Promise<T>((done, fail) => {
+      const id = ++next;
+      waiting.set(id, { done: done as (v: unknown) => void, fail });
+      worker.postMessage({ ...request, id });
+    });
+  return {
+    load: (language, ownWords) => ask<void>({ type: "load", language, ownWords }),
+    check: (words) => ask<boolean[]>({ type: "check", words }),
+    suggest: (word) => ask<string[]>({ type: "suggest", word }),
+  };
+}
+
+function threadEngine(): Engine {
+  const dictionary = new Dictionary();
+  return {
+    load: (language, ownWords) => dictionary.load(language, ownWords),
+    check: async (words) => words.map((w) => dictionary.wrong(w)),
+    suggest: async (word) => dictionary.suggest(word),
+    now: dictionary,
+  };
+}
+
+const engine: Engine = typeof Worker === "undefined" ? threadEngine() : workerEngine();
+let language = "off";
 /** Verdicts already reached, since the same words come up on every redraw. */
 const verdicts = new Map<string, boolean>();
+/** Words waiting for a verdict from the worker. */
+const asking = new Set<string>();
 let onLearn: (word: string) => void = () => {};
-
-const plain = (word: string) => word.replace(/’/g, "'");
-
-type Raw = Promise<{ default: string }>;
-/** The dictionaries that ship with the app, each loaded only when it is first chosen. */
-const DICTIONARIES: Record<string, () => [Raw, Raw]> = {
-  "en-US": () => [import("../../../node_modules/dictionary-en/index.aff?raw"), import("../../../node_modules/dictionary-en/index.dic?raw")],
-  "en-GB": () => [import("../../../node_modules/dictionary-en-gb/index.aff?raw"), import("../../../node_modules/dictionary-en-gb/index.dic?raw")],
-  fr: () => [import("../../../node_modules/dictionary-fr/index.aff?raw"), import("../../../node_modules/dictionary-fr/index.dic?raw")],
-  es: () => [import("../../../node_modules/dictionary-es/index.aff?raw"), import("../../../node_modules/dictionary-es/index.dic?raw")],
-  nl: () => [import("../../../node_modules/dictionary-nl/index.aff?raw"), import("../../../node_modules/dictionary-nl/index.dic?raw")],
-  ru: () => [import("../../../node_modules/dictionary-ru/index.aff?raw"), import("../../../node_modules/dictionary-ru/index.dic?raw")],
-};
+/** The editors showing underlines, told to look again when verdicts arrive. */
+const views = new Set<EditorView>();
 
 /**
  * Make `language` the one that is checked, with the user's own words accepted too. Loading a
  * dictionary takes a moment the first time, so it is only done when spelling is switched on.
  */
-export async function loadSpelling(language: string, ownWords: string[], learn: (word: string) => void) {
+export async function loadSpelling(chosen: string, ownWords: string[], learn: (word: string) => void) {
   onLearn = learn;
-  if (language === "off") {
-    checker = null;
-    loaded = "off";
-    verdicts.clear();
-    return;
-  }
-  if (language !== loaded || !checker) {
-    const [{ default: nspell }, aff, dic] = await Promise.all([import("nspell"), ...(DICTIONARIES[language] ?? DICTIONARIES["en-US"])()]);
-    checker = nspell(aff.default, dic.default);
-    loaded = language;
-  }
-  for (const word of ownWords) checker.add(plain(word));
+  await engine.load(chosen, ownWords);
+  language = chosen;
   verdicts.clear();
+  asking.clear();
+  for (const view of views) view.dispatch({ effects: recheckSpelling.of(null) });
 }
 
+/** Ask the worker about the words waiting, then have the editors underline what it found. */
+let flushing = false;
+function flush() {
+  if (flushing) return;
+  flushing = true;
+  queueMicrotask(async () => {
+    flushing = false;
+    const words = [...asking];
+    asking.clear();
+    const asked = language;
+    const wrong = await engine.check(words).catch(() => words.map(() => false));
+    if (asked !== language) return;
+    words.forEach((w, i) => verdicts.set(w, wrong[i]));
+    if (wrong.some(Boolean)) for (const view of views) view.dispatch({ effects: recheckSpelling.of(null) });
+  });
+}
+
+/** Whether a word is misspelled, as far as is known yet: one not yet asked about counts as right until the answer comes. */
 export function misspelled(word: string): boolean {
-  if (!checker || skipWord(word)) return false;
+  if (language === "off" || skipWord(word)) return false;
   let wrong = verdicts.get(word);
+  if (wrong === undefined && engine.now) verdicts.set(word, (wrong = engine.now.wrong(word)));
   if (wrong === undefined) {
-    const w = plain(word);
-    // A possessive is as right as the word it is made from.
-    wrong = !checker.correct(w) && !(w.endsWith("'s") && checker.correct(w.slice(0, -2)));
-    verdicts.set(word, wrong);
+    asking.add(word);
+    flush();
+    return false;
   }
   return wrong;
 }
 
-/**
- * Corrections to offer, likeliest first: the same letters in another order (the commonest
- * typing slip), then words of the same length, then the rest as the dictionary gives them.
- */
-export function suggestions(word: string): string[] {
-  if (!checker) return [];
-  const letters = (w: string) => Array.from(w.toLowerCase()).sort().join("");
-  const mine = letters(plain(word));
-  const rank = (s: string) => (letters(s) === mine ? 0 : s.length === word.length ? 1 : 2);
-  return checker
-    .suggest(plain(word))
-    .map((s, i) => ({ s, i, r: rank(s) }))
-    .sort((x, y) => x.r - y.r || x.i - y.i)
-    .slice(0, 7)
-    .map((x) => x.s);
+/** Corrections to offer for a word, likeliest first. */
+export function suggestions(word: string): Promise<string[]> {
+  return language === "off" ? Promise.resolve([]) : engine.suggest(word);
 }
 
 /** Check again: the dictionary or the user's own words changed. */
@@ -81,23 +114,45 @@ const mark = Decoration.mark({ class: "cm-misspelled" });
 
 /** The prose words of the document last scanned, so scrolling does not scan it again. */
 let scanned: { doc: unknown; words: Word[] } | null = null;
+/** How long typing must pause before the document is read for words again. */
+const PAUSE = 400;
 
 const underlines = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
     /** The misspelled words now in view. */
     words: Word[] = [];
-    constructor(view: EditorView) {
+    timer = 0;
+    constructor(readonly view: EditorView) {
+      views.add(view);
       this.decorations = this.find(view);
     }
     update(update: ViewUpdate) {
       const asked = update.transactions.some((tr) => tr.effects.some((e) => e.is(recheckSpelling)));
-      if (update.docChanged || update.viewportChanged || asked) this.decorations = this.find(update.view);
+      if (asked) {
+        this.decorations = this.find(update.view);
+      } else if (update.docChanged) {
+        // While typing, the underlines move with the text; the document is read again only
+        // once typing pauses, since reading a long one takes a noticeable moment.
+        this.decorations = this.decorations.map(update.changes);
+        this.words = this.words.map((w) => ({ ...w, from: update.changes.mapPos(w.from, 1), to: update.changes.mapPos(w.to, -1) })).filter((w) => w.to > w.from);
+        this.later();
+      } else if (update.viewportChanged) {
+        if (this.timer) this.later();
+        else this.decorations = this.find(update.view);
+      }
+    }
+    later() {
+      clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => {
+        this.timer = 0;
+        this.view.dispatch({ effects: recheckSpelling.of(null) });
+      }, PAUSE);
     }
     find(view: EditorView): DecorationSet {
       this.words = [];
       const doc = view.state.doc;
-      if (!checker || doc.length > 400_000) return Decoration.none;
+      if (language === "off" || doc.length > 400_000) return Decoration.none;
       if (scanned?.doc !== doc) scanned = { doc, words: spellWords(doc.toString()) };
       const { from, to } = view.viewport;
       for (const word of scanned.words) {
@@ -106,6 +161,10 @@ const underlines = ViewPlugin.fromClass(
         if (misspelled(word.word)) this.words.push(word);
       }
       return Decoration.set(this.words.map((w) => mark.range(w.from, w.to)));
+    }
+    destroy() {
+      clearTimeout(this.timer);
+      views.delete(this.view);
     }
   },
   { decorations: (plugin) => plugin.decorations },
@@ -133,16 +192,23 @@ function fixPanel(view: EditorView, word: Word): HTMLElement {
       view.focus();
     };
   };
-  const found = suggestions(word.word);
-  for (const s of found) button(s, "cm-spell-fix", () => view.dispatch({ changes: { from: word.from, to: word.to, insert: s }, userEvent: "input.spell" }));
-  if (found.length === 0) {
-    const none = dom.appendChild(document.createElement("div"));
-    none.className = "cm-spell-none";
-    none.textContent = "No suggestions";
-  }
+  // The corrections come from the dictionary's worker; the panel opens at once and they fill it.
+  const none = dom.appendChild(document.createElement("div"));
+  none.className = "cm-spell-none";
+  none.textContent = "Looking for corrections…";
   button(`Add “${word.word}” to my dictionary`, "cm-spell-learn", () => {
     onLearn(word.word);
     close();
+  });
+  void suggestions(word.word).then((found) => {
+    const keyboardHere = dom.contains(document.activeElement);
+    for (const s of found) {
+      button(s, "cm-spell-fix", () => view.dispatch({ changes: { from: word.from, to: word.to, insert: s }, userEvent: "input.spell" }));
+      dom.insertBefore(dom.lastChild!, none);
+    }
+    if (found.length) none.remove();
+    else none.textContent = "No suggestions";
+    if (keyboardHere) dom.querySelector("button")?.focus();
   });
   dom.onkeydown = (e) => {
     const items = Array.from(dom.querySelectorAll("button"));

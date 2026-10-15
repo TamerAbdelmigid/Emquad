@@ -6,6 +6,7 @@ import { startLsp, stopLsp } from "../features/editor/lsp";
 import { loadSpelling } from "../features/editor/spell";
 import { type Comment, type OpenedProject, WORKING, api, errorOf } from "../ipc/api";
 import { confirm, prompt, store } from "../state/store";
+import { coalesced } from "./coalesced";
 
 /** Run an action and show any failure to the user instead of losing it. */
 export async function guard<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -111,12 +112,20 @@ export async function closeProject() {
 }
 
 export const refreshTree = () => guard(async () => store().set({ tree: await api.projectTree() }));
-export const refreshIndex = () =>
+/**
+ * Read the project index again. Asked for while a reading is under way, it is read once more
+ * when that one ends, not once per asking: saves, changes on disk and merges come in bursts.
+ */
+export const refreshIndex = coalesced(() =>
   guard(async () => {
-    store().set({ index: await api.projectIndex() });
-    // Visual mode names references from the index.
-    buffers.redrawVisual();
-  });
+    const index = await api.projectIndex();
+    const before = store().index;
+    store().set({ index });
+    // Visual mode names references from the index, so it is redrawn when they changed.
+    if (JSON.stringify(before.citations) !== JSON.stringify(index.citations) || before.labels.join() !== index.labels.join()) buffers.redrawVisual();
+  }),
+);
+
 
 /** Count bundles waiting for review, for the History badge. Counting must not start a review. */
 export async function refreshPending() {
