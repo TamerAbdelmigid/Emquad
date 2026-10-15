@@ -34,7 +34,7 @@ import { recheckSpelling, spelling } from "./spell";
 import { type Insertion, type Sym, insertion, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
-import { forgetPictures, redrawVisual, visualMode } from "./visual";
+import { drawingStale, forgetPictures, redrawVisual, visualMode } from "./visual";
 
 const states = new Map<string, EditorState>();
 /** Text as last read from or written to disk, to tell whether a buffer has unsaved edits. */
@@ -350,7 +350,8 @@ export const buffers = {
     shownPath = path;
     const state = path ? states.get(path) : undefined;
     view.setState(state ?? EditorState.create({ doc: "" }));
-    if (path && redrawWhenShown.delete(path) && visualOn) view.dispatch({ effects: redrawVisual.of(null) });
+    const outOfDate = path ? redrawWhenShown.delete(path) : false;
+    if (path && visualOn && (outOfDate || drawingStale(view.state))) view.dispatch({ effects: redrawVisual.of(null) });
     if (state) view.focus();
   },
 

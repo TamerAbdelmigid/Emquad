@@ -122,7 +122,8 @@ export const refreshIndex = coalesced(() =>
     const before = store().index;
     store().set({ index });
     // Visual mode names references from the index, so it is redrawn when they changed.
-    if (JSON.stringify(before.citations) !== JSON.stringify(index.citations) || before.labels.join() !== index.labels.join()) buffers.redrawVisual();
+    const changed = (pick: (i: typeof index) => unknown) => JSON.stringify(pick(before)) !== JSON.stringify(pick(index));
+    if (changed((i) => i.citations) || changed((i) => i.citeKeys) || changed((i) => i.labels)) buffers.redrawVisual();
   }),
 );
 

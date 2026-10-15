@@ -291,6 +291,11 @@ const drawing = StateField.define<Drawn>({
   provide: (field) => EditorView.decorations.from(field, (drawn) => drawn.deco),
 });
 
+/** Whether what is drawn in `state` is out of date, moved along by typing but not drawn again. */
+export function drawingStale(state: EditorState): boolean {
+  return state.field(drawing, false)?.stale ?? false;
+}
+
 /** How long typing must pause before the document is drawn again. */
 const PAUSE = 300;
 

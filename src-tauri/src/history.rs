@@ -475,13 +475,16 @@ impl History {
     /// Delete a file or folder of the project, taking an automatic snapshot first, so that
     /// History can bring it back.
     pub fn delete_kept(&self, project: &Project, author: &Author, rel: &str) -> Result<()> {
-        project.resolve(rel)?;
-        self.snapshot(
-            project,
-            author,
-            "automatic",
-            &format!("Before deleting {rel}"),
-        )?;
+        if project.resolve(rel)? == project.root {
+            return Err(Error::app("bad_path", "Cannot delete the project folder"));
+        }
+        self.snapshot(project, author, "automatic", &format!("Before deleting {rel}"))
+            .map_err(|e| {
+                Error::app(
+                    "not_kept",
+                    format!("{rel} was not deleted, because a version of the project could not be kept first, from which it could be brought back ({e})."),
+                )
+            })?;
         project.delete(rel)
     }
 
@@ -572,6 +575,9 @@ pub mod tests {
         // A path outside the project is refused before anything is taken or deleted.
         let versions = h.list(&p).unwrap().versions.len();
         assert!(h.delete_kept(&p, &me, "../outside").is_err());
+        // Nor is the project folder itself, named however.
+        assert!(h.delete_kept(&p, &me, "").is_err());
+        assert!(h.delete_kept(&p, &me, "./").is_err());
         assert_eq!(h.list(&p).unwrap().versions.len(), versions);
     }
 

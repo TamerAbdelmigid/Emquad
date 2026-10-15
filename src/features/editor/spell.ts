@@ -19,6 +19,14 @@ function workerEngine(): Engine {
   const worker = new Worker(new URL("./spellWorker.ts", import.meta.url), { type: "module" });
   let next = 0;
   const waiting = new Map<number, { done: (v: unknown) => void; fail: (e: Error) => void }>();
+  // A worker that cannot run answers nothing: every request fails at once, and so does each one
+  // after, so that nothing waits for ever and spelling simply finds nothing.
+  let broken = false;
+  worker.onerror = () => {
+    broken = true;
+    for (const wait of waiting.values()) wait.fail(new Error("The spelling checker could not start"));
+    waiting.clear();
+  };
   worker.onmessage = (event: MessageEvent<Answer>) => {
     const { id, result, error } = event.data;
     const wait = waiting.get(id);
@@ -29,6 +37,7 @@ function workerEngine(): Engine {
   type Ask = Request extends infer R ? (R extends { id: number } ? Omit<R, "id"> : never) : never;
   const ask = <T>(request: Ask) =>
     new Promise<T>((done, fail) => {
+      if (broken) return fail(new Error("The spelling checker could not start"));
       const id = ++next;
       waiting.set(id, { done: done as (v: unknown) => void, fail });
       worker.postMessage({ ...request, id });
@@ -206,7 +215,7 @@ function fixPanel(view: EditorView, word: Word): HTMLElement {
     onLearn(word.word);
     close();
   });
-  void suggestions(word.word).then((found) => {
+  void suggestions(word.word).catch(() => [] as string[]).then((found) => {
     const keyboardHere = dom.contains(document.activeElement);
     for (const s of found) {
       button(s, "cm-spell-fix", () => view.dispatch({ changes: { from: word.from, to: word.to, insert: s }, userEvent: "input.spell" }));
