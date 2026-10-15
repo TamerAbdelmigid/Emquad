@@ -395,7 +395,8 @@
       el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
     };
     rightClick($$(".cm-misspelled")[0]);
-    const fixes = await until("the corrections", () => $(".cm-spell") && $$(".cm-spell button"));
+    // The panel opens at once; the corrections come from the dictionary's worker a moment later.
+    const fixes = await until("the corrections", () => $(".cm-spell-fix") && $$(".cm-spell button"));
     await ok(fixes[0].textContent === "sentence" && document.activeElement === fixes[0], "right-clicking offers corrections, the likeliest first and focused");
     await shot("07-spelling");
     fixes[0].click();
@@ -766,6 +767,17 @@
     await until("a PDF from the bundle's own packages", () => text(".proj .st") === "Compiled", 300000);
     await ok(true, "and compiles the project from the packages that came with it");
     await invoke("settings_update", { displayName: "Tamer" });
+
+    // Deleting a file takes a version first, so History can bring it back.
+    {
+      await invoke("file_create", { path: "scratch.tex", isDir: false });
+      await invoke("file_write", { path: "scratch.tex", text: "Kept by History.\n" });
+      await invoke("file_delete", { path: "scratch.tex" });
+      const before = (await invoke("history_list")).versions.find((v) => v.label === "Before deleting scratch.tex");
+      const kept = before && (await invoke("history_changed_files", { version: before.id, against: null }));
+      await ok(!!before && JSON.stringify(kept).includes("scratch.tex"), "deleting a file takes a version first that holds it, so History can bring it back");
+      await act.refreshTree();
+    }
 
     // Opening another project saves what is not saved yet, rather than losing it.
     {

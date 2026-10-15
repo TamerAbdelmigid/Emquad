@@ -134,8 +134,14 @@ const underlines = ViewPlugin.fromClass(
       } else if (update.docChanged) {
         // While typing, the underlines move with the text; the document is read again only
         // once typing pauses, since reading a long one takes a noticeable moment.
-        this.decorations = this.decorations.map(update.changes);
-        this.words = this.words.map((w) => ({ ...w, from: update.changes.mapPos(w.from, 1), to: update.changes.mapPos(w.to, -1) })).filter((w) => w.to > w.from);
+        // A word the edit touched is no longer known to be wrong: its underline goes at once.
+        const edited: [number, number][] = [];
+        update.changes.iterChangedRanges((_a, _b, from, to) => edited.push([from, to]));
+        const untouched = (from: number, to: number) => !edited.some(([a, b]) => from <= b && to >= a);
+        this.decorations = this.decorations.map(update.changes).update({ filter: untouched });
+        this.words = this.words
+          .map((w) => ({ ...w, from: update.changes.mapPos(w.from, 1), to: update.changes.mapPos(w.to, -1) }))
+          .filter((w) => w.to > w.from && untouched(w.from, w.to));
         this.later();
       } else if (update.viewportChanged) {
         if (this.timer) this.later();
