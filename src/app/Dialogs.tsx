@@ -533,6 +533,11 @@ function EquationDialog({ onClose }: { onClose: () => void }) {
   const [placement, setPlacement] = useState<Placement>(was?.placement ?? "inline");
   const field = useRef<HTMLTextAreaElement>(null);
   const preview = useRef<HTMLDivElement>(null);
+  // The keyboard starts in the formula, not on the first button above it, where opening the
+  // dialog would put it.
+  useEffect(() => {
+    requestAnimationFrame(() => field.current?.focus());
+  }, []);
   useEffect(() => {
     const el = preview.current;
     if (!el) return;
