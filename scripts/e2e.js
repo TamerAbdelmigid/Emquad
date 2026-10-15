@@ -9,7 +9,7 @@
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
 // lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
 // visual mode, comments, references and citation styles, pictures dropped and pasted, text pasted
-// with its formatting, the equation editor, PDFs with comments and changes on them, Send to Word
+// with its formatting, the equation editor (typing, its ribbon, several lines, a double-click), PDFs with comments and changes on them, Send to Word
 // (or, with no Pandoc, its refusal), and a bundle that carries its LaTeX packages.
 // Zotero must not be running: one check asks for a citation from it and expects to be told it is not.
 // Native file dialogs cannot be driven from a page, so those steps call the backend directly.
@@ -632,7 +632,9 @@
       await ok(document.activeElement === search && $$(".sym-grid button").length > 10, "the Symbol panel opens with the keyboard in its search box");
       type(search, "alpha");
       press(search, "Enter");
-      await until("alpha in the cell", () => box()?.value === `${original} $\\alpha `);
+      await until("alpha in the cell", () => box()?.value === `${original} $\\alpha `).catch((e) => {
+        throw new Error(`${e.message}: cell ${JSON.stringify(box()?.value)}, focus ${document.activeElement?.className}, panel ${!!$(".sym-pop")}, first ${$(".sym-grid button")?.getAttribute("aria-label")}`);
+      });
       await ok(box().classList.contains("bad") && document.activeElement === box(), "a symbol chosen while a formula is half typed in a cell goes into it, as part of the formula, and nothing typed is lost");
       type(box(), `${original} $\\alpha$`);
       await ok(tabular().includes(`${original} $\\alpha$`), "and the cell is written once the formula is closed");
@@ -949,32 +951,79 @@
         "text pasted from Word keeps its bold, headings and numbered list, as LaTeX",
       );
 
-      // The equation editor: a new numbered formula, then a formula in the line changed.
+      // The equation editor, as Word's: typed and shown as it prints, built with the ribbon.
       buffers.goToLine(lineOf("\\end{enumerate}"));
       store().set({ dialog: "equation" });
-      type(await until("the equation editor", () => $("#eq-tex")), "E = mc");
-      (await until("the Power button", () => button("Power"))).click();
-      await until("the power written", () => $("#eq-tex").value === "E = mc^{}");
-      type($("#eq-tex"), "E = mc^{2}");
+      const mf = await until("the equation editor", () => $("math-field.eq-field"));
+      await until("the keyboard in the formula", () => document.activeElement === mf);
+      /** Type in the formula a key at a time, as the keyboard does. */
+      const typeIn = (field, keys) => {
+        for (const key of keys) field.executeCommand(["typedText", key, { simulateKeystroke: true }]);
+      };
+      // A symbol from the row of symbols, then typing: ^ makes a power and / a fraction.
+      $('.eq-sym[aria-label="alpha"]').click();
+      typeIn(mf, "+E=mc^2");
+      mf.executeCommand("moveToMathfieldEnd");
+      typeIn(mf, "+1/2");
+      mf.executeCommand("moveToMathfieldEnd");
+      typeIn(mf, "+");
+      // And from the ribbon: Radical, then Square root, with x typed in its box.
+      (await until("the Radical button", () => $$(".eq-tool").find((b) => b.textContent.includes("Radical")))).click();
+      (await until("the Square root item", () => $('.eq-pop [aria-label="Square root"]'))).click();
+      typeIn(mf, "x");
+      const typed = mf.getValue("latex");
+      await ok(
+        /^\\alpha\+E=mc\^2\+\\frac\{?1\}?\{?2\}?\+\\sqrt\{x\}$/.test(typed),
+        `in the equation editor a symbol comes from its row, ^ makes a power, / a fraction, and the ribbon a root (${typed})`,
+      );
       $("#eq-numbered").click();
-      await until("the preview", () => $(".eq-preview .katex"));
       await shot("13-equation");
       // The dialog's own button: the menu bar has an Insert too.
       $("dialog .end .btn.go").click();
-      await until("the numbered equation", () => buffers.text("main.tex").includes("\\begin{equation}\n  E = mc^{2}\n\\end{equation}"));
-      await ok(true, "the equation editor writes a numbered formula, built with its buttons and shown as it will print");
+      await until("the numbered equation", () => /\\begin\{equation\}\n  \\alpha\+E=mc\^2\+\\frac\{?1\}?\{?2\}?\+\\sqrt\{x\}\n\\end\{equation\}/.test(buffers.text("main.tex")));
+      await ok(true, "Insert puts the formula in the document as a numbered equation, in plain LaTeX");
+
+      // A formula over several lines, lined up at =, as Shift+Enter makes one in Word.
+      buffers.goToLine(lineOf("\\end{equation}") + 1);
+      store().set({ dialog: "equation" });
+      const lines = await until("the equation editor again", () => $("math-field.eq-field"));
+      typeIn(lines, "y=(a+b)^2");
+      (await until("the New line button", () => $$(".eq-tool").find((b) => b.textContent.includes("New line")))).click();
+      typeIn(lines, "=a^2+2ab+b^2");
+      await until("display chosen for lines", () => $("#eq-display").checked);
+      $("dialog .end .btn.go").click();
+      await until("the lines", () => buffers.text("main.tex").includes("\\begin{aligned}"));
+      const aligned = buffers.text("main.tex");
+      await ok(
+        /\\\[\n  \\begin\{aligned\}\s*y\s*&\s*=[^\n]*\\\\\s*&\s*=\s*a\^2\+2ab\+b\^2\s*\\end\{aligned\}\n\\\]/.test(aligned),
+        `a new line in the equation editor sets the lines one under another, lined up at = (${aligned.slice(aligned.indexOf("\\begin{aligned}"), aligned.indexOf("\\end{aligned}") + 13)})`,
+      );
+
       const text = buffers.text("main.tex");
-      buffers.change("main.tex", { from: text.indexOf("\\end{equation}") + "\\end{equation}".length, insert: "\nwhere $c$ is the speed of light." });
-      // The cursor in the formula $c$.
+      buffers.change("main.tex", { from: text.indexOf("\\end{aligned}\n\\]") + "\\end{aligned}\n\\]".length, insert: "\nwhere $c$ is the speed of light." });
+      // The cursor in the formula $c$: the editor opens on it.
       const c = buffers.text("main.tex").indexOf("$c$") + 1;
       buffers.run((v) => (v.dispatch({ selection: { anchor: c } }), true));
       store().set({ dialog: "equation" });
-      const field = await until("the equation editor on the formula", () => $("#eq-tex"));
-      await ok(field.value === "c" && $("#eq-inline").checked, "the equation editor opens on the formula the cursor is in");
-      type(field, "c_0");
+      const again = await until("the equation editor on the formula", () => $("math-field.eq-field"));
+      await until("its formula", () => again.getValue("latex") === "c");
+      await ok($("#eq-inline").checked, "the equation editor opens on the formula the cursor is in");
+      again.executeCommand("moveToMathfieldEnd");
+      typeIn(again, "_0");
       await click("Change");
       await until("the formula changed", () => buffers.text("main.tex").includes("where $c_0$ is"));
       await act.save();
+      // In visual mode a double-click on a formula opens the editor on it, as in Word.
+      store().set({ visual: true });
+      buffers.setVisual(true);
+      buffers.goToLine(1);
+      const drawn = await until("the formula drawn", () => $$(".cm-v-math").find((m) => m.textContent.includes("0") && !m.closest(".cm-v-display")));
+      drawn.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+      const onIt = await until("the editor from a double-click", () => $("math-field.eq-field"));
+      await until("the formula in it", () => onIt.getValue("latex").startsWith("c_"));
+      await ok(true, "a double-click on a formula in visual mode opens the equation editor on it");
+      $("dialog .end .btn:not(.go)").click();
+      await until("the editor closed", () => !$("math-field.eq-field"));
       await act.compile();
       await ok(!store().build.diagnostics.some((d) => d.severity === "error"), "the changed formula is put back in its place, and the document compiles");
     }

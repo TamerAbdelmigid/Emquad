@@ -1,7 +1,7 @@
 {
   "name": "emquad",
   "private": true,
-  "version": "0.13.1",
+  "version": "0.14.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -41,6 +41,7 @@
     "dictionary-nl": "2.0.0",
     "dictionary-ru": "3.0.0",
     "katex": "^0.19.0",
+    "mathlive": "0.111.0",
     "nspell": "2.1.5",
     "pdfjs-dist": "^6.4.299",
     "react": "^19.1.0",

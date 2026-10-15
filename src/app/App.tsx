@@ -9,6 +9,7 @@ import { EditorPane, WITH_CHAPTERS } from "../features/editor/EditorPane";
 import { buffers, setHandlers } from "../features/editor/buffers";
 import { outline } from "../features/editor/latex";
 import { onPastedNeeds, onPastedPicture } from "../features/editor/paste";
+import { onEditFormula } from "../features/editor/visual";
 import { lspReceive, setDisplay, stopLsp } from "../features/editor/lsp";
 import { Files } from "../features/files/Files";
 import { Comments } from "../features/comments/Comments";
@@ -60,6 +61,7 @@ export function App() {
     });
     // A picture pasted on its own, such as a screenshot, becomes a figure.
     onPastedPicture((file) => void act.addPictures([{ file }]));
+    onEditFormula(() => store().set({ dialog: "equation" }));
     onPastedNeeds((packages) => packages.forEach((name) => void act.needPackage(name, "which the pasted text needs")));
     // Go to definition into a file that is not open opens it.
     setDisplay(

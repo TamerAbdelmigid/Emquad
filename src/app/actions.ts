@@ -6,6 +6,7 @@ import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib,
 import { citeCommand, readStyle, styleChanges } from "../features/editor/citationStyle";
 import { PICTURE, figureFor, pictureFolder } from "../features/editor/pictures";
 import { type Formula, type Placement, formulaAt, writeFormula } from "../features/editor/equation";
+import { packagesFor } from "../features/editor/equationRibbon";
 import { type Setup, readSetup, setupChange } from "../features/editor/documentSetup";
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
 import { ensurePackage, packageNotice } from "../features/editor/tableModel";
@@ -327,8 +328,8 @@ export function formulaHere(): Formula | null {
 
 /**
  * Put a formula from the equation editor into the document: in place of the one it was opened
- * on, or where the cursor is. A formula that uses amsmath's matrices, cases or words has the
- * package loaded.
+ * on, or where the cursor is. The packages it needs, such as amsmath for matrices and cases,
+ * are loaded.
  */
 export async function applyFormula(tex: string, placement: Placement, was: Formula | null) {
   const path = store().active;
@@ -345,9 +346,7 @@ export async function applyFormula(tex: string, placement: Placement, was: Formu
       buffers.insertBlock(block, block.length);
     }
     store().set({ dialog: null });
-    if (/\\(?:text|[pbvBV]?matrix|cases|dfrac|tfrac|binom)\b|\\begin\{(?:align|gather|multline)/.test(tex)) {
-      await needPackage("amsmath", "which the formula needs");
-    }
+    for (const name of packagesFor(tex)) await needPackage(name, "which the formula needs");
   });
 }
 

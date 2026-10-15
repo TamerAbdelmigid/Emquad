@@ -13,6 +13,12 @@ import { parseTable } from "./tableModel";
 import { type Row, describeCitation, visualPieces } from "./visualModel";
 
 
+/** What a double-click on a formula does: the app opens the equation editor on it. */
+let editFormula: () => void = () => {};
+export function onEditFormula(edit: () => void) {
+  editFormula = edit;
+}
+
 class MathWidget extends WidgetType {
   constructor(
     readonly tex: string,
@@ -23,10 +29,17 @@ class MathWidget extends WidgetType {
   eq(other: MathWidget) {
     return other.tex === this.tex && other.display === this.display;
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const el = document.createElement("span");
     el.className = this.display ? "cm-v-math cm-v-display" : "cm-v-math";
+    el.title = "Double-click to change this formula";
     typeset(el, this.tex, this.display);
+    // As in Word, a double-click opens the equation editor on it.
+    el.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: Math.min(view.posAtDOM(el) + 1, view.state.doc.length) } });
+      editFormula();
+    });
     return el;
   }
   ignoreEvent() {

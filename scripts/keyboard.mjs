@@ -48,6 +48,15 @@ async function key(name, mods = {}) {
   await send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
   await sleep(150);
 }
+/** Type each character as its own key press, as a person does, so that what reacts to keys sees them. */
+const typeKeys = async (text) => {
+  for (const ch of text) {
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key: ch, text: ch, unmodifiedText: ch });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key: ch });
+    await sleep(40);
+  }
+  await sleep(150);
+};
 const typeText = async (text) => {
   await send("Input.insertText", { text });
   await sleep(150);
@@ -144,8 +153,11 @@ await check(!(await evaluate("!!document.querySelector('.sym-pop')")) && (await 
 await evaluate("document.querySelector('.cm-content').focus(); true");
 await key("=", { alt: true });
 await sleep(400);
-await check(await focusIs("#eq-tex"), "Alt+= opens the equation editor with the keyboard in its formula");
-await typeText("x^2");
+await sleep(1200);
+await check(await focusIs("math-field"), "Alt+= opens the equation editor with the keyboard in its formula");
+// Typed as in Word: a name becomes its symbol.
+await typeKeys("alpha+1");
+await check(/\\alpha\+1/.test(await evaluate("document.querySelector('math-field').getValue('latex')")), "typing alpha in the formula makes α, as in Word");
 await key("Enter", { ctrl: true });
 await sleep(400);
 await check(!(await evaluate("!!document.querySelector('dialog[open]')")) && (await focusIn(".cm-editor")), "Ctrl+Enter puts the formula in and gives the keyboard back to the text");

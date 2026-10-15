@@ -74,6 +74,9 @@ importers:
       katex:
         specifier: ^0.19.0
         version: 0.19.0
+      mathlive:
+        specifier: 0.111.0
+        version: 0.111.0
       nspell:
         specifier: 2.1.5
         version: 2.1.5
@@ -1219,6 +1222,9 @@ packages:
     resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
     engines: {node: '>= 18'}
     hasBin: true
+
+  mathlive@0.111.0:
+    resolution: {integrity: sha512-jOcmftawnJgFerkOxKk8aVZeOxL9qgX/kF2D9+AOL5MpNYWYllXpkzDs1uSWJEUAOZhJuq86jzL18/1j0oOLWg==}
 
   mdn-data@2.27.1:
     resolution: {integrity: sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==}
@@ -2606,6 +2612,8 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.6.0
 
   marked@15.0.12: {}
+
+  mathlive@0.111.0: {}
 
   mdn-data@2.27.1: {}
 

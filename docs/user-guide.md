@@ -132,7 +132,16 @@ The magnifier in the left rail (Ctrl+Shift+F) searches every text file in the pr
 
 ### Equations
 
-**Insert ▸ Equation…**, or **Alt+=** as in Word, opens the equation editor. Type the formula in LaTeX or build it with the buttons (fraction, root, power, index, sum, integral, limit, brackets, matrix, cases, words) and the symbols under them; the preview shows it as it will print. Choose whether it sits in the line of text, on a line of its own, or on a line of its own with a number to refer to, and press **Insert** (or Ctrl+Enter). With the cursor in a formula, the editor opens on that one and **Change** puts it back.
+**Insert ▸ Equation…**, or **Alt+=** as in Word, opens the equation editor. The formula is shown as it will print while you type, and you type it as in Word:
+
+- `/` makes a fraction (`1/2`), `^` a power (`x^2`), `_` an index (`x_n`); the arrow keys or Tab leave the box you are in.
+- A name becomes what it names: `alpha` gives α, `sqrt` a root, `sum` a sum, `int` an integral, `infty` ∞, `->` an arrow, `<=` ≤.
+- The ribbon above has Word's structures: **Fraction**, **Script**, **Radical**, **Integral**, **Large operator**, **Bracket** (with cases and binomials), **Function**, **Accent**, **Limit and log**, **Operator** and **Matrix**. Each is written around what you selected, with empty boxes to fill in; Tab moves between them.
+- The row of symbols under it has Greek letters, operators, relations, arrows, logic and calculus; choose the kind on the left.
+- **New line** (or Shift+Enter) starts a line below, the lines lined up at their `=`.
+- **LaTeX** under the formula shows what will be written, and you can type there too.
+
+Choose whether the formula sits in the line of text, on a line of its own, or on a line of its own with a number to refer to, and press **Insert** (or Ctrl+Enter). To change a formula, put the cursor in it and press Alt+=, or double-click it in visual mode. A package the formula needs is added to the settings at the top for you.
 
 ### References and citations
 
@@ -208,7 +217,7 @@ The state of your project from just before the import is always kept as a versio
 
 - **File ▸ Send to Word…** saves the document as a Word file, with its pictures, headings, lists, tables, footnotes and references, for someone who works in Word. Formulas become Word equations.
 - **File ▸ Open a Word file…** makes a new project from a Word file someone sent you, its pictures in a `media` folder, and opens it. Your other projects are not touched.
-- Both use **Pandoc**, a free program you install once from pandoc.org (version 3.1.6 or newer); Emquad finds it by itself. Some things do not carry over exactly, and Emquad says when that happens.
+- Both use **Pandoc**, a free program you install once from pandoc.org (version 3.1.6 or newer); Emquad finds it by itself. A Word file someone sent you is read in Pandoc's sandbox, so it cannot make Pandoc read or fetch anything else. Some things do not carry over exactly, and Emquad says when that happens.
 - **File ▸ Save PDF with comments…** saves a copy of the PDF with each open comment on it, highlighted on its passage with the replies, as Acrobat or any PDF viewer shows comments.
 - In **History**, choose a version and press **PDF with changes since this version…** to save a copy of the PDF with what was written or changed since then highlighted, each mark saying what was there before, and a note in the margin where text was taken out. Send it to someone who reads PDFs rather than bundles. A change to something that does not print, such as a setting at the top, is not marked. Both PDFs are made after a compile without errors, so the marks fall on the right lines.
 

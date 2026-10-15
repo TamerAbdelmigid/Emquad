@@ -104,6 +104,17 @@
     await ok((await document.fonts.load('16px "KaTeX_Main"')).length > 0, "visual mode draws headings and its mathematics font can be loaded");
     button("Code").click();
 
+    // The equation editor is a large script loaded when first opened, drawing with the app's own
+    // fonts: it must load under the security policy, and fetch nothing.
+    button("Insert").click();
+    (await until("Insert ▸ Equation…", () => $$('[role="menuitem"]').find((m) => m.textContent.includes("Equation…")))).click();
+    const field = await until("the equation editor", () => $("math-field"), 30000);
+    field.insert("\\frac{1}{2}");
+    await until("the fraction drawn", () => field.shadowRoot?.querySelector(".ML__mfrac, .ML__frac, [class*='frac']"));
+    await ok(field.getValue("latex").includes("\\frac") && document.fonts.check('16px "KaTeX_Main"'), "the equation editor loads, and draws a formula with the app's own fonts");
+    button("Cancel").click();
+    await until("the editor closed", () => !$("math-field"));
+
     // Spelling: the dictionary is a large file loaded on demand, which must work when packaged.
     // Pasted where the cursor is, as a user would: a file written by the app itself is not read
     // back into the editor, which has the text already.

@@ -28,6 +28,7 @@ Pandoc, which Send to Word and Open a Word file use, is not shipped with Emquad.
 | CodeMirror 6 and its packages | MIT | https://github.com/codemirror |
 | PDF.js | Apache-2.0 | https://github.com/mozilla/pdf.js |
 | KaTeX | MIT | https://github.com/KaTeX/KaTeX |
+| MathLive (the equation editor) | MIT | https://github.com/arnog/mathlive |
 | Zustand | MIT | https://github.com/pmndrs/zustand |
 | nspell | MIT | https://github.com/wooorm/nspell |
 | English word lists (`dictionary-en`, `dictionary-en-gb`), from SCOWL and the Hunspell en_US and en_GB dictionaries | MIT and BSD | https://github.com/wooorm/dictionaries |
@@ -57,7 +58,7 @@ The exact versions are in `pnpm-lock.yaml` and `src-tauri/Cargo.lock`. To list e
 | Hanken Grotesk | The interface | SIL Open Font License 1.1 | the `@fontsource/hanken-grotesk` package |
 | Geist Mono | Source code and file names | SIL Open Font License 1.1 | the `@fontsource/geist-mono` package |
 | DM Mono | Small labels | SIL Open Font License 1.1 | the `@fontsource/dm-mono` package |
-| KaTeX fonts | Mathematics in visual mode | SIL Open Font License 1.1 | https://github.com/KaTeX/KaTeX |
+| KaTeX fonts | Mathematics in visual mode and in the equation editor | SIL Open Font License 1.1 | https://github.com/KaTeX/KaTeX |
 
 ## The Windows component Emquad relies on
 
