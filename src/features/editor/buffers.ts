@@ -48,6 +48,8 @@ let visualOn = false;
 /** Holds the spelling checker's extensions, or nothing. */
 const spell = new Compartment();
 let spellOn = false;
+/** Files whose visual drawing is out of date, drawn again when they are next shown. */
+const redrawWhenShown = new Set<string>();
 /** The project's comments, to place in each file as it is opened. */
 let comments: Comment[] = [];
 
@@ -225,7 +227,10 @@ export const buffers = {
 
   /** Draw visual mode again: the references or the pictures changed, not the text. */
   redrawVisual() {
-    if (visualOn) for (const path of states.keys()) apply(path, { effects: redrawVisual.of(null) });
+    if (!visualOn) return;
+    // Only the file on screen is drawn now; the others when they are next shown.
+    if (shownPath && view) view.dispatch({ effects: redrawVisual.of(null) });
+    for (const path of states.keys()) if (path !== shownPath) redrawWhenShown.add(path);
   },
 
   /** Picture files changed: read them again where visual mode shows them. */
@@ -345,6 +350,7 @@ export const buffers = {
     shownPath = path;
     const state = path ? states.get(path) : undefined;
     view.setState(state ?? EditorState.create({ doc: "" }));
+    if (path && redrawWhenShown.delete(path) && visualOn) view.dispatch({ effects: redrawVisual.of(null) });
     if (state) view.focus();
   },
 

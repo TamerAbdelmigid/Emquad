@@ -1,8 +1,8 @@
 // Visual mode: draws the same plain source with headings, emphasis, typeset mathematics,
 // bullets, tables, figures and citations. What to draw is decided in visualModel.ts; this file
 // turns that into decorations.
-import { type EditorState, type Extension, type Range as CmRange, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { type ChangeSet, type EditorSelection, type EditorState, type Extension, type Range as CmRange, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { api } from "../../ipc/api";
@@ -193,21 +193,44 @@ class CiteWidget extends WidgetType {
 const hidden = Decoration.replace({});
 const bullet = Decoration.replace({ widget: new BulletWidget() });
 
-function build(state: EditorState): DecorationSet {
+/** Why each table source cannot be edited, or null when it can, remembered: reading a table back is the dearest part of a redraw. */
+const tableReadings = new Map<string, string | null>();
+function readingOf(source: string): string | null {
+  let reading = tableReadings.get(source);
+  if (reading === undefined) {
+    const parsed = parseTable(source);
+    reading = parsed.ok ? null : parsed.reason;
+    if (tableReadings.size > 500) tableReadings.clear();
+    tableReadings.set(source, reading);
+  }
+  return reading;
+}
+
+/** What visual mode has drawn, and what it needs to know to tell when to draw again. */
+interface Drawn {
+  deco: DecorationSet;
+  /** The selection made something show as source when this was drawn. */
+  touched: boolean;
+  /** The text has changed since, and this was only moved along with it. */
+  stale: boolean;
+}
+
+function build(state: EditorState): Drawn {
   const text = state.doc.toString();
   // Very large files stay in plain source: redrawing them on every keystroke would lag.
-  if (text.length > 400_000) return Decoration.none;
+  if (text.length > 400_000) return { deco: Decoration.none, touched: false, stale: false };
   const selection = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
   const out: CmRange<Decoration>[] = [];
   const index = store().index;
-  for (const p of visualPieces(text, selection)) {
+  const report = { touched: false };
+  for (const p of visualPieces(text, selection, report)) {
     if (p.kind === "line") out.push(Decoration.line({ class: `cm-v-line-${p.style}` }).range(p.from));
     else if (p.kind === "hide") out.push(hidden.range(p.from, p.to));
     else if (p.kind === "bullet") out.push(bullet.range(p.from, p.to));
     else if (p.kind === "style") out.push(Decoration.mark({ class: `cm-v-${p.style}` }).range(p.from, p.to));
     else if (p.kind === "table") {
-      const parsed = parseTable(p.source);
-      const widget = parsed.ok ? new EditableTable(p.source) : new TableWidget(p.rows, parsed.reason);
+      const reason = readingOf(p.source);
+      const widget = reason === null ? new EditableTable(p.source) : new TableWidget(p.rows, reason);
       out.push(Decoration.replace({ widget }).range(p.from, p.to));
     }
     else if (p.kind === "image") out.push(Decoration.replace({ widget: new ImageWidget(p.path, picturesVersion) }).range(p.from, p.to));
@@ -216,7 +239,27 @@ function build(state: EditorState): DecorationSet {
       out.push(Decoration.replace({ widget: new CiteWidget(label, detail, unknown) }).range(p.from, p.to));
     } else out.push(Decoration.replace({ widget: new MathWidget(p.tex, p.display) }).range(p.from, p.to));
   }
-  return Decoration.set(out, true);
+  return { deco: Decoration.set(out, true), touched: report.touched, stale: false };
+}
+
+/** Whether a change reaches anything drawn: then it must be drawn again at once. */
+function reaches(deco: DecorationSet, changes: ChangeSet): boolean {
+  let hit = false;
+  changes.iterChangedRanges((from, to) => {
+    if (!hit) deco.between(from, to, () => ((hit = true), false));
+  });
+  return hit;
+}
+
+/** Whether the selection touches anything drawn, which would then show as source. */
+function touches(deco: DecorationSet, selection: EditorSelection): boolean {
+  let hit = false;
+  for (const r of selection.ranges) {
+    // Line styles do not give way to the cursor; only what covers some text does.
+    deco.between(r.from, r.to, (from, to) => (from < to ? ((hit = true), false) : undefined));
+    if (hit) break;
+  }
+  return hit;
 }
 
 /** Redraw: something outside the text changed, such as the references or a picture file. */
@@ -231,11 +274,46 @@ export function forgetPictures() {
 
 // Kept in editor state rather than a view plugin, because a formula or a table that spans
 // several lines replaces line breaks, which only state-provided decorations may do.
-const drawing = StateField.define<DecorationSet>({
+const drawing = StateField.define<Drawn>({
   create: build,
-  update: (value, tr) => (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(redrawVisual)) ? build(tr.state) : value),
-  provide: (field) => EditorView.decorations.from(field),
+  update(value, tr) {
+    if (tr.effects.some((e) => e.is(redrawVisual))) return build(tr.state);
+    if (tr.docChanged) {
+      // Typing in plain text moves what is drawn along with it, and it is drawn again once
+      // typing pauses: drawing a long document takes longer than a keystroke should. A change
+      // that reaches anything drawn, or one made other than by typing, is drawn at once.
+      const typing = tr.isUserEvent("input.type") || tr.isUserEvent("delete");
+      if (typing && !reaches(value.deco, tr.changes)) return { deco: value.deco.map(tr.changes), touched: value.touched, stale: true };
+      return build(tr.state);
+    }
+    // The cursor moving through plain text, touching nothing before or after, changes nothing.
+    if (tr.selection && (value.stale || value.touched || touches(value.deco, tr.state.selection))) return build(tr.state);
+    return value;
+  },
+  provide: (field) => EditorView.decorations.from(field, (drawn) => drawn.deco),
 });
 
+/** How long typing must pause before the document is drawn again. */
+const PAUSE = 300;
+
+/** Draws again once typing pauses, when typing has left the drawing only moved along. */
+const settle = ViewPlugin.fromClass(
+  class {
+    timer = 0;
+    constructor(readonly view: EditorView) {}
+    update(update: ViewUpdate) {
+      if (!update.docChanged || !update.state.field(drawing).stale) return;
+      clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => {
+        this.timer = 0;
+        if (this.view.state.field(drawing, false)?.stale) this.view.dispatch({ effects: redrawVisual.of(null) });
+      }, PAUSE);
+    }
+    destroy() {
+      clearTimeout(this.timer);
+    }
+  },
+);
+
 /** Everything visual mode adds to an editor. */
-export const visualMode: Extension = [drawing, EditorView.editorAttributes.of({ class: "cm-visual" })];
+export const visualMode: Extension = [drawing, settle, EditorView.editorAttributes.of({ class: "cm-visual" })];

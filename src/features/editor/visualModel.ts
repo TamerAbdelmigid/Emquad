@@ -103,19 +103,56 @@ export function tableRows(body: string): Row[] {
 }
 
 /**
+ * Stretches of text, none overlapping another, kept in order so that whether a new one is free
+ * is found by halving rather than by looking at every one: a long document has thousands.
+ */
+class Taken {
+  private froms: number[] = [];
+  private tos: number[] = [];
+  /** The place of the first stretch that ends after `at`. */
+  private after(at: number): number {
+    let [lo, hi] = [0, this.tos.length];
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.tos[mid] > at) hi = mid;
+      else lo = mid + 1;
+    }
+    return lo;
+  }
+  free(from: number, to: number): boolean {
+    const i = this.after(from);
+    return i >= this.froms.length || this.froms[i] >= to;
+  }
+  /** Take a stretch. One that overlaps stretches already taken is joined with them. */
+  add(from: number, to: number) {
+    const i = this.after(from);
+    let j = i;
+    while (j < this.froms.length && this.froms[j] < to) j++;
+    this.froms.splice(i, j - i, j > i ? Math.min(from, this.froms[i]) : from);
+    this.tos.splice(i, j - i, j > i ? Math.max(to, this.tos[j - 1]) : to);
+  }
+}
+
+/**
  * The pieces to draw for `text`. A construct the cursor or selection touches is left as plain
  * source, so what is being edited is always shown as it really is.
  */
-export function visualPieces(text: string, selection: Range[]): Piece[] {
+export function visualPieces(text: string, selection: Range[], report?: { touched: boolean }): Piece[] {
   const pieces: Piece[] = [];
-  const touched = (from: number, to: number) => selection.some((r) => r.from <= to && r.to >= from);
+  // Whether the selection made any construct show as source, for `report`: when it made none,
+  // moving it elsewhere that touches nothing draws the same pieces.
+  const touched = (from: number, to: number) => {
+    const hit = selection.some((r) => r.from <= to && r.to >= from);
+    if (hit && report) report.touched = true;
+    return hit;
+  };
   const lineStart = (at: number) => text.lastIndexOf("\n", at - 1) + 1;
   // Ranges already claimed by mathematics or a comment, which nothing else may draw into.
-  const taken: Range[] = [];
-  const free = (from: number, to: number) => !taken.some((r) => r.from < to && r.to > from);
+  const taken = new Taken();
+  const free = (from: number, to: number) => taken.free(from, to);
 
   // Comments first: nothing inside one is a command.
-  for (const m of text.matchAll(/(?<!\\)%.*$/gm)) taken.push({ from: m.index, to: m.index + m[0].length });
+  for (const m of text.matchAll(/(?<!\\)%.*$/gm)) taken.add(m.index, m.index + m[0].length);
 
   const begin = text.indexOf("\\begin{document}");
   if (begin > 0) {
@@ -160,14 +197,15 @@ export function visualPieces(text: string, selection: Range[]): Piece[] {
     // A table gives way to its source only when the cursor is put inside it: it is edited
     // where it is drawn, so merely passing it with the cursor must not take it away.
     const inside = selection.some((r) => r.from < to && r.to > from);
+    if (inside && report) report.touched = true;
     if (inside || rows.length === 0 || to - from > 20_000) continue;
-    taken.push({ from, to });
+    taken.add(from, to);
     pieces.push({ kind: "table", from, to, rows, source: text.slice(from, to) });
   }
 
   const math = (from: number, to: number, tex: string, display: boolean) => {
     if (!free(from, to) || !tex.trim()) return;
-    taken.push({ from, to });
+    taken.add(from, to);
     if (!touched(from, to)) pieces.push({ kind: "math", from, to, tex: tex.trim(), display });
   };
 
@@ -231,16 +269,25 @@ export interface References {
 }
 
 /** How a citation reads in the text, and what it stands for. */
+/** The references of an index by key, made once for each index: a bibliography can be long. */
+const byKey = new WeakMap<References["citations"], Map<string, References["citations"][number]>>();
+const keySets = new WeakMap<string[], Set<string>>();
+
 export function describeCitation(keys: string[], index: References) {
   let unknown = false;
   const details: string[] = [];
+  let found_ = byKey.get(index.citations);
+  if (!found_) byKey.set(index.citations, (found_ = new Map(index.citations.map((c) => [c.key, c]))));
+  let known = keySets.get(index.citeKeys);
+  if (!known) keySets.set(index.citeKeys, (known = new Set(index.citeKeys)));
+  const lookup = found_;
   const names = keys.map((key) => {
-    const found = index.citations.find((c) => c.key === key);
+    const found = lookup.get(key);
     if (found) {
       details.push([found.authors, found.year, found.title].filter(Boolean).join(". ") || key);
       return [found.authors, found.year].filter(Boolean).join(" ") || key;
     }
-    if (index.citeKeys.includes(key)) return key;
+    if (known.has(key)) return key;
     unknown = true;
     details.push(`No reference called ${key} was found in this project`);
     return `${key}?`;
