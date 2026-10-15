@@ -24,6 +24,10 @@ describe("reading a .bib file", () => {
     expect(unclosedEntry("@book{k, title = {a \\} b}}\n")).toBeNull();
     expect(unclosedEntry("@book{k, title = {a \\{ b}}\n@misc{later, title={L}}")).toBe("k");
     expect(unclosedEntry(BIB)).toBeNull();
+    // @comment is skipped as a word, its braces not read; a ) in quotes is part of the value.
+    expect(unclosedEntry("@comment{ a { b }\n@misc{k, title={K}}")).toBeNull();
+    expect(entries('@article(q, title = "a ) b", year = 2000)').map((e) => e.key)).toEqual(["q"]);
+    expect(entries('@article(q, title = "a ) b", year = 2000)\n@misc{r, title={R}}').map((e) => e.key)).toEqual(["q", "r"]);
   });
 });
 

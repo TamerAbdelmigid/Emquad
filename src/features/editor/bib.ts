@@ -20,8 +20,11 @@ function scan(text: string): { found: Entry[]; unclosed: string | null } {
   const start = /@\s*([a-zA-Z]+)\s*([{(])\s*([^,\s})]*)/g;
   for (let m = start.exec(text); m; m = start.exec(text)) {
     const kind = m[1].toLowerCase();
+    // BibTeX reads past the word @comment and nothing more: what follows is free text.
+    if (kind === "comment") continue;
     const open = m.index + m[0].indexOf(m[2]);
     let braces = 0;
+    let quoted = false;
     let to = -1;
     for (let i = open + 1; i < text.length && to < 0; i++) {
       const ch = text[i];
@@ -29,13 +32,15 @@ function scan(text: string): { found: Entry[]; unclosed: string | null } {
       else if (ch === "}") {
         if (braces === 0 && m[2] === "{") to = i + 1;
         else braces = Math.max(0, braces - 1);
-      } else if (ch === ")" && m[2] === "(" && braces === 0) to = i + 1;
+      } else if (ch === '"' && braces === 0) quoted = !quoted;
+      // A ) inside a value, in braces or quotes, does not close an entry in round brackets.
+      else if (ch === ")" && m[2] === "(" && braces === 0 && !quoted) to = i + 1;
     }
     if (to < 0) return { found, unclosed: m[3] || kind };
     // Whatever is inside an entry, an @ in an address too, is part of it.
     start.lastIndex = to;
     const key = m[3];
-    if (["comment", "string", "preamble"].includes(kind) || !key || !/^\s*,/.test(text.slice(m.index + m[0].length))) continue;
+    if (["string", "preamble"].includes(kind) || !key || !/^\s*,/.test(text.slice(m.index + m[0].length))) continue;
     found.push({ key, kind, from: m.index, to });
   }
   return { found, unclosed: null };

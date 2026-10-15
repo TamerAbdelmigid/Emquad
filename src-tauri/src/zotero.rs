@@ -126,11 +126,15 @@ fn unchunk(mut rest: &[u8]) -> Result<Vec<u8>> {
         if size == 0 {
             return Ok(out);
         }
-        if rest.len() < size + 2 || &rest[size..size + 2] != b"\r\n" {
+        // A size as large as a number can be must not wrap round to a small one.
+        let Some(next) = size.checked_add(2).filter(|&next| next <= rest.len()) else {
+            return Err(broken());
+        };
+        if &rest[size..next] != b"\r\n" {
             return Err(broken());
         }
         out.extend_from_slice(&rest[..size]);
-        rest = &rest[size + 2..];
+        rest = &rest[next..];
     }
 }
 
@@ -325,6 +329,9 @@ mod tests {
             b"zz\r\nab\r\n",
             b"2\r\nabc\r\n0\r\n\r\n",
             b"2\r\nab",
+            // The largest size there is, which would wrap round to 1 with 2 added.
+            b"ffffffffffffffff\r\nab\r\n0\r\n\r\n",
+            b"fffffffffffffffe\r\nab\r\n0\r\n\r\n",
         ] {
             assert_eq!(unchunk(broken).unwrap_err().code(), "zotero_failed");
         }

@@ -9,6 +9,7 @@
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
 // lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
 // visual mode, comments, references and citation styles, and a bundle that carries its LaTeX packages.
+// Zotero must not be running: one check asks for a citation from it and expects to be told it is not.
 // Native file dialogs cannot be driven from a page, so those steps call the backend directly.
 // Lines starting "SHOT" mark moments worth a screenshot; the script pauses briefly after each.
 (async () => {
@@ -889,12 +890,15 @@
       await click("Cite");
       await until("the citation in parentheses", () => buffers.text("main.tex").includes("\\citep{knuth1984}"));
       await ok(true, "with an author-and-year style, a citation is written to print in parentheses");
-      // With Zotero not running on this computer, as on the machine these checks run on.
-      const zotero = await invoke("zotero_pick").then(
-        () => null,
-        (e) => e,
-      );
-      await ok(zotero?.code === "zotero_missing" && /Better BibTeX/.test(zotero.message), "a citation from Zotero, with Zotero not running, says how to start it");
+      // Zotero must not be running for this check: if it is, its picker opens and waits.
+      const zotero = await Promise.race([
+        invoke("zotero_pick").then(
+          () => null,
+          (e) => e,
+        ),
+        sleep(10000).then(() => ({ code: "running", message: "Zotero answered: close Zotero before running these checks" })),
+      ]);
+      await ok(zotero?.code === "zotero_missing" && /Better BibTeX/.test(zotero.message), `a citation from Zotero, with Zotero not running, says how to start it (${zotero?.message})`);
       await act.save();
     }
 
