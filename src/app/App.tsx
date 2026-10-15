@@ -246,6 +246,8 @@ export function App() {
                   { label: "Import bundle…", hint: "Ctrl+Shift+I", run: () => void act.importBundle() },
                   { label: "Export bundle…", hint: "Ctrl+Shift+E", run: () => set({ dialog: "export" }) },
                   "separator",
+                  { label: "Document setup…", run: () => set({ dialog: "setup" }) },
+                  "separator",
                   { label: "New project…", run: () => set({ dialog: "newProject" }) },
                   { label: "Open another folder…", run: () => void act.chooseAndOpenProject() },
                   { label: "New window", hint: "Ctrl+Shift+N", run: () => void act.guard(() => api.windowNew()) },

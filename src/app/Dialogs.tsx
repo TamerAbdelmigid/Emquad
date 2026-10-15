@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Dialog } from "../design/ui";
 import { type Engines, type PackagesInfo, api } from "../ipc/api";
 import { useStore } from "../state/store";
-import { applyFix, applySpelling, createProject, exportBundle, guard, helpFor, openFile } from "./actions";
+import { applyFix, applySetup, applySpelling, createProject, currentSetup, exportBundle, guard, helpFor, openFile } from "./actions";
+import type { Setup } from "../features/editor/documentSetup";
 
 const TEMPLATES = [
   { id: "article", label: "Article", note: "A paper with abstract and sections" },
@@ -74,6 +75,7 @@ export function Dialogs() {
       {dialog === "newProject" && <NewProjectDialog onClose={close} />}
       {dialog === "logs" && <LogsDialog onClose={close} />}
       {dialog === "settings" && <SettingsDialog onClose={close} />}
+      {dialog === "setup" && <SetupDialog onClose={close} />}
       {dialog === "shortcuts" && (
         <Dialog title="Keyboard shortcuts" onClose={close}>
           <dl className="keys">
@@ -212,6 +214,89 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
           </button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+const MARGINS = [
+  { value: "", label: "As the document class sets them" },
+  { value: "1.5cm", label: "Narrow, 1.5 cm" },
+  { value: "2.5cm", label: "Normal, 2.5 cm" },
+  { value: "3.5cm", label: "Wide, 3.5 cm" },
+];
+
+/** The page the document is set on, as a word processor's page setup shows it. */
+function SetupDialog({ onClose }: { onClose: () => void }) {
+  const [setup, setSetup] = useState<Setup | null | undefined>(undefined);
+  useEffect(() => {
+    void currentSetup().then(setSetup);
+  }, []);
+  const change = (part: Partial<Setup>) => setSetup((s) => (s ? { ...s, ...part } : s));
+  const choice = (id: string, label: string, value: string, options: { value: string; label: string }[], set: (v: string) => void) => (
+    <div className="f">
+      <label htmlFor={id}>{label}</label>
+      <select id={id} value={value} onChange={(e) => set(e.target.value)}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+  return (
+    <Dialog title="Document setup" intro="The page your document is set on. Emquad writes the LaTeX for each setting at the top of the main file." onClose={onClose}>
+      {setup === undefined && <p>Reading the document…</p>}
+      {setup === null && <p>The main file has no settings of its own to change (no \documentclass before \begin{"{"}document{"}"}).</p>}
+      {setup && (
+        <form
+          className="dlg"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void applySetup(setup);
+          }}
+        >
+          {choice("su-paper", "Paper", setup.paper, [
+            { value: "", label: "As the document class sets it" },
+            { value: "a4paper", label: "A4" },
+            { value: "letterpaper", label: "US Letter" },
+          ], (paper) => change({ paper }))}
+          {choice("su-size", "Size of the text", setup.size, [
+            { value: "", label: "As the document class sets it (usually 10 pt)" },
+            { value: "10pt", label: "10 pt" },
+            { value: "11pt", label: "11 pt" },
+            { value: "12pt", label: "12 pt" },
+          ], (size) => change({ size }))}
+          {choice("su-margins", "Margins", setup.margins, MARGINS.some((m) => m.value === setup.margins) ? MARGINS : [...MARGINS, { value: setup.margins, label: setup.margins }], (margins) => change({ margins }))}
+          {choice("su-spacing", "Line spacing", setup.spacing, [
+            { value: "single", label: "Single" },
+            { value: "onehalf", label: "1.5 lines" },
+            { value: "double", label: "Double" },
+          ], (spacing) => change({ spacing: spacing as Setup["spacing"] }))}
+          {choice("su-font", "Typeface", setup.font, [
+            { value: "default", label: "Computer Modern, LaTeX's own" },
+            { value: "times", label: "Times" },
+            { value: "palatino", label: "Palatino" },
+            { value: "sans", label: "Sans serif" },
+          ], (font) => change({ font: font as Setup["font"] }))}
+          {choice("su-paragraphs", "Paragraphs", setup.paragraphs, [
+            { value: "indent", label: "First line indented" },
+            { value: "space", label: "Space between, no indent" },
+          ], (paragraphs) => change({ paragraphs: paragraphs as Setup["paragraphs"] }))}
+          <label className="ck">
+            <input type="checkbox" checked={setup.pageNumbers} onChange={(e) => change({ pageNumbers: e.target.checked })} />
+            <span>Page numbers</span>
+          </label>
+          <div className="end">
+            <button type="button" className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn go">
+              Apply
+            </button>
+          </div>
+        </form>
+      )}
     </Dialog>
   );
 }

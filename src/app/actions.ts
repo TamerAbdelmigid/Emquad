@@ -2,6 +2,7 @@
 // Components call these; they never talk to the backend for a multi-step action themselves.
 import { relativeTo } from "./paths";
 import { documentStart } from "../features/editor/visualModel";
+import { type Setup, readSetup, setupChange } from "../features/editor/documentSetup";
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
 import { ensurePackage, packageNotice } from "../features/editor/tableModel";
 import type { Diagnostic } from "../ipc/api";
@@ -402,6 +403,27 @@ function packageLoaded(name: string): boolean {
 /** A compile message in plain words, with its fix when one is certain. */
 export function helpFor(d: Diagnostic): Help | null {
   return explain(d, (path) => buffers.text(path), packageLoaded);
+}
+
+/** How the document is set now, read from its main file; null when that has no settings of its own. */
+export async function currentSetup(): Promise<Setup | null> {
+  const main = store().info?.mainFile;
+  if (!main) return null;
+  await openFile(main, undefined, true);
+  return readSetup(buffers.text(main) ?? "");
+}
+
+/** Set the document's page as the Document setup dialog says, in its main file, and compile to show it. */
+export async function applySetup(setup: Setup) {
+  const main = store().info?.mainFile;
+  if (!main) return;
+  await guard(async () => {
+    await openFile(main, undefined, true);
+    const change = setupChange(buffers.text(main) ?? "", setup);
+    if (change) buffers.change(main, change);
+    store().set({ dialog: null });
+    if (change) await compile();
+  });
 }
 
 /** Put a compile error right as its fix says, then compile again to show it is gone. */

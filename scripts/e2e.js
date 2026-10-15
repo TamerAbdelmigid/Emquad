@@ -812,6 +812,41 @@
       await act.save();
     }
 
+    // Compile errors in plain words, each put right with a click; the page set up as in Word.
+    {
+      const { buffers } = await import("/src/features/editor/buffers.ts");
+      const broken = buffers.text("main.tex").replace("Start writing here.", "Start writing here, see \\url{https://example.org} on Q&A.");
+      await writeOutside({ path: "main.tex", text: broken });
+      await until("the changed text", () => buffers.text("main.tex").includes("Q&A"));
+      await act.compile();
+      const helps = () => store().build.diagnostics.filter((d) => d.severity === "error").map((d) => act.helpFor(d));
+      const packageFix = helps().find((h) => h?.fix?.kind === "package")?.fix;
+      await ok(packageFix?.name === "url", "an unknown command is explained in plain words, naming the package it comes from");
+      await act.applyFix(packageFix);
+      await until("the compile after the fix", () => !store().compiling && store().build);
+      await ok(buffers.text("main.tex").includes("\\usepackage{url}"), "the fix adds the package to the settings, and compiles again");
+      const escapeFix = helps().find((h) => h?.fix?.kind === "escape")?.fix;
+      await ok(escapeFix?.char === "&", "a stray & in text is explained, with a fix");
+      await act.applyFix(escapeFix);
+      await until("the compile after the second fix", () => !store().compiling && store().build);
+      await ok(buffers.text("main.tex").includes("Q\\&A") && !store().build.diagnostics.some((d) => d.severity === "error"), "the fix writes it as \\& and the document compiles");
+      store().set({ dialog: "setup" });
+      const margins = await until("the Document setup dialog", () => $("#su-margins"));
+      const pick = (select, value) => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(select, value);
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      pick(margins, "1.5cm");
+      pick($("#su-spacing"), "double");
+      await shot("10-setup");
+      (await until("Apply", () => button("Apply"))).click();
+      await until("the setup applied and compiled", () => !$("#su-margins") && !store().compiling && buffers.text("main.tex").includes("margin=1.5cm"));
+      // The template's comment names \onehalfspacing too; the setting is the line on its own.
+      const set = buffers.text("main.tex");
+      await ok(/^\\doublespacing$/m.test(set) && !/^\\onehalfspacing$/m.test(set) && !store().build.diagnostics.some((d) => d.severity === "error"), "Document setup sets the margins and line spacing, and the document compiles");
+      await act.save();
+    }
+
     // Deleting a file takes a version first, so History can bring it back.
     {
       await invoke("file_create", { path: "scratch.tex", isDir: false });
