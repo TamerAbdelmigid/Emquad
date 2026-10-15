@@ -1036,6 +1036,17 @@
         const warnings = await invoke("word_export", { dest: `${out}\\paper.docx`, bibliographies: ["references.bib"] });
         const tree = JSON.stringify(await invoke("project_tree"));
         await ok(Array.isArray(warnings) && tree.includes("out/paper.docx"), "Send to Word makes a Word file of the document, with Pandoc");
+        // And back: the Word file opens as a new project of its own, and compiles.
+        await act.save();
+        const made = await invoke("word_import", { source: `${out}\\paper.docx`, parentDir: work });
+        await act.openProject(made.opened.root);
+        await until("the project from Word", () => store().root === made.opened.root && store().tabs.length > 0);
+        const fromWord = (await invoke("file_read", { path: "main.tex" })).text;
+        await act.compile();
+        await ok(
+          /\\documentclass/.test(fromWord) && fromWord.includes("Lovelace") && /\\frac|\\textbf/.test(fromWord) && store().build.hasPdf && !store().build.diagnostics.some((d) => d.severity === "error"),
+          "Open a Word file makes a new project of it, its text, formulas and references kept, and it compiles",
+        );
       }
     }
 

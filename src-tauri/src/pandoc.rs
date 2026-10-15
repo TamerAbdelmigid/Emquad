@@ -224,6 +224,9 @@ pub fn from_word(pandoc: &Path, source: &Path, dir: &Path) -> Result<Vec<String>
         "--to=latex".as_ref(),
         "--standalone".as_ref(),
         "--extract-media=.".as_ref(),
+        // A Word file from someone else is untrusted: in the sandbox Pandoc reads only the file it
+        // is given, and fetches nothing it names.
+        "--sandbox".as_ref(),
         "--output".as_ref(),
         "main.tex".as_ref(),
     ];
@@ -282,7 +285,11 @@ mod tests {
             "converted"
         );
         let called = fs::read_to_string(tmp.path().join("called.txt")).unwrap();
-        assert!(called.contains("--from=docx") && called.contains("--extract-media=."));
+        assert!(
+            called.contains("--from=docx")
+                && called.contains("--extract-media=.")
+                && called.contains("--sandbox")
+        );
         // Into a folder that has files: refused before anything runs.
         assert_eq!(
             from_word(&pandoc, &source, &dir).unwrap_err().code(),
