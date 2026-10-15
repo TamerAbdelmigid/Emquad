@@ -95,7 +95,7 @@ export function formattedPaste(html: string): Formatted | null {
 
   /** The text of an element and what is inside it, with its formatting written as LaTeX. */
   const inline = (node: Node, f: Formats, top: boolean): string => {
-    if (node.nodeType === 3) return printed((node.textContent ?? "").replace(/[\s ]+/g, " "));
+    if (node.nodeType === 3) return printed((node.textContent ?? "").replace(/\s+/g, " "));
     if (node.nodeType !== 1) return "";
     const el = node as Element;
     const tag = el.tagName.toUpperCase();
