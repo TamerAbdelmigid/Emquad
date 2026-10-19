@@ -4,6 +4,17 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.15.0 - 2026-10-19
+
+Visual mode looks and types like Word: the page view.
+
+- Visual mode now shows your document on a white page, with the paper, margins, size of type and line spacing your document sets, under a ribbon with Word's Home, Insert and View tabs. Zoom it from the View tab or the status line.
+- Moving the cursor through the page no longer turns what it touches into LaTeX: bold stays bold, a formula stays a formula. To see or change the LaTeX of a paragraph, press **Ctrl+/** (or View ▸ Show LaTeX); Ctrl+/ again, Esc, or moving away draws it again. Going to a line, an error or a search result inside something drawn still shows it as LaTeX.
+- Typing works as in a word processor: Enter starts a new paragraph, or the next item in a list, or goes on below a heading; Backspace and Delete remove the letter you see, never a hidden brace, and taking the last letter of a bold word takes the bold with it.
+- Every ribbon tool's tooltip names its shortcut and the LaTeX it writes, so you learn LaTeX as you use it. The styles gallery shows and sets the heading the cursor is in.
+- The status line says where the cursor is in LaTeX's terms, such as `\section{Method} › itemize › \item › \textbf`.
+- The earlier visual mode is still there as View ▸ Draft, for those who prefer the LaTeX to show under the cursor.
+
 ## 0.14.0 - 2026-10-15
 
 An equation editor like Word's.
