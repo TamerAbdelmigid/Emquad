@@ -163,23 +163,31 @@ interface Here {
   alignment: Alignment;
 }
 
-/** Where the cursor is, read again as it moves. Very long files are not read: it would hold up typing. */
+/**
+ * Where the cursor is, read again once it rests: reading a long document at every keystroke
+ * would hold up typing. Very long files are not read at all.
+ */
 function useHere(): Here | null {
-  // Read so that the tools follow the cursor.
-  useStore((s) => s.cursor);
+  const cursor = useStore((s) => s.cursor);
   const active = useStore((s) => s.active);
-  const text = active ? buffers.text(active) : undefined;
-  const at = buffers.cursorAt();
-  if (text === undefined || at === null || text.length > 400_000) return null;
-  const envs = environments(text);
-  const block = blockStyleAt(text, at, envs);
-  return {
-    style: headingAt(text, at)?.level ?? block ?? "normal",
-    heads: formatAt(text, at),
-    list: listAt(text, at),
-    numbering: numberingAt(text, at),
-    alignment: alignmentAt(text, at, envs),
-  };
+  const [here, setHere] = useState<Here | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const text = active ? buffers.text(active) : undefined;
+      const at = buffers.cursorAt();
+      if (text === undefined || at === null || text.length > 400_000) return setHere(null);
+      const envs = environments(text);
+      setHere({
+        style: headingAt(text, at)?.level ?? blockStyleAt(text, at, envs) ?? "normal",
+        heads: formatAt(text, at),
+        list: listAt(text, at),
+        numbering: numberingAt(text, at),
+        alignment: alignmentAt(text, at, envs),
+      });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [cursor, active]);
+  return here;
 }
 
 const STYLES: { level: string | null; block?: BlockStyle; id: string; name: string; tex: string; why?: string }[] = [

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type ListEdit, applyChanges, backspaceAtItemStart, enterInEmptyItem, indentItem, listAt, numberingAt, outdentItem, setNumbering, toggleList } from "./lists";
-import { visualPieces } from "./visualModel";
+import { enumLabel, visualPieces } from "./visualModel";
 
 const DOC = (body: string) => `\\documentclass{article}\n\\begin{document}\n${body}\n\\end{document}`;
 /** The text after the edit, with | where the cursor is when the edit places it. */
@@ -115,6 +115,30 @@ describe("levels: Tab and Shift+Tab in a list item", () => {
     const out = after(LIST, outdentItem(LIST, LIST.indexOf("a\n"), true));
     expect(body(out)).toBe("|a\n\\begin{itemize}\n  \\item b\n  \\item c\n\\end{itemize}");
     expect(compiles(out.replace("|", ""))).toBe(true);
+  });
+});
+
+describe("what the review found", () => {
+  const DESC = DOC("\\begin{description}\n  \\item[Apples] \n  \\item[Pears] are green\n\\end{description}");
+
+  it("a description item's term is part of its words: Enter on it is not an empty item, Backspace keeps it", () => {
+    expect(enterInEmptyItem(DESC, DESC.indexOf("[Apples] ") + 9)).toBeNull();
+    const out = after(DESC, backspaceAtItemStart(DESC, DESC.indexOf("[Pears]")));
+    expect(body(out)).toBe("\\begin{description}\n  \\item[Apples] \n\\end{description}\n|[Pears] are green");
+  });
+
+  it("Bullets and Numbering work in a file with no settings of its own, such as an included chapter", () => {
+    const chapter = "\\begin{itemize}\n  \\item a\n\\end{itemize}\n";
+    expect(applyChanges(chapter, toggleList(chapter, chapter.indexOf("a\n"), chapter.indexOf("a\n"), "enumerate")!.changes)).toBe("\\begin{enumerate}\n  \\item a\n\\end{enumerate}\n");
+    expect(applyChanges(chapter, toggleList(chapter, chapter.indexOf("a\n"), chapter.indexOf("a\n"), "itemize")!.changes)).toBe("a\n");
+  });
+
+  it("draws enumitem's labels, and LaTeX's own numbers where there is none", () => {
+    expect(enumLabel("label=\\alph*)", 2)).toBe("b)");
+    expect(enumLabel("label=(\\roman*)", 4)).toBe("(iv)");
+    expect(enumLabel("label={\\Alph*.}, start=2", 1)).toBe("A.");
+    expect(enumLabel("label=\\textbf{\\arabic*}.", 3)).toBe("3.");
+    expect(enumLabel("start=2", 1)).toBeNull();
   });
 });
 

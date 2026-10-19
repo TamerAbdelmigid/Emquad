@@ -35,8 +35,41 @@ export function uncommented(text: string): string {
   return text.replace(/(?<!\\)%[^\n]*/g, (c) => " ".repeat(c.length));
 }
 
+/** The environments found last, for the text they were found in: the ribbon asks again at every cursor move. */
+let found: { text: string; envs: Env[] } | null = null;
+
 /** Every environment in the text that is begun and ended, in the order they begin. */
 export function environments(text: string): Env[] {
+  if (found?.text !== text) found = { text, envs: readEnvironments(text) };
+  return found.envs;
+}
+
+/**
+ * Whether the braces from `from` to `to` all close inside it, none closing what was opened
+ * before: what whole lines need before an environment can go around them. Escaped braces,
+ * comments and verbatim text do not count.
+ */
+export function bracesBalanced(text: string, from: number, to: number): boolean {
+  let depth = 0;
+  for (let i = from; i < to; i++) {
+    const c = text[i];
+    if (c === "\\") {
+      const verb = /^\\(?:verb|lstinline)\*?([^a-zA-Z\s*])/.exec(text.slice(i, i + 12));
+      if (verb) {
+        const close = text.indexOf(verb[1], i + verb[0].length);
+        if (close < 0 || close >= to) return false;
+        i = close;
+      } else i++;
+    } else if (c === "%") {
+      const nl = text.indexOf("\n", i);
+      i = nl < 0 ? to : nl;
+    } else if (c === "{") depth++;
+    else if (c === "}" && --depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+function readEnvironments(text: string): Env[] {
   const code = uncommented(text);
   const out: Env[] = [];
   const open: Env[] = [];
@@ -142,6 +175,8 @@ export function paragraphLines(text: string, from: number, to: number, envs = en
   }
   // Every environment begun in the lines must end in them, and the other way round.
   if (envs.some((e) => (e.begin >= start && e.begin < stop) !== (e.end >= start && e.end < stop))) return null;
+  // Nor may they cut a command's braces in two, such as a heading's title written over two lines.
+  if (!bracesBalanced(text, start, stop)) return null;
   return { from: start, to: stop };
 }
 

@@ -39,7 +39,7 @@ import { ensurePackage, packageNotice } from "./tableModel";
 import { applyListEdit, drawingStale, forgetPictures, redrawVisual, setLatexMarks, visualMode, visualPage } from "./visual";
 import { documentStart } from "./visualModel";
 import { type Alignment, type BlockStyle, alignmentAt, setAlignment, setBlockStyle } from "./blocks";
-import { type Need, type Restyled, type TextChange, clearFormatting, formatAt, headOf, needsOf, paintFormat, setColour, toggleFormat, wordAt } from "./formatting";
+import { type Need, type Restyled, type TextChange, clearFormatting, formatAt, headOf, needsOf, paintFormat, plainWrapSafe, setColour, toggleFormat, wordAt } from "./formatting";
 import { type ListEdit, type ListKind, indentItem, outdentItem, setNumbering, toggleList } from "./lists";
 
 const states = new Map<string, EditorState>();
@@ -67,8 +67,9 @@ let formatNeeds: (needs: Need[]) => void = () => {};
 export function onFormatNeeds(load: (needs: Need[]) => void) {
   formatNeeds = load;
 }
-/** The formatting the format painter holds, or null when it holds none. */
+/** The formatting the format painter holds, or null when it holds none, and the selection it was copied from. */
 let painted: string[] | null = null;
+let paintedFrom: { from: number; to: number } | null = null;
 
 /** The selection on screen, or the word the cursor is in, or the cursor. */
 function selectionOrWord(): { from: number; to: number } | null {
@@ -257,7 +258,8 @@ function extensions(path: string): Extension[] {
       { key: "Mod-=", run: () => (buffers.format("textsubscript"), true) },
       { key: "Mod-+", run: () => (buffers.format("textsuperscript"), true) },
       { key: "Mod-Shift-=", run: () => (buffers.format("textsuperscript"), true) },
-      { key: "Mod-Shift-c", run: () => (buffers.copyFormat(), true) },
+      // The painter paints in the page view, where its second half is.
+      { key: "Mod-Shift-c", run: () => visualOn && pageOn && (buffers.copyFormat(), true) },
       { key: "Enter", run: closeEnvironment },
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -563,6 +565,12 @@ export const buffers = {
     const text = view.state.doc.toString();
     const restyled = range.empty ? null : toggleFormat(text, range.from, range.to, name);
     if (restyled) return restyle(restyled);
+    // Where the text around cannot be read as runs of words, the selection is put in the
+    // command's braces only when that cannot break anything.
+    if (!range.empty && !plainWrapSafe(text, range.from, range.to)) {
+      store().notify("This selection cannot be formatted as it stands: it crosses a formula, a comment or the edge of a command or environment. Select less, or press Ctrl+/ to change the LaTeX.", true);
+      return view.focus();
+    }
     const done = toggleCommand(text, range.from, range.to, name);
     view.dispatch({ changes: done.changes, selection: EditorSelection.range(done.select.from, done.select.to), userEvent: "input", scrollIntoView: true });
     view.focus();
@@ -595,6 +603,7 @@ export const buffers = {
   copyFormat() {
     if (!view || !shownPath) return;
     painted = formatAt(view.state.doc.toString(), view.state.selection.main.head);
+    paintedFrom = { from: view.state.selection.main.from, to: view.state.selection.main.to };
     store().set({ painting: true });
     store().notify(painted.length ? "Now select the text to give this formatting to. Esc cancels." : "No formatting here: the text you select next will be made plain. Esc cancels.");
     view.focus();
@@ -604,6 +613,8 @@ export const buffers = {
   paint(): boolean {
     if (!painted || !view || view.state.selection.main.empty) return false;
     const { from, to } = view.state.selection.main;
+    // The selection the formatting was copied from is not the next one.
+    if (paintedFrom && paintedFrom.from === from && paintedFrom.to === to) return false;
     const heads = painted;
     buffers.stopPainting();
     const restyled = paintFormat(view.state.doc.toString(), from, to, heads);

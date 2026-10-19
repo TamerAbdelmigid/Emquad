@@ -25,6 +25,16 @@ describe("paragraphs", () => {
     expect(paragraphLines(text, text.indexOf("x\n"), text.indexOf("x\n"))).toBeNull();
   });
 
+  it("are not found where they would cut a command's braces in two", () => {
+    const heading = DOC("\\section{A very long\n  title}\nText of the section.");
+    expect(setAlignment(heading, heading.indexOf("Text"), heading.indexOf("Text"), "center")).toBeNull();
+    expect(setBlockStyle(heading, heading.indexOf("title"), heading.indexOf("title"), "quote")).toBeNull();
+    const group = DOC("{\\small Para one\n\nPara two}");
+    expect(setAlignment(group, group.indexOf("two"), group.indexOf("two"), "center")).toBeNull();
+    const verb = DOC("Code \\verb|{| here.");
+    expect(setAlignment(verb, verb.indexOf("here"), verb.indexOf("here"), "center")).not.toBeNull();
+  });
+
   it("are read past environments written in a comment", () => {
     expect(environments("% \\begin{center}\n\\begin{quote}x\\end{quote}").map((e) => e.name)).toEqual(["quote"]);
   });

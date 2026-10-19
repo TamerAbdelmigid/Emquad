@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clearFormatting, formatAt, needsOf, paintFormat, preambleFor, setColour, toggleFormat, wordAt, type Restyled } from "./formatting";
+import { clearFormatting, formatAt, needsOf, paintFormat, plainWrapSafe, preambleFor, setColour, toggleFormat, wordAt, type Restyled } from "./formatting";
 import { visualPieces } from "./visualModel";
 
 const DOC = (body: string) => `\\documentclass{article}\n\\begin{document}\n${body}\n\\end{document}\n`;
@@ -69,6 +69,31 @@ describe("character formats from the ribbon", () => {
     const list = DOC("\\begin{itemize}\n  \\item alpha\n  \\item beta\n\\end{itemize}");
     const bold = apply(list, toggleFormat(list, sel(list, "alpha")[0], sel(list, "beta")[1], "textbf"));
     expect(bold.text).toContain("\\item \\textbf{alpha}\n  \\item \\textbf{beta}");
+  });
+});
+
+describe("what the review found", () => {
+  it("never puts verbatim text inside a command's braces", () => {
+    const text = DOC("Use \\verb|x_y| now");
+    const out = apply(text, toggleFormat(text, text.indexOf("Use"), text.indexOf("now") + 3, "textbf"));
+    expect(out.text).toContain("\\textbf{Use} \\verb|x_y| \\textbf{now}");
+  });
+
+  it("formats the words after a footnote when the selection starts inside it, leaving the footnote as it was", () => {
+    const text = DOC("Some \\footnote{foot words here} after");
+    const out = apply(text, toggleFormat(text, text.indexOf("words"), text.indexOf("after") + 5, "textbf"));
+    expect(out.text).toContain("Some \\footnote{foot words here} \\textbf{after}");
+  });
+
+  it("puts a selection simply in braces only when nothing in it can break", () => {
+    const title = "\\title{My paper}";
+    expect(plainWrapSafe(title, 7, 9)).toBe(true);
+    const theorem = "Intro text\n\\begin{theorem}\nStatement.";
+    expect(plainWrapSafe(theorem, 6, theorem.indexOf("ment"))).toBe(false);
+    expect(plainWrapSafe("a % b", 0, 5)).toBe(false);
+    expect(plainWrapSafe("a } b", 0, 5)).toBe(false);
+    expect(plainWrapSafe("a $x b", 0, 6)).toBe(false);
+    expect(plainWrapSafe("a \\$ b", 0, 6)).toBe(true);
   });
 });
 

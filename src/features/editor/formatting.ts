@@ -195,7 +195,8 @@ function read(text: string, from: number, to: number, stack: string[], out: Leaf
       const end = commandEnd(text, i, to);
       if (end < 0) return false;
       const name = /^\\([a-zA-Z@]+)/.exec(text.slice(i, i + 30))?.[1] ?? "";
-      piece(i, end, BARRIERS.has(name) || end - i > 2000 ? "barrier" : "thing");
+      // Verbatim text cannot be in a command's argument: no group may reach across it.
+      piece(i, end, BARRIERS.has(name) || name === "verb" || name === "lstinline" || end - i > 2000 ? "barrier" : "thing");
       i = end;
     } else if (c === "%") {
       // A comment with its line break: a brace written after it would be part of it.
@@ -377,6 +378,23 @@ export function restyle(text: string, from: number, to: number, change: (stack: 
     select: { from: r0 + Math.max(0, selFrom), to: r0 + Math.max(selFrom, selTo) },
     heads: [...heads],
   };
+}
+
+/**
+ * Whether the selected text can simply be put in a command's braces, where it cannot be read as
+ * runs of text (in the settings at the top, say, inside \title): on one line, its braces
+ * matched, with no comment, verbatim, environment or list item in it.
+ */
+export function plainWrapSafe(text: string, from: number, to: number): boolean {
+  const selected = text.slice(from, to);
+  if (selected.includes("\n") || /(?<!\\)%|\\(?:begin|end|item|verb|lstinline|par)(?![a-zA-Z])/.test(selected)) return false;
+  let depth = 0;
+  for (let i = 0; i < selected.length; i++) {
+    if (selected[i] === "\\") i++;
+    else if (selected[i] === "{") depth++;
+    else if (selected[i] === "}" && --depth < 0) return false;
+  }
+  return depth === 0 && (selected.split("$").length - 1 - (selected.split("\\$").length - 1)) % 2 === 0;
 }
 
 /** The opening a tool writes: `\textbf{`, or `\textcolor{name}{` for a colour. */

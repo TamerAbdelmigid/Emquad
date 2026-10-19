@@ -46,8 +46,16 @@ interface List {
   outer: List | null;
 }
 
+/** The lists found last, for the text they were found in: the ribbon asks again at every cursor move. */
+let found: { text: string; lists: List[] } | null = null;
+
 /** The lists of the text that are written one thing to a line, as the page view draws them. */
-function lists(text: string, envs = environments(text)): List[] {
+function lists(text: string): List[] {
+  if (found?.text !== text) found = { text, lists: readLists(text, environments(text)) };
+  return found.lists;
+}
+
+function readLists(text: string, envs: Env[]): List[] {
   const out: List[] = [];
   const byEnv = new Map<Env, List>();
   for (const env of envs) {
@@ -59,7 +67,9 @@ function lists(text: string, envs = environments(text)): List[] {
     const inner = envs.filter((e) => e !== env && e.begin > env.begin && e.tail <= env.end);
     const items: Item[] = [];
     let ok = true;
-    for (const m of text.slice(env.head, env.end).matchAll(/\\item\b(?:\s*\[[^\]\n]*\])?[ \t]?/g)) {
+    // An item's words start where its bullet ends, as the page view draws it: a label in square
+    // brackets, such as a description's term, is part of its words.
+    for (const m of text.slice(env.head, env.end).matchAll(/\\item\b[ \t]?/g)) {
       const at = env.head + m.index;
       if (inner.some((e) => e.begin < at && at < e.tail) || /(?<!\\)%/.test(text.slice(lineStart(text, at), at))) continue;
       const line = lineStart(text, at);
@@ -157,7 +167,7 @@ function itemsToParagraphs(text: string, list: List, first: number, last: number
  */
 export function toggleList(text: string, from: number, to: number, kind: ListKind, format?: string): ListEdit | null {
   const here = itemAt(text, from);
-  if (here && here.list.env.parent && here.list.env.end >= to) {
+  if (here && here.list.env.end >= to) {
     const { list } = here;
     if (list.env.name === kind && (format === undefined || kind !== "enumerate")) {
       const last = list.items.reduce((at, item, i) => (item.line <= to ? i : at), here.index);
