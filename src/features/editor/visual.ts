@@ -25,6 +25,8 @@ import { parseTable } from "./tableModel";
 import { type Piece, type Range, type Row, describeCitation, visualPieces } from "./visualModel";
 import { formulaAt } from "./equation";
 import { latexPath } from "./latexPath";
+import { type ListEdit, enterInEmptyItem, indentItem, outdentItem, toggleList } from "./lists";
+import { alignmentAt, setAlignment } from "./blocks";
 
 
 /** What a double-click on a formula does: the app opens the equation editor on it. */
@@ -283,6 +285,37 @@ class CiteWidget extends WidgetType {
   }
 }
 
+/** Hidden command text shown faintly in place, as LaTeX marks show it: `\textbf{` and its `}`. */
+class MarkWidget extends WidgetType {
+  constructor(readonly text: string) {
+    super();
+  }
+  eq(other: MarkWidget) {
+    return other.text === this.text;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "cm-v-mark";
+    el.textContent = this.text;
+    return el;
+  }
+}
+
+/**
+ * LaTeX marks, as Word's ¶ shows formatting marks: the commands around formatted text drawn
+ * faintly in place, and the names of the environments whose lines are hidden in the margin. The
+ * page stays drawn and is edited as before. One setting for every open file.
+ */
+let marksOn = false;
+export function setLatexMarks(on: boolean) {
+  marksOn = on;
+}
+/** What Ctrl+Shift+8 does: the app switches the marks and draws every file again. */
+let toggleMarks: () => void = () => {};
+export function onToggleMarks(toggle: () => void) {
+  toggleMarks = toggle;
+}
+
 const bullet = Decoration.replace({ widget: new BulletWidget() });
 
 /** Why each table source cannot be edited, or null when it can, remembered: reading a table back is the dearest part of a redraw. */
@@ -357,10 +390,25 @@ function build(state: EditorState): Drawn {
   const index = store().index;
   const report = { touched: false };
   const page = state.facet(pageLook);
+  const marks = page && marksOn;
   const pieces = page ? pagePieces(state, text, report) : visualPieces(text, state.selection.ranges.map((r) => ({ from: r.from, to: r.to })), report);
+  // A line just after a hidden whole line, such as a list's \begin line, is drawn as part of the
+  // line the hidden one starts: its style goes there, or it would be lost.
+  const joined = new Map<number, number>();
+  for (const p of pieces) if (p.kind === "hide" && text[p.to - 1] === "\n") joined.set(p.to, p.from);
+  const lineStartOf = (at: number) => {
+    for (let n = 0; joined.has(at) && n < 50; n++) at = joined.get(at)!;
+    return at;
+  };
   for (const p of pieces) {
-    if (p.kind === "line") out.push(Decoration.line({ class: `cm-v-line-${p.style}` }).range(p.from));
-    else if (p.kind === "hide") out.push(Decoration.replace({ group: p.group }).range(p.from, p.to));
+    if (p.kind === "line") {
+      const lineClass = p.style.split(" ").map((s) => `cm-v-line-${s}`).join(" ");
+      out.push(Decoration.line({ class: lineClass, ...(p.env ? { attributes: { "data-env": p.env } } : {}) }).range(lineStartOf(p.from)));
+    } else if (p.kind === "hide") {
+      // With LaTeX marks on, a command's hidden text is shown faintly; a whole hidden line stays hidden.
+      const shown = marks && !text.slice(p.from, p.to).endsWith("\n");
+      out.push(Decoration.replace({ group: p.group, ...(shown ? { widget: new MarkWidget(text.slice(p.from, p.to)) } : {}) }).range(p.from, p.to));
+    }
     else if (p.kind === "bullet") out.push((p.label === undefined ? bullet : Decoration.replace({ widget: new BulletWidget(p.label) })).range(p.from, p.to));
     else if (p.kind === "ref") {
       const { text, detail } = describeReference(p.command, p.keys, index.labelNumbers);
@@ -524,7 +572,8 @@ function hiddenParts(state: EditorState, from = 0, to = state.doc.length): Hidde
 function widgetBeside(state: EditorState, at: number, side: -1 | 1): { from: number; to: number; whole: boolean; bullet: boolean } | null {
   let found: { from: number; to: number; whole: boolean; bullet: boolean } | null = null;
   state.field(drawing).deco.between(at, at, (f, t, d) => {
-    if (d.spec.widget && (side < 0 ? t === at && f < at : f === at && t > at)) {
+    // A command's text shown as a LaTeX mark is part of a construct, not a drawing of its own.
+    if (d.spec.widget && typeof d.spec.group !== "number" && (side < 0 ? t === at && f < at : f === at && t > at)) {
       // The settings and a table are too much to lose to one key: the key steps past them.
       const big = d.spec.widget instanceof FoldWidget || d.spec.widget instanceof EditableTable || d.spec.widget instanceof TableWidget;
       found = { from: f, to: t, whole: !big, bullet: d.spec.widget instanceof BulletWidget };
@@ -557,11 +606,9 @@ function pageDeleteBy(view: EditorView, side: -1 | 1): boolean {
     return true;
   }
   if (drawn?.bullet && side < 0) {
-    // Backspace after a bullet joins the item to the one above it, as in a word processor. The
-    // first item has none above it, and an item without its \item would not compile.
-    const line = state.doc.lineAt(drawn.from);
-    const above = line.number > 1 && !parts.some((h) => h.to === line.from) && /^\s*\\item\b/.test(state.doc.line(line.number - 1).text);
-    if (above) view.dispatch({ changes: { from: line.from - 1, to: drawn.to }, selection: { anchor: line.from - 1 }, userEvent: "delete.backward", scrollIntoView: true });
+    // Backspace after a bullet makes the item a paragraph, as in a word processor, the list kept
+    // before and after it; in a list inside another, the item goes up a level.
+    applyListEdit(view, outdentItem(state.doc.toString(), drawn.to, true));
     return true;
   }
   if (drawn) [from, to] = [drawn.from, drawn.to];
@@ -629,6 +676,9 @@ export function pageEnter(view: EditorView): boolean {
   }
   // Inside a command's argument, or in text taken as written, a blank line would end it early.
   if (braceOpen(line.text.slice(0, at - line.from)) || latexPath(state.doc.toString(), at).some((p) => LITERAL.test(p))) return false;
+  // Enter on an empty item ends the list, as in a word processor.
+  const ended = enterInEmptyItem(state.doc.toString(), at);
+  if (ended) return applyListEdit(view, ended);
   const item = /^(\s*)\\item\b/.exec(line.text);
   if (item) {
     go(at, `\n${item[1]}\\item `);
@@ -637,6 +687,34 @@ export function pageEnter(view: EditorView): boolean {
   if (!line.text.trim() || NOT_PROSE.test(line.text.trim())) return false;
   go(at, "\n\n");
   return true;
+}
+
+/** Make a list tool's change, the cursor where the tool puts it or kept in its words. True when there was one. */
+export function applyListEdit(view: EditorView, edit: ListEdit | null): boolean {
+  if (!edit) return false;
+  if (edit.changes.length) {
+    view.dispatch({
+      changes: edit.changes,
+      ...(edit.cursor !== undefined ? { selection: { anchor: edit.cursor } } : {}),
+      userEvent: "input.list",
+      scrollIntoView: true,
+    });
+  }
+  return true;
+}
+
+/** Tab in a list item of the page view: the item goes one level down. Elsewhere, Tab as usual. */
+export function pageTab(view: EditorView): boolean {
+  const { state } = view;
+  if (!state.selection.main.empty || state.field(revealed, false)) return false;
+  return applyListEdit(view, indentItem(state.doc.toString(), state.selection.main.head));
+}
+
+/** Shift+Tab in a list item of the page view: the item goes one level up. */
+export function pageShiftTab(view: EditorView): boolean {
+  const { state } = view;
+  if (!state.selection.main.empty || state.field(revealed, false)) return false;
+  return applyListEdit(view, outdentItem(state.doc.toString(), state.selection.main.head));
 }
 
 /** Ctrl+/: show the paragraph the cursor is in as its LaTeX, or draw it again. */
@@ -812,6 +890,7 @@ export const visualPage: Extension = [
   wholeOnCopy,
   EditorView.atomicRanges.of((view) => view.state.field(drawing).covers),
   EditorView.editorAttributes.of({ class: "cm-page" }),
+  EditorView.editorAttributes.of(() => (marksOn ? { class: "cm-marks" } : null)),
   Prec.high(
     keymap.of([
       { key: "Backspace", run: pageBackspace },
@@ -819,6 +898,22 @@ export const visualPage: Extension = [
       { key: "Enter", run: pageEnter },
       { key: "Mod-/", run: toggleReveal },
       { key: "Escape", run: hideReveal },
+      { key: "Tab", run: pageTab, shift: pageShiftTab },
+      // Word's keys for bullets and for centring, which a second time takes the centring away.
+      { key: "Mod-Shift-l", run: (v) => (applyListEdit(v, toggleList(v.state.doc.toString(), v.state.selection.main.from, v.state.selection.main.to, "itemize")), true) },
+      {
+        key: "Mod-e",
+        run: (v) => {
+          const { from, to } = v.state.selection.main;
+          const text = v.state.doc.toString();
+          const changes = setAlignment(text, from, to, alignmentAt(text, from) === "center" ? "justify" : "center");
+          if (changes) v.dispatch({ changes, userEvent: "input", scrollIntoView: true });
+          return true;
+        },
+      },
+      // As Word's Ctrl+Shift+8 shows formatting marks.
+      { key: "Mod-*", run: () => (toggleMarks(), true) },
+      { key: "Mod-Shift-8", run: () => (toggleMarks(), true) },
     ]),
   ),
 ];

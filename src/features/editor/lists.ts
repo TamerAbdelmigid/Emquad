@@ -160,10 +160,10 @@ export function toggleList(text: string, from: number, to: number, kind: ListKin
   if (here && here.list.env.parent && here.list.env.end >= to) {
     const { list } = here;
     if (list.env.name === kind && (format === undefined || kind !== "enumerate")) {
-      const last = Math.max(here.index, list.items.findLastIndex((item) => item.line <= to));
+      const last = list.items.reduce((at, item, i) => (item.line <= to ? i : at), here.index);
       return itemsToParagraphs(text, list, here.index, last);
     }
-    return setListFormat(text, list, kind, format ?? "");
+    return setListFormat(list, kind, format ?? "");
   }
   const lines = paragraphLines(text, from, to);
   if (!lines) return null;
@@ -183,8 +183,11 @@ function needsFor(format: string | undefined): Need[] {
 }
 
 /** A list made of `kind` with the numbering format `format` ("" for LaTeX's own). */
-function setListFormat(text: string, list: List, kind: ListKind, format: string): ListEdit {
-  const head = `\\begin{${kind}}${kind === "enumerate" && format ? `[${format}]` : ""}`;
+function setListFormat(list: List, kind: ListKind, format: string): ListEdit {
+  // The list's other options, such as where its numbers start, are kept; a bulleted list has none.
+  const others = kind === "enumerate" && list.env.name === "enumerate" ? list.env.options.split(",").filter((o) => o.trim() && !/^\s*label\s*=/.test(o)) : [];
+  const options = [...(kind === "enumerate" && format ? [format] : []), ...others].join(",");
+  const head = `\\begin{${kind}}${options ? `[${options}]` : ""}`;
   const changes = [
     { from: list.env.begin, to: list.env.head, insert: head },
     { from: list.env.end, to: list.env.tail, insert: `\\end{${kind}}` },
@@ -209,7 +212,7 @@ export function listAt(text: string, at: number): ListKind | "description" | nul
 export function setNumbering(text: string, from: number, to: number, formatId: string): ListEdit | null {
   const format = NUMBER_FORMATS.find((f) => f.id === formatId)?.option ?? "";
   const here = itemAt(text, from);
-  if (here) return setListFormat(text, here.list, "enumerate", format);
+  if (here) return setListFormat(here.list, "enumerate", format);
   return toggleList(text, from, to, "enumerate", format);
 }
 
@@ -244,13 +247,14 @@ export function indentItem(text: string, at: number): ListEdit | null {
 
 /**
  * Shift+Tab in a list item: the item goes one level up, after the item its list is in, taking
- * the items after it along as a list of its own; at the top level it becomes a paragraph.
+ * the items after it along as a list of its own. At the top level it stays, or, with
+ * `toParagraph` (Backspace at its start), becomes a paragraph.
  */
-export function outdentItem(text: string, at: number): ListEdit | null {
+export function outdentItem(text: string, at: number, toParagraph = false): ListEdit | null {
   const here = itemAt(text, at);
   if (!here) return null;
   const { list, index } = here;
-  if (!list.outer) return itemsToParagraphs(text, list, index, index);
+  if (!list.outer) return toParagraph ? itemsToParagraphs(text, list, index, index) : { changes: [] };
   const item = list.items[index];
   const parentItem = list.outer.items.find((i) => i.at < list.env.begin && list.env.tail <= i.end);
   const by = parentItem ? item.at - item.line - (parentItem.at - parentItem.line) : 0;
@@ -320,5 +324,5 @@ export function enterInEmptyItem(text: string, at: number): ListEdit | null {
  */
 export function backspaceAtItemStart(text: string, at: number): ListEdit | null {
   if (!atItemStart(text, at)) return null;
-  return outdentItem(text, at);
+  return outdentItem(text, at, true);
 }

@@ -109,6 +109,11 @@ export function onPastedNeeds(load: (packages: string[]) => void) {
 
 /** The next paste is of the words alone: Ctrl+Shift+V was pressed. */
 let plainNext = false;
+/** Make the next paste one of the words alone, as Paste words only in a menu does. */
+export function pasteWordsNext() {
+  plainNext = true;
+  setTimeout(() => (plainNext = false), 500);
+}
 /** Text compared as copied: line ends and a final line break do not count. */
 const same = (text: string) => text.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
 

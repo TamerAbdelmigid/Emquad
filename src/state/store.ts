@@ -43,6 +43,10 @@ export interface State {
   pageView: boolean;
   /** How large the page view draws the page, 1 being its printed size. */
   pageZoom: number;
+  /** The page view shows LaTeX marks: the commands faintly around formatted text. */
+  latexMarks: boolean;
+  /** The format painter holds formatting to put on the next text selected. */
+  painting: boolean;
   /** The Symbol panel is open. */
   symbols: boolean;
   /** What the side panel shows when it is open. */
@@ -91,6 +95,8 @@ export const useStore = create<State>((set) => ({
   visual: true,
   pageView: true,
   pageZoom: 1,
+  latexMarks: false,
+  painting: false,
   symbols: false,
   sidePanel: "files",
   comments: [],

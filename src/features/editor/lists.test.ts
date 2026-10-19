@@ -110,8 +110,9 @@ describe("levels: Tab and Shift+Tab in a list item", () => {
     expect(compiles(out)).toBe(true);
   });
 
-  it("Shift+Tab at the top level makes the item a paragraph", () => {
-    const out = after(LIST, outdentItem(LIST, LIST.indexOf("a\n")));
+  it("Shift+Tab at the top level leaves the item; Backspace at its start makes it a paragraph", () => {
+    expect(outdentItem(LIST, LIST.indexOf("a\n"))!.changes).toEqual([]);
+    const out = after(LIST, outdentItem(LIST, LIST.indexOf("a\n"), true));
     expect(body(out)).toBe("|a\n\\begin{itemize}\n  \\item b\n  \\item c\n\\end{itemize}");
     expect(compiles(out.replace("|", ""))).toBe(true);
   });

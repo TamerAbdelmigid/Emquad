@@ -6,7 +6,8 @@ export type IconName =
   | "down" | "x" | "undo" | "redo" | "table" | "layout" | "chev" | "chevup" | "left" | "right"
   | "log" | "play" | "plus" | "check" | "edit" | "trash" | "comment" | "al-l" | "al-c" | "al-r" | "merge"
   | "split" | "borders" | "rows" | "caption" | "code" | "list-ul" | "list-ol" | "brk" | "toc" | "picture" | "xref"
-  | "footnote" | "sigma" | "formula" | "quote" | "page" | "draft" | "minus";
+  | "footnote" | "sigma" | "formula" | "quote" | "page" | "draft" | "minus" | "paste" | "cut" | "copy" | "brush"
+  | "outdent" | "indent" | "al-j" | "spacing" | "marks" | "hl" | "clear";
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (
@@ -30,6 +31,10 @@ export interface MenuItem {
   label: string;
   hint?: string;
   disabled?: boolean;
+  /** Shown with a tick: the choice in force. */
+  checked?: boolean;
+  /** Drawn before the label, such as a colour's swatch. */
+  icon?: ReactNode;
   run: () => void;
 }
 
@@ -39,11 +44,16 @@ export function Menu({
   items,
   className = "menu",
   ariaLabel,
+  buttonProps = {},
+  disabled = false,
 }: {
   label: ReactNode;
   items: (MenuItem | "separator")[];
   className?: string;
   ariaLabel?: string;
+  /** More attributes for the menu's button, such as what a tooltip says. */
+  buttonProps?: Record<string, string | undefined>;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -68,7 +78,18 @@ export function Menu({
   }, [open]);
   return (
     <div className="menu-wrap" ref={ref}>
-      <button className={className} aria-haspopup="menu" aria-expanded={open} aria-label={ariaLabel} onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className={className}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        disabled={disabled}
+        {...buttonProps}
+        // A menu on a tool keeps the selection in the text while it is opened.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen(!open)}
+      >
         {label}
       </button>
       {open && (
@@ -101,7 +122,13 @@ export function Menu({
                   item.run();
                 }}
               >
+                {(item.checked !== undefined || item.icon) && (
+                  <span className="menu-tick" aria-hidden="true">
+                    {item.icon ?? (item.checked ? "✓" : "")}
+                  </span>
+                )}
                 <span>{item.label}</span>
+                {item.checked && <span className="sr-only">(chosen)</span>}
                 {item.hint && <kbd>{item.hint}</kbd>}
               </button>
             ),
