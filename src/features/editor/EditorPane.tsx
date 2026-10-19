@@ -70,7 +70,7 @@ export function EditorPane(p: Props) {
   const geometry = useGeometry(paged ? p.active : null, p.mainFile);
   const width = useWidth(host, paged);
   // A page wider than the pane is shown whole, made smaller to fit, as a word processor does; zoom is on top of that.
-  const fit = width ? Math.min(1, (width - 60) / (geometry.width * CM)) : 1;
+  const fit = width ? Math.max(0.2, Math.min(1, (width - 60) / (geometry.width * CM))) : 1;
 
   return (
     <main className={paged ? "screen paged" : "screen"} style={{ ["--editor-size" as string]: `${p.fontSize}px`, ...(paged ? pageStyle(geometry, p.zoom * fit) : {}) }}>

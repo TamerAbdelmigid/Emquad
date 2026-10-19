@@ -134,3 +134,65 @@ describe("page view: editing", () => {
     expect(text(view)).toContain("\\item one\n  \\item \n\\end{itemize}");
   });
 });
+
+describe("page view: what the review found", () => {
+  const text = (view: EditorView) => view.state.doc.toString();
+  const type = (view: EditorView, insert: string, userEvent = "input.type") => view.dispatch({ ...view.state.replaceSelection(insert), userEvent });
+  const LIST = "\\begin{document}\nSee:\n\\begin{itemize}\n  \\item one\n  \\item two\n\\end{itemize}\nAfter.\n\\end{document}";
+  const FULL = "\\documentclass{article}\n\\begin{document}\nSome \\textbf{bold} text.\n\\end{document}\n";
+
+  it("typing over a selection that starts at hidden text keeps what is typed, and the command whole", () => {
+    const view = editor(DOC, { anchor: at("\\textbf"), head: at("bold", 2) });
+    type(view, "XYZ");
+    expect(text(view)).toContain("Some \\textbf{XYZld} text");
+    const pasted = editor(DOC, { anchor: at("\\textbf"), head: at("bold", 2) });
+    type(pasted, "pasted", "input.paste");
+    expect(text(pasted)).toContain("Some \\textbf{pastedld} text");
+  });
+
+  it("select all and type keeps the settings and the end of the document, and what is typed", () => {
+    const view = editor(FULL, { anchor: 0, head: FULL.length });
+    type(view, "New text");
+    expect(text(view)).toBe("\\documentclass{article}\n\\begin{document}New text\\end{document}");
+  });
+
+  it("typing at the very start goes in the document, not before its settings", () => {
+    const view = editor(FULL, 0);
+    type(view, "Title");
+    expect(text(view).startsWith("\\documentclass{article}\n\\begin{document}Title")).toBe(true);
+  });
+
+  it("copying or dragging part of a bold word carries the whole command", () => {
+    const view = editor(DOC, { anchor: at("Some"), head: at("bold", 2) });
+    const out = (t: string) => view.state.facet(EditorView.clipboardOutputFilter).reduce((s, f) => f(s, view.state), t);
+    expect(out(view.state.sliceDoc(at("Some"), at("bold", 2)))).toBe("Some \\textbf{bo}");
+    view.dispatch({ selection: { anchor: at("bold", 2), head: at(" with") } });
+    expect(out(view.state.sliceDoc(at("bold", 2), at(" with")))).toBe("\\textbf{ld} text");
+  });
+
+  it("Delete at the end of a list's last item, and Backspace before a list, leave the list alone", () => {
+    const view = editor(LIST, LIST.indexOf("two") + 3);
+    pageDelete(view);
+    expect(text(view)).toBe(LIST);
+    view.dispatch({ selection: { anchor: LIST.indexOf("After") } });
+    pageBackspace(view);
+    expect(text(view)).toBe(LIST);
+  });
+
+  it("Backspace after a bullet joins the item to the one above, and does nothing on the first", () => {
+    const view = editor(LIST, LIST.indexOf("two"));
+    pageBackspace(view);
+    expect(text(view)).toContain("\\item onetwo\n\\end{itemize}");
+    const first = editor(LIST, LIST.indexOf("one"));
+    pageBackspace(first);
+    expect(text(first)).toBe(LIST);
+  });
+
+  it("Enter goes in as a plain line break in verbatim and inside a command's braces", () => {
+    const doc = "\\begin{document}\n\\begin{verbatim}\ncode here\n\\end{verbatim}\nSee \\href{https://x.org}{click here} now.\n\\end{document}";
+    const view = editor(doc, doc.indexOf("code") + 4);
+    expect(pageEnter(view)).toBe(false);
+    view.dispatch({ selection: { anchor: doc.indexOf("click") + 5 } });
+    expect(pageEnter(view)).toBe(false);
+  });
+});

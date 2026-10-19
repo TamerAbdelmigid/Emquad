@@ -11,6 +11,7 @@ import {
   type Range as CmRange,
   StateEffect,
   StateField,
+  Transaction,
   findClusterBreak,
 } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType, keymap } from "@codemirror/view";
@@ -23,6 +24,7 @@ import { EditableTable } from "./tableEditor";
 import { parseTable } from "./tableModel";
 import { type Piece, type Range, type Row, describeCitation, visualPieces } from "./visualModel";
 import { formulaAt } from "./equation";
+import { latexPath } from "./latexPath";
 
 
 /** What a double-click on a formula does: the app opens the equation editor on it. */
@@ -356,12 +358,9 @@ function build(state: EditorState): Drawn {
   const report = { touched: false };
   const page = state.facet(pageLook);
   const pieces = page ? pagePieces(state, text, report) : visualPieces(text, state.selection.ranges.map((r) => ({ from: r.from, to: r.to })), report);
-  // Where each construct's hidden parts end, so an edit can tell whether it takes it whole.
-  const ends = new Map<number, number>();
-  for (const p of pieces) if (p.kind === "hide") ends.set(p.group, Math.max(ends.get(p.group) ?? p.to, p.to));
   for (const p of pieces) {
     if (p.kind === "line") out.push(Decoration.line({ class: `cm-v-line-${p.style}` }).range(p.from));
-    else if (p.kind === "hide") out.push(Decoration.replace({ group: p.group, end: ends.get(p.group) }).range(p.from, p.to));
+    else if (p.kind === "hide") out.push(Decoration.replace({ group: p.group }).range(p.from, p.to));
     else if (p.kind === "bullet") out.push((p.label === undefined ? bullet : Decoration.replace({ widget: new BulletWidget(p.label) })).range(p.from, p.to));
     else if (p.kind === "ref") {
       const { text, detail } = describeReference(p.command, p.keys, index.labelNumbers);
@@ -508,28 +507,27 @@ export const visualMode: Extension = [revealed, drawing, settle, formulaClicks, 
 interface Hidden {
   from: number;
   to: number;
-  /** Where the construct this part belongs to starts and ends. */
+  /** Which construct this is part of: the parts of one construct share it. */
   group: number;
-  end: number;
 }
 
 /** The hidden parts of commands drawn in `state`, in order. */
 function hiddenParts(state: EditorState, from = 0, to = state.doc.length): Hidden[] {
   const out: Hidden[] = [];
   state.field(drawing).deco.between(from, to, (f, t, d) => {
-    if (typeof d.spec.group === "number") out.push({ from: f, to: t, group: d.spec.group, end: d.spec.end });
+    if (typeof d.spec.group === "number") out.push({ from: f, to: t, group: d.spec.group });
   });
   return out;
 }
 
 /** The drawing that covers the text just before (`side` -1) or after (1) `at`, if any. */
-function widgetBeside(state: EditorState, at: number, side: -1 | 1): { from: number; to: number; whole: boolean } | null {
-  let found: { from: number; to: number; whole: boolean } | null = null;
+function widgetBeside(state: EditorState, at: number, side: -1 | 1): { from: number; to: number; whole: boolean; bullet: boolean } | null {
+  let found: { from: number; to: number; whole: boolean; bullet: boolean } | null = null;
   state.field(drawing).deco.between(at, at, (f, t, d) => {
     if (d.spec.widget && (side < 0 ? t === at && f < at : f === at && t > at)) {
       // The settings and a table are too much to lose to one key: the key steps past them.
       const big = d.spec.widget instanceof FoldWidget || d.spec.widget instanceof EditableTable || d.spec.widget instanceof TableWidget;
-      found = { from: f, to: t, whole: !big };
+      found = { from: f, to: t, whole: !big, bullet: d.spec.widget instanceof BulletWidget };
     }
   });
   return found;
@@ -558,11 +556,22 @@ function pageDeleteBy(view: EditorView, side: -1 | 1): boolean {
     view.dispatch({ selection: { anchor: side < 0 ? drawn.from : drawn.to }, scrollIntoView: true });
     return true;
   }
+  if (drawn?.bullet && side < 0) {
+    // Backspace after a bullet joins the item to the one above it, as in a word processor. The
+    // first item has none above it, and an item without its \item would not compile.
+    const line = state.doc.lineAt(drawn.from);
+    const above = line.number > 1 && !parts.some((h) => h.to === line.from) && /^\s*\\item\b/.test(state.doc.line(line.number - 1).text);
+    if (above) view.dispatch({ changes: { from: line.from - 1, to: drawn.to }, selection: { anchor: line.from - 1 }, userEvent: "delete.backward", scrollIntoView: true });
+    return true;
+  }
   if (drawn) [from, to] = [drawn.from, drawn.to];
   else {
     const line = state.doc.lineAt(at);
     if (side < 0) from = at === line.from ? at - 1 : line.from + findClusterBreak(line.text, at - line.from, false);
     else to = at === line.to ? at + 1 : line.from + findClusterBreak(line.text, at - line.from, true);
+    // A line break next to a hidden line, such as a list's \begin or \end, stays: taking it would
+    // join that line to the text and show it, half a command for the next key to take.
+    if (state.sliceDoc(from, to) === "\n" && parts.some((h) => h.from === to || h.to === from)) return true;
   }
   // What empties a command takes the command with it, rather than leave it empty.
   const before = parts.find((h) => h.to === from);
@@ -574,6 +583,20 @@ function pageDeleteBy(view: EditorView, side: -1 | 1): boolean {
 
 export const pageBackspace = (view: EditorView) => pageDeleteBy(view, -1);
 export const pageDelete = (view: EditorView) => pageDeleteBy(view, 1);
+
+/** Environments whose text is taken as it is written, where Enter is a plain line break. */
+const LITERAL = /^(?:verbatim|Verbatim|BVerbatim|lstlisting|minted|alltt|comment)\*?$/;
+
+/** Whether `before`, text on a line up to the cursor, leaves a brace open. */
+function braceOpen(before: string): boolean {
+  let depth = 0;
+  for (let i = 0; i < before.length; i++) {
+    if (before[i] === "\\") i++;
+    else if (before[i] === "{") depth++;
+    else if (before[i] === "}") depth = Math.max(0, depth - 1);
+  }
+  return depth > 0;
+}
 
 /** Lines of commands that are not text, where Enter goes in as it does in the source. */
 const NOT_PROSE = /^\\(?:begin|end|label|centering|caption|includegraphics|hline|toprule|midrule|bottomrule|maketitle|tableofcontents)\b/;
@@ -603,6 +626,8 @@ export function pageEnter(view: EditorView): boolean {
     }
     return false;
   }
+  // Inside a command's argument, or in text taken as written, a blank line would end it early.
+  if (braceOpen(line.text.slice(0, at - line.from)) || latexPath(state.doc.toString(), at).some((p) => LITERAL.test(p))) return false;
   const item = /^(\s*)\\item\b/.exec(line.text);
   if (item) {
     go(at, `\n${item[1]}\\item `);
@@ -636,21 +661,102 @@ function hideReveal(view: EditorView): boolean {
   return true;
 }
 
-/** Edits by typing, pasting or deleting that would take only part of a construct's hidden text are kept off it. */
-const keepConstructs = EditorState.changeFilter.of((tr) => {
-  const user = ["input.type", "input.paste", "input.drop", "delete", "move.drop"].some((e) => tr.isUserEvent(e));
+/** Edits made by typing, pasting, dropping or deleting. */
+const USER_EDITS = ["input.type", "input.paste", "input.drop", "delete", "move.drop"];
+
+/**
+ * An edit by typing, pasting, dropping or deleting that would take only part of a construct's
+ * hidden text leaves that text in place, and so do the document's settings and its
+ * \end{document}: the rest of the edit goes ahead, and what was typed or pasted goes in just after
+ * what was kept, so that nothing written is lost and no command is left broken.
+ */
+const keepConstructs = EditorState.transactionFilter.of((tr) => {
   const drawn = tr.startState.field(drawing, false);
-  if (!tr.docChanged || !user || !drawn) return true;
-  const keep: number[] = [];
+  if (!tr.docChanged || !drawn || !USER_EDITS.some((e) => tr.isUserEvent(e))) return tr;
+  const start = tr.startState;
+  let parts: Hidden[] | null = null;
+  const span = (group: number) => {
+    const mine = (parts ??= hiddenParts(start)).filter((h) => h.group === group);
+    return { from: mine[0].from, to: mine[mine.length - 1].to };
+  };
+  let end: Range | null | undefined;
+  const kept: Range[] = [];
   tr.changes.iterChangedRanges((fromA, toA) => {
     drawn.deco.between(fromA, toA, (f, t, d) => {
-      if (Math.min(t, toA) <= Math.max(f, fromA)) return;
       const group = typeof d.spec.group === "number";
-      const whole = group && fromA <= d.spec.group && toA >= d.spec.end;
-      if ((group && !whole) || d.spec.widget instanceof FoldWidget) keep.push(f, t);
+      const fold = d.spec.widget instanceof FoldWidget;
+      if (!group && !fold) return;
+      if (Math.min(t, toA) <= Math.max(f, fromA) && !(fold && fromA === f)) return;
+      if (group) {
+        const whole = span(d.spec.group);
+        if (fromA <= whole.from && toA >= whole.to) return;
+      }
+      kept.push({ from: f, to: t });
     });
+    if (toA > fromA) {
+      if (end === undefined) {
+        const at = start.doc.toString().lastIndexOf("\\end{document}");
+        end = at < 0 ? null : { from: at, to: at + "\\end{document}".length };
+      }
+      if (end && fromA < end.to && toA > end.from) kept.push(end);
+    }
   });
-  return keep.length ? keep : true;
+  if (!kept.length) return tr;
+  kept.sort((a, b) => a.from - b.from);
+  const changes: { from: number; to?: number; insert?: string }[] = [];
+  let caret = -1;
+  tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    let at = -1;
+    let pos = fromA;
+    for (const k of kept) {
+      if (k.to <= pos || k.from >= toA) continue;
+      if (k.from > pos) {
+        changes.push({ from: pos, to: k.from });
+        if (at < 0) at = pos;
+      }
+      pos = Math.max(pos, k.to);
+    }
+    if (pos < toA) {
+      changes.push({ from: pos, to: toA });
+      if (at < 0) at = pos;
+    }
+    if (at < 0) at = fromA;
+    for (const k of kept) if (k.from <= at && at < k.to) at = k.to;
+    if (inserted.length) changes.push({ from: at, insert: inserted.toString() });
+    caret = at;
+  });
+  const set = start.changes(changes);
+  return {
+    changes: set,
+    selection: { anchor: set.mapPos(caret, 1) },
+    effects: tr.effects,
+    userEvent: tr.annotation(Transaction.userEvent),
+    scrollIntoView: true,
+  };
+});
+
+/**
+ * Text copied, cut or dragged from the page view carries whole commands: what the selection cuts
+ * across is closed or opened again, as a word processor copies formatting with the words.
+ */
+const wholeOnCopy = EditorView.clipboardOutputFilter.of((text, state) => {
+  const range = state.selection.main;
+  if (!state.field(drawing, false) || state.selection.ranges.length !== 1 || state.sliceDoc(range.from, range.to) !== text) return text;
+  const groups = new Map<number, Hidden[]>();
+  for (const h of hiddenParts(state)) groups.set(h.group, [...(groups.get(h.group) ?? []), h]);
+  const inside = (h: Hidden) => h.from >= range.from && h.to <= range.to;
+  const opened: Hidden[][] = [];
+  const closed: Hidden[][] = [];
+  for (const parts of groups.values()) {
+    if (parts.length < 2) continue;
+    const [first, last] = [parts[0], parts[parts.length - 1]];
+    if (inside(first) && !inside(last)) opened.push(parts);
+    else if (inside(last) && !inside(first)) closed.push(parts);
+  }
+  // The innermost is closed first, and the outermost opened first.
+  const after = opened.sort((a, b) => b[0].from - a[0].from).map((p) => state.sliceDoc(p[p.length - 1].from, p[p.length - 1].to));
+  const before = closed.sort((a, b) => b[b.length - 1].from - a[a.length - 1].from).map((p) => state.sliceDoc(p[0].from, p[0].to));
+  return before.join("") + text + after.join("");
 });
 
 /** The page view: visual mode that stays drawn under the cursor, and is edited as a word processor is. */
@@ -658,6 +764,7 @@ export const visualPage: Extension = [
   pageLook.of(true),
   visualMode,
   keepConstructs,
+  wholeOnCopy,
   EditorView.atomicRanges.of((view) => view.state.field(drawing).covers),
   EditorView.editorAttributes.of({ class: "cm-page" }),
   Prec.high(

@@ -30,7 +30,7 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 - **A line that only begins or ends a list is hidden**, and Backspace at the start of the line after it joins the two lines, showing the source; nothing is lost, and Ctrl+Z puts it back.
 - **The page view is a likeness of the page,** not the PDF: lines and pages break where the editor's width puts them, and page breaks from the compile are not drawn yet (planned with the Layout tab).
-- **In the page view, Backspace at the start of a list item** takes its `\item` (the bullet) away, joining its words to the item above when the document is compiled, rather than turning the item into a paragraph as Word does. Lists get Word's behaviour with the list tools.
+- **In the page view, Backspace at the start of a list item** joins it to the item above, and does nothing on the first item, rather than turning the item into a paragraph as Word does. Lists get Word's behaviour with the list tools.
 - **Where typing goes at the edge of formatting** follows the cursor's place in the source: at the end of a bold word it goes into the bold when the cursor is before the hidden `}`, and after it once the cursor has stepped past. Word continues the formatting on the left; the page view does not yet decide this itself.
 
 ### Caption tool

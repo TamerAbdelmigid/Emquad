@@ -61,6 +61,8 @@ function Tool(p: {
       type="button"
       className={`${p.big ? "rb-big" : "rb-tool"}${p.className ? ` ${p.className}` : ""}`}
       aria-label={p.name}
+      // What the tooltip shows, for those who do not see it.
+      aria-description={[p.keys, p.tex && `Writes ${p.tex}`, p.why].filter(Boolean).join(". ") || undefined}
       aria-pressed={p.pressed}
       disabled={p.disabled}
       data-tip={p.name}
