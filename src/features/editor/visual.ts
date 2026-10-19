@@ -695,6 +695,14 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
         if (whole && fromA <= whole.from && toA >= whole.to) return;
       }
       kept.push({ from: f, to: t });
+      // A list that is kept keeps its first item too: a list without an \item does not compile.
+      if (group && toA > t && /\\begin\{(?:itemize|enumerate|description)\}/.test(start.sliceDoc(f, t))) {
+        let first: Range | null = null;
+        drawn.deco.between(t, toA, (bf, bt, bd) => {
+          if (!first && bf >= t && bf < toA && bd.spec.widget instanceof BulletWidget) first = { from: bf, to: bt };
+        });
+        if (first) kept.push(first);
+      }
     });
     if (toA > fromA) {
       if (end === undefined) {
@@ -707,7 +715,8 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
   if (!kept.length) return tr;
   kept.sort((a, b) => a.from - b.from);
   const changes: { from: number; to?: number; insert?: string }[] = [];
-  let caret = -1;
+  /** Where each change's text went in and how long it is, in the order of the changes. */
+  const carets: { at: number; length: number }[] = [];
   tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
     let at = -1;
     let pos = fromA;
@@ -726,17 +735,23 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
     if (at < 0) at = fromA;
     for (const k of kept) if (k.from <= at && at < k.to) at = k.to;
     if (inserted.length) changes.push({ from: at, insert: inserted.toString() });
-    caret = at;
+    carets.push({ at, length: inserted.length });
   });
   const set = start.changes(changes);
+  // Each cursor just after what went in at it, as a cursor: a range that held part of a command
+  // would otherwise stay selected, and the next key would type over this one. The start of what
+  // went in is mapped, then its length added, since a deletion beginning at the same place would
+  // otherwise leave the cursor before the new text and the next key would go in ahead of it.
+  const after = (c: { at: number; length: number }) => set.mapPos(c.at, -1) + c.length;
+  const ranges = start.selection.ranges;
   return {
     changes: set,
-    // Each cursor after what went in at it; a range that held part of a command becomes a cursor,
-    // so the next key types after this one rather than over it.
     selection:
-      start.selection.ranges.length > 1
-        ? EditorSelection.create(start.selection.ranges.map((r) => EditorSelection.cursor(set.mapPos(r.to, 1))), start.selection.mainIndex)
-        : { anchor: set.mapPos(caret, 1) },
+      ranges.length > 1 && carets.length === ranges.length
+        ? EditorSelection.create(carets.map((c) => EditorSelection.cursor(after(c))), start.selection.mainIndex)
+        : ranges.length > 1
+          ? EditorSelection.create(ranges.map((r) => EditorSelection.cursor(set.mapPos(r.to, 1))), start.selection.mainIndex)
+          : { anchor: after(carets[carets.length - 1]) },
     effects: tr.effects,
     userEvent: tr.annotation(Transaction.userEvent),
     scrollIntoView: true,

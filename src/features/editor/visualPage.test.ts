@@ -235,6 +235,34 @@ describe("page view: what the second review found", () => {
     expect(text(view)).toContain("abcNext");
   });
 
+  it("typing letter by letter over a selection that starts at hidden text keeps the letters in order", () => {
+    const view = editor(DOC, { anchor: at("\\textbf"), head: at("bold", 2) });
+    for (const ch of "XYZ") view.dispatch({ ...view.state.replaceSelection(ch), userEvent: "input.type" });
+    expect(text(view)).toContain("Some \\textbf{XYZld} text");
+  });
+
+  it("deleting from above a list into an item keeps the list's first item", () => {
+    const doc = "\\begin{document}\nPara\n\\begin{itemize}\n  \\item a\n  \\item b\n\\end{itemize}\nNext\n\\end{document}";
+    const view = editor(doc, { anchor: doc.indexOf("Para"), head: doc.indexOf("b\n") });
+    view.dispatch({ ...view.state.replaceSelection(""), userEvent: "delete.selection" });
+    expect(text(view)).toBe("\\begin{document}\n\\begin{itemize}\n\\item b\n\\end{itemize}\nNext\n\\end{document}");
+  });
+
+  it("several cursors each type where they are, when a selection ends at a hidden opening", () => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: DOC,
+        selection: EditorSelection.create([EditorSelection.range(at("me \\textbf"), at("bold")), EditorSelection.cursor(at("Next"))]),
+        extensions: [visualPage, EditorState.allowMultipleSelections.of(true)],
+      }),
+    });
+    views.push(view);
+    for (const ch of "abc") view.dispatch({ ...view.state.replaceSelection(ch), userEvent: "input.type" });
+    // What replaced the plain "me " goes where it was, before the bold, all of it in one place.
+    expect(text(view)).toContain("Soabc\\textbf{bold} text");
+    expect(text(view)).toContain("abcNext");
+  });
+
   it("going to the first line shows the settings, as going into anything drawn does", () => {
     const view = editor(FULL, FULL.indexOf("Text"));
     view.dispatch({ selection: { anchor: 0 } });
