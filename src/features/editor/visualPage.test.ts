@@ -351,6 +351,13 @@ describe("page view: formats like Word", () => {
     expect(text(view)).toContain("\\end{itemize}\n\nNew\n\nAfter.");
   });
 
+  it("a heading just after a list keeps its style, though the list's hidden last line joins it", () => {
+    const doc = "\\begin{document}\n\\begin{itemize}\n  \\item a\n\\end{itemize}\n\\section{Next}\nText.\n\\end{document}";
+    const view = editor(doc, doc.indexOf("Text"));
+    const heading = view.contentDOM.querySelector(".cm-v-line-h1");
+    expect(heading?.textContent).toBe("Next");
+  });
+
   it("a centred paragraph's environment lines are hidden as a pair and kept by Delete and Backspace", () => {
     const doc = "\\begin{document}\nBefore.\n\\begin{center}\nMiddle.\n\\end{center}\nAfter.\n\\end{document}";
     const view = editor(doc, doc.indexOf("Middle.") + 7);

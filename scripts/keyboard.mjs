@@ -211,6 +211,30 @@ await key("Escape");
 await sleep(300);
 await check(!(await evaluate("!!document.querySelector('dialog[open]')")), "Esc in the formula closes the equation editor");
 
+// The page view's right-click menu, a ribbon menu, and a format from its keys.
+await evaluate("document.querySelector('.cm-content').focus(); true");
+await key("F10", { shift: true });
+await sleep(300);
+await check(await focusIn(".page-menu"), "Shift+F10 in the page opens the right-click menu with the keyboard in it");
+await key("ArrowDown");
+await check(await focusIs(".page-menu [role=menuitem]"), "the arrow keys move along it");
+await key("Escape");
+await sleep(200);
+await check(!(await evaluate("!!document.querySelector('.page-menu')")) && (await focusIn(".cm-editor")), "Escape closes it and gives the keyboard back to the text");
+await evaluate("document.querySelector('#rb-tab-home').focus(); true");
+await key("Enter");
+await evaluate("document.querySelector('[aria-label=\"Font colour\"]').focus(); true");
+await key("Enter");
+await check(await focusIs(".menu-item"), "Enter on Font colour opens the palette with the keyboard on its first colour");
+await key("Escape");
+await check((await focusName()) === "Font colour", "Escape closes the palette and gives the keyboard back to Font colour");
+// The word is selected by the script; the format comes from the key press.
+await evaluate(`(async () => { const { buffers } = await import("/src/features/editor/buffers.ts"); const path = window.emquad.store().active; const at = buffers.text(path).indexOf("Start writing"); buffers.run((v) => (v.dispatch({ selection: { anchor: at, head: at + 5 } }), true)); return true; })()`);
+await sleep(200);
+await key("=", { ctrl: true });
+await sleep(300);
+await check(await evaluate("window.emquad.store().tabs.some((t) => t.dirty) && document.querySelector('.cm-v-sub')?.textContent === 'Start'"), "Ctrl+= sets the selected word as a subscript, drawn lowered");
+
 // History.
 await key("H", { ctrl: true, shift: true });
 await sleep(800);

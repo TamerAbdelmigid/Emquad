@@ -54,7 +54,9 @@ export function PageTools({ host, onComment }: Props) {
     };
     const away = () => setBar(null);
     const context = (e: MouseEvent) => {
-      if (!(e.target as Element).closest?.(".cm-content")) return;
+      // A misspelled word and a table have menus of their own, which have taken the click.
+      const target = e.target as Element;
+      if (e.defaultPrevented || !target.closest?.(".cm-content") || target.closest(".cm-v-tedit, .cm-v-table")) return;
       e.preventDefault();
       // A right-click outside the selection puts the cursor where it was made, as in Word.
       buffers.placeCursorUnlessSelected(e.clientX, e.clientY);

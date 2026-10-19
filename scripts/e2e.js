@@ -8,7 +8,9 @@
 //
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
 // lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
-// visual mode, comments, references and citation styles, pictures dropped and pasted, text pasted
+// visual mode, the page view's formatting (character formats, colour, clear, the format painter,
+// the selection toolbar and right-click menu, lists, alignment, quote, LaTeX marks), comments,
+// references and citation styles, pictures dropped and pasted, text pasted
 // with its formatting, the equation editor (typing, its ribbon, several lines, a double-click), PDFs with comments and changes on them, Send to Word
 // (or, with no Pandoc, its refusal), and a bundle that carries its LaTeX packages.
 // Zotero must not be running: one check asks for a citation from it and expects to be told it is not.
@@ -245,6 +247,113 @@
       await ok(true, "the ribbon's Bold writes \\textbf around the selection");
       await undoText();
       await until("bold undone", () => buffers.text("main.tex") === rich);
+    }
+    // Formats like Word: the Home tab's character, list and paragraph tools, each written as
+    // LaTeX, drawn on the page, with what it needs loaded; and the document still compiles.
+    {
+      const B = String.fromCharCode(92);
+      const doc = () => buffers.text("main.tex");
+      const select = (word, length = word.length) => {
+        const at = doc().indexOf(word);
+        buffers.run((v) => (v.dispatch({ selection: { anchor: at, head: at + length } }), true));
+      };
+      const cursor = (word, plus = 0) => buffers.run((v) => (v.dispatch({ selection: { anchor: doc().indexOf(word) + plus } }), true));
+      const key = (k, more = {}) => $(".cm-content").dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...more }));
+      const menuItem = (start) => until(`the menu item ${start}`, () => $$(".menu-item").find((i) => i.textContent.trim().startsWith(start)));
+
+      select("here,", 4);
+      await click("Strikethrough");
+      await until("strikethrough", () => doc().includes(`${B}sout{here}`) && doc().includes(`${B}usepackage[normalem]{ulem}`));
+      await until("drawn struck through", () => $(".cm-v-strike")?.textContent === "here");
+      await ok(true, "Strikethrough writes \\sout around the selection, draws it struck through, and loads ulem with normalem");
+      select("inline", 6);
+      await click("Font colour");
+      (await menuItem("Dark red")).click();
+      await until("the colour", () => doc().includes(`${B}textcolor{darkred}{inline}`) && doc().includes(`${B}definecolor{darkred}{HTML}{C00000}`) && doc().includes(`${B}usepackage{xcolor}`));
+      await until("drawn in red", () => $(".cm-v-color-darkred")?.textContent === "inline");
+      await ok(!text(".cm-content").includes("textcolor"), "Font colour writes \\textcolor with a colour named once by \\definecolor, loads xcolor, and draws the words red without the command");
+      select("Start", 5);
+      await click("Highlight");
+      await until("the highlight", () => doc().includes(`${B}hl{Start}`) && doc().includes(`${B}usepackage{soul}`) && $(".cm-v-highlight"));
+      await click("Small capitals");
+      await until("small capitals", () => /\\(?:hl\{\\textsc|textsc\{\\hl)\{Start\}\}/.test(doc()) && $(".cm-v-smallcaps"));
+      await ok(true, "Highlight writes \\hl and loads soul; Small capitals adds \\textsc to the same words; both are drawn");
+      await click("Clear formatting");
+      await until("formatting cleared", () => /\nStart \\textbf\{writing\}/.test(doc()));
+      await ok(true, "Clear formatting takes every command off the selection and leaves the words");
+      // The format painter: the formatting of "here" goes on "Start".
+      cursor("here}", 2);
+      await click("Format painter");
+      await until("the painter", () => store().painting);
+      select("Start", 5);
+      $(".cm-content").dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+      await until("painted", () => doc().includes(`${B}sout{Start}`) && !store().painting);
+      await ok(true, "the format painter copies the formatting at the cursor and puts it on the text selected next");
+      // The small toolbar over a selection made with the mouse.
+      select("with", 4);
+      $(".cm-content").dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+      const bar = await until("the small toolbar", () => $(".page-bar"));
+      bar.querySelector("[aria-label=Italic]").click();
+      await until("italic from the toolbar", () => doc().includes(`${B}textit{with}`));
+      await ok(true, "a selection made with the mouse brings a small toolbar over it, whose Italic writes \\textit");
+      // The right-click menu.
+      const line = $(".cm-content .cm-line").getBoundingClientRect();
+      $(".cm-content").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: line.left + 10, clientY: line.top + 5 }));
+      const menu = await until("the right-click menu", () => $(".page-menu"));
+      await ok(["Cut", "Copy", "Paste", "Paste words only", "New comment", "Show LaTeX"].every((n) => menu.textContent.includes(n)), "a right-click on the page opens a menu with cut, copy, paste, paste words only, comment and Show LaTeX");
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await until("the menu closed", () => !$(".page-menu"));
+      // Lists: Bullets, Tab and Shift+Tab for levels, Enter on an empty item to end the list.
+      cursor("Start", 2);
+      await click("Bullets");
+      await until("a bulleted list", () => /\\begin\{itemize\}\n {2}\\item .*Start/.test(doc()));
+      cursor("inline}.", 8);
+      key("Enter");
+      await until("the next item", () => /\n {2}\\item \n/.test(doc()));
+      key("Tab");
+      await until("a list inside", () => /\\begin\{itemize\}\n {6}\\item \n {4}\\end\{itemize\}/.test(doc()));
+      await ok($$(".cm-v-bullet").length >= 3 && !text(".cm-content").includes("itemize"), "Bullets makes the paragraph a list, Enter starts the next item, Tab puts it a level down, drawn as bullets");
+      key("Tab", { shiftKey: true });
+      await until("back up", () => !/ {4}\\begin\{itemize\}/.test(doc()));
+      key("Enter");
+      await until("the list ended", () => /\\end\{itemize\}\n\n\n/.test(doc()) && !/\\item \n/.test(doc()));
+      await ok(true, "Shift+Tab puts the item back up, and Enter on the empty item ends the list");
+      // Numbering formats, with enumitem.
+      cursor("Start", 2);
+      await click("Numbering format");
+      (await menuItem("a) b) c)")).click();
+      await until("a lettered list", () => doc().includes(`${B}begin{enumerate}[label=${B}alph*)]`) && doc().includes(`${B}usepackage{enumitem}`));
+      await until("drawn a)", () => $$(".cm-v-number").some((n) => n.textContent === "a)"));
+      await ok(true, "the Numbering menu makes the list a), b), c) with enumitem, and it is drawn so");
+      // Backspace at the start of an item makes it a paragraph again.
+      cursor("Start");
+      key("Backspace");
+      await until("a paragraph again", () => !doc().includes("enumerate"));
+      await ok(true, "Backspace at the start of the only item makes it a paragraph, the list gone");
+      // Alignment, a style from the gallery, and LaTeX marks.
+      cursor("Start", 2);
+      await click("Centre");
+      await until("centred", () => doc().includes(`${B}begin{center}`) && $(".cm-v-line-align-center"));
+      await ok(!text(".cm-content").includes("center"), "Centre sets the paragraph in a center environment, drawn centred with its lines hidden");
+      await click("Justify");
+      await until("justified", () => !doc().includes(`${B}begin{center}`));
+      cursor("Start", 2);
+      $(".rb-style-quote").click();
+      await until("a quotation", () => doc().includes(`${B}begin{quote}`) && $(".cm-v-line-quote"));
+      await ok(true, "Justify takes the centring away; Quote from the styles gallery sets the paragraph in a quote environment");
+      await click("Show LaTeX marks");
+      await until("the marks", () => $$(".cm-v-mark").some((m) => m.textContent === `${B}sout{`) && $(".cm-marks .cm-v-line-env[data-env=quote]"));
+      await ok(true, "LaTeX marks show the commands faintly around the text, and the quotation's name in the margin");
+      await click("Show LaTeX marks");
+      await until("the marks gone", () => !$(".cm-v-mark"));
+      await shot("02-formats");
+      // All of it compiles, with the packages loaded for it.
+      const version = store().pdfVersion;
+      await click("Recompile");
+      await until("the formatted document compiled", () => store().pdfVersion > version && !store().compiling, 300000);
+      await ok(text(".proj .st") === "Compiled", `the document with every new format compiles (${text(".proj .st")})`);
+      await writeOutside({ path: "main.tex", text: rich });
+      await until("the document as it was", () => doc() === rich);
     }
     await click("Code");
     await until("plain source again", () => !$(".cm-visual") && !$(".cm-v-math"));

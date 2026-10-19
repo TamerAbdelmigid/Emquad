@@ -1,0 +1,246 @@
+=== figure
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+Some \textbf{text here}
+\begin{figure}
+\centering
+X
+\caption{c}
+\end{figure}
+\textbf{more} words.
+\end{document}
+
+=== verb
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\textbf{Use \verb|x_y| now}.
+\end{document}
+
+=== theorem (restyle null; fallback)
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+Intro \textbf{text
+\begin{theorem}
+State}ment.
+
+More.
+\end{theorem}
+\end{document}
+
+=== hl footnote
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\hl{Words\footnote{note} here}.
+\end{document}
+
+=== hl cite
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\hl{Words \ref{x} here}.
+\end{document}
+
+=== sout then hl
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\sout{\hl{Words here}}.
+\end{document}
+
+=== hl then sout
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\hl{\sout{Words here}}.
+\end{document}
+
+=== hl over bold
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\textbf{\hl{Words}} \hl{here}.
+\end{document}
+
+=== sout over newline
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\sout{Words a\\ here}.
+\end{document}
+
+=== verbatim env
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\textbf{A}
+\begin{verbatim}
+x
+\end{verbatim}
+\textbf{B}
+\end{document}
+
+=== lstinline braces (restyle null; fallback)
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\textbf{Use \verb{x} now}.
+\end{document}
+
+=== colour
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\textcolor{darkred}{Use x now}.
+\end{document}
+
+=== description enter
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+
+
+\begin{description}
+  \item[Pears] are green
+\end{description}
+\end{document}
+
+=== description backspace
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\begin{description}
+  \item[Apples] 
+\end{description}
+are green
+\end{document}
+
+=== align multiline heading
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\section{A very long
+  \begin{center}
+  title}
+Text of the section.
+  \end{center}
+\end{document}
+
+=== quote multiline heading
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\section{A very long
+  \begin{quote}
+  title}
+Text of the section.
+  \end{quote}
+\end{document}
+
+=== align footnote list
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\begin{center}
+Text\footnote{See
+\end{center}
+\begin{itemize}
+\item x
+\end{itemize}
+} done.
+\end{document}
+
+=== list multiline heading
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\section{A very long
+  \begin{itemize}
+    \item title}
+      Text of the section.
+  \end{itemize}
+\end{document}
+
+=== list on heading tail
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\section{A very long
+  \begin{itemize}
+    \item title}
+      Text of the section.
+  \end{itemize}
+\end{document}
+
+=== no document toggle
+null
+=== list across group
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\begin{itemize}
+  \item {\large Para one
+    still one
+  \item Para two}
+\end{itemize}
+\end{document}
+
+=== align across group
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\begin{center}
+\textbf{Para one
+still} one more
+\end{center}
+
+Para two
+\end{document}
+
+=== enum middle
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\begin{enumerate}
+  \item a
+\end{enumerate}
+
+
+
+\begin{enumerate}
+  \item c
+\end{enumerate}
+\end{document}
+
+=== indent
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\begin{itemize}
+  \item a % note
+    \begin{itemize}
+      \item b
+    \end{itemize}
+\end{itemize}
+\end{document}
+
+=== clear
+null
+=== colour
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+Plain \textcolor{royalblue}{words and} more.
+\end{document}
+
+=== escaped (restyle null; fallback)
+\documentclass{article}
+\usepackage[normalem]{ulem}\usepackage{xcolor,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+\textbf{}color,soul,amsthm}\newtheorem{theorem}{Theorem}
+\begin{document}
+Word \% one { two } \{ x
+\end{document}
