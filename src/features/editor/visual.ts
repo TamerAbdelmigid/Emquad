@@ -1,8 +1,19 @@
 // Visual mode: draws the same plain source with headings, emphasis, typeset mathematics,
 // bullets, tables, figures and citations. What to draw is decided in visualModel.ts; this file
 // turns that into decorations.
-import { type ChangeSet, type EditorSelection, type EditorState, type Extension, type Range as CmRange, StateEffect, StateField } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
+import {
+  type ChangeSet,
+  type EditorSelection,
+  EditorState,
+  type Extension,
+  Facet,
+  Prec,
+  type Range as CmRange,
+  StateEffect,
+  StateField,
+  findClusterBreak,
+} from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType, keymap } from "@codemirror/view";
 import { openPdf } from "../../shared/pdf";
 import { api } from "../../ipc/api";
 import type { ProjectIndex } from "../../ipc/bindings/ProjectIndex";
@@ -10,7 +21,7 @@ import { store } from "../../state/store";
 import { renderInline, typeset } from "./inlineTex";
 import { EditableTable } from "./tableEditor";
 import { parseTable } from "./tableModel";
-import { type Row, describeCitation, visualPieces } from "./visualModel";
+import { type Piece, type Range, type Row, describeCitation, visualPieces } from "./visualModel";
 import { formulaAt } from "./equation";
 
 
@@ -96,7 +107,8 @@ class FoldWidget extends WidgetType {
     el.textContent = this.title ? `Document settings · ${this.title}` : "Document settings";
     el.onmousedown = (e) => {
       e.preventDefault();
-      view.dispatch({ selection: { anchor: 0 }, scrollIntoView: true });
+      // Inside the settings, not at their edge, so the page view shows them too.
+      view.dispatch({ selection: { anchor: Math.min(1, view.state.doc.length) }, scrollIntoView: true });
       view.focus();
     };
     return el;
@@ -269,7 +281,6 @@ class CiteWidget extends WidgetType {
   }
 }
 
-const hidden = Decoration.replace({});
 const bullet = Decoration.replace({ widget: new BulletWidget() });
 
 /** Why each table source cannot be edited, or null when it can, remembered: reading a table back is the dearest part of a redraw. */
@@ -288,23 +299,69 @@ function readingOf(source: string): string | null {
 /** What visual mode has drawn, and what it needs to know to tell when to draw again. */
 interface Drawn {
   deco: DecorationSet;
+  /** What covers source text (hidden command text and drawings): the cursor steps over it whole. */
+  covers: DecorationSet;
   /** The selection made something show as source when this was drawn. */
   touched: boolean;
   /** The text has changed since, and this was only moved along with it. */
   stale: boolean;
 }
 
+/**
+ * The page view: the document stays drawn while the cursor moves through it, as in a word
+ * processor. Without it (the draft view), whatever the cursor touches shows as source.
+ */
+const pageLook = Facet.define<boolean, boolean>({ combine: (values) => values.some(Boolean) });
+
+/** Show a stretch as source (Ctrl+/), or stop showing it (null). */
+const setReveal = StateEffect.define<Range | null>();
+
+/** The stretch shown as source on request, if any: it lasts until the cursor leaves it. */
+const revealed = StateField.define<Range | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(setReveal)) return e.value;
+    if (!value) return value;
+    const mapped = tr.docChanged ? { from: tr.changes.mapPos(value.from, -1), to: tr.changes.mapPos(value.to, 1) } : value;
+    const head = tr.state.selection.main.head;
+    return head < mapped.from || head > mapped.to ? null : mapped;
+  },
+});
+
+/** Pieces that cover source with something else, which the cursor cannot be put inside by hand. */
+const COVERS = new Set<Piece["kind"]>(["hide", "math", "table", "image", "cite", "bullet", "ref", "footnote", "block", "fold"]);
+
+/**
+ * What the page view shows as source: what was asked for with Ctrl+/, and anything the cursor has
+ * been put strictly inside of, which only going to a place does (a line, an error, a search
+ * result), never a click or the arrow keys.
+ */
+function pagePieces(state: EditorState, text: string, report: { touched: boolean }): Piece[] {
+  const asked = state.field(revealed, false);
+  const shown: Range[] = asked ? [asked] : [];
+  const pieces = visualPieces(text, shown, report);
+  const points = state.selection.ranges.flatMap((r) => (r.empty ? [r.head] : [r.anchor, r.head]));
+  const inside = points.filter((at) => pieces.some((p) => COVERS.has(p.kind) && "to" in p && p.from < at && at < p.to));
+  if (!inside.length) return pieces;
+  report.touched = true;
+  return visualPieces(text, [...shown, ...inside.map((at) => ({ from: at, to: at }))], report);
+}
+
 function build(state: EditorState): Drawn {
   const text = state.doc.toString();
   // Very large files stay in plain source: redrawing them on every keystroke would lag.
-  if (text.length > 400_000) return { deco: Decoration.none, touched: false, stale: false };
-  const selection = state.selection.ranges.map((r) => ({ from: r.from, to: r.to }));
+  if (text.length > 400_000) return { deco: Decoration.none, covers: Decoration.none, touched: false, stale: false };
   const out: CmRange<Decoration>[] = [];
   const index = store().index;
   const report = { touched: false };
-  for (const p of visualPieces(text, selection, report)) {
+  const page = state.facet(pageLook);
+  const pieces = page ? pagePieces(state, text, report) : visualPieces(text, state.selection.ranges.map((r) => ({ from: r.from, to: r.to })), report);
+  // Where each construct's hidden parts end, so an edit can tell whether it takes it whole.
+  const ends = new Map<number, number>();
+  for (const p of pieces) if (p.kind === "hide") ends.set(p.group, Math.max(ends.get(p.group) ?? p.to, p.to));
+  for (const p of pieces) {
     if (p.kind === "line") out.push(Decoration.line({ class: `cm-v-line-${p.style}` }).range(p.from));
-    else if (p.kind === "hide") out.push(hidden.range(p.from, p.to));
+    else if (p.kind === "hide") out.push(Decoration.replace({ group: p.group, end: ends.get(p.group) }).range(p.from, p.to));
     else if (p.kind === "bullet") out.push((p.label === undefined ? bullet : Decoration.replace({ widget: new BulletWidget(p.label) })).range(p.from, p.to));
     else if (p.kind === "ref") {
       const { text, detail } = describeReference(p.command, p.keys, index.labelNumbers);
@@ -328,7 +385,8 @@ function build(state: EditorState): Drawn {
       out.push(Decoration.replace({ widget: new CiteWidget(label, detail, unknown) }).range(p.from, p.to));
     } else out.push(Decoration.replace({ widget: new MathWidget(p.tex, p.display) }).range(p.from, p.to));
   }
-  return { deco: Decoration.set(out, true), touched: report.touched, stale: false };
+  const covers = out.filter((r) => r.value.spec.widget !== undefined || typeof r.value.spec.group === "number");
+  return { deco: Decoration.set(out, true), covers: Decoration.set(covers, true), touched: report.touched, stale: false };
 }
 
 /** Whether a change reaches anything drawn: then it must be drawn again at once. */
@@ -340,12 +398,19 @@ function reaches(deco: DecorationSet, changes: ChangeSet): boolean {
   return hit;
 }
 
-/** Whether the selection touches anything drawn, which would then show as source. */
-function touches(deco: DecorationSet, selection: EditorSelection): boolean {
+/**
+ * Whether the selection touches anything drawn, which would then show as source. In the page
+ * view only an end of the selection strictly inside something hidden or drawn does.
+ */
+function touches(deco: DecorationSet, selection: EditorSelection, page: boolean): boolean {
   let hit = false;
   for (const r of selection.ranges) {
-    // Line styles do not give way to the cursor; only what covers some text does.
-    deco.between(r.from, r.to, (from, to) => (from < to ? ((hit = true), false) : undefined));
+    if (page) {
+      for (const at of [r.anchor, r.head]) deco.between(at, at, (from, to, d) => (from < at && at < to && !d.spec.class ? ((hit = true), false) : undefined));
+    } else {
+      // Line styles do not give way to the cursor; only what covers some text does.
+      deco.between(r.from, r.to, (from, to) => (from < to ? ((hit = true), false) : undefined));
+    }
     if (hit) break;
   }
   return hit;
@@ -372,11 +437,12 @@ const drawing = StateField.define<Drawn>({
       // typing pauses: drawing a long document takes longer than a keystroke should. A change
       // that reaches anything drawn, or one made other than by typing, is drawn at once.
       const typing = tr.isUserEvent("input.type") || tr.isUserEvent("delete");
-      if (typing && !reaches(value.deco, tr.changes)) return { deco: value.deco.map(tr.changes), touched: value.touched, stale: true };
+      if (typing && !reaches(value.deco, tr.changes)) return { deco: value.deco.map(tr.changes), covers: value.covers.map(tr.changes), touched: value.touched, stale: true };
       return build(tr.state);
     }
+    if (tr.startState.field(revealed, false) !== tr.state.field(revealed, false)) return build(tr.state);
     // The cursor moving through plain text, touching nothing before or after, changes nothing.
-    if (tr.selection && (value.stale || value.touched || touches(value.deco, tr.state.selection))) return build(tr.state);
+    if (tr.selection && (value.stale || value.touched || touches(value.deco, tr.state.selection, tr.state.facet(pageLook)))) return build(tr.state);
     return value;
   },
   provide: (field) => EditorView.decorations.from(field, (drawn) => drawn.deco),
@@ -435,4 +501,173 @@ const formulaClicks = EditorView.domEventHandlers({
   },
 });
 
-export const visualMode: Extension = [drawing, settle, formulaClicks, EditorView.editorAttributes.of({ class: "cm-visual" })];
+export const visualMode: Extension = [revealed, drawing, settle, formulaClicks, EditorView.editorAttributes.of({ class: "cm-visual" })];
+
+// --- The page view's editing ---------------------------------------------------------------
+
+interface Hidden {
+  from: number;
+  to: number;
+  /** Where the construct this part belongs to starts and ends. */
+  group: number;
+  end: number;
+}
+
+/** The hidden parts of commands drawn in `state`, in order. */
+function hiddenParts(state: EditorState, from = 0, to = state.doc.length): Hidden[] {
+  const out: Hidden[] = [];
+  state.field(drawing).deco.between(from, to, (f, t, d) => {
+    if (typeof d.spec.group === "number") out.push({ from: f, to: t, group: d.spec.group, end: d.spec.end });
+  });
+  return out;
+}
+
+/** The drawing that covers the text just before (`side` -1) or after (1) `at`, if any. */
+function widgetBeside(state: EditorState, at: number, side: -1 | 1): { from: number; to: number; whole: boolean } | null {
+  let found: { from: number; to: number; whole: boolean } | null = null;
+  state.field(drawing).deco.between(at, at, (f, t, d) => {
+    if (d.spec.widget && (side < 0 ? t === at && f < at : f === at && t > at)) {
+      // The settings and a table are too much to lose to one key: the key steps past them.
+      const big = d.spec.widget instanceof FoldWidget || d.spec.widget instanceof EditableTable || d.spec.widget instanceof TableWidget;
+      found = { from: f, to: t, whole: !big };
+    }
+  });
+  return found;
+}
+
+/** Remove one character, or one drawn thing, on the `side` of the cursor, stepping over hidden command text. */
+function pageDeleteBy(view: EditorView, side: -1 | 1): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (!range.empty || !state.field(drawing, false)) return false;
+  const parts = hiddenParts(state);
+  let at = range.head;
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const h of parts) {
+      if (side < 0 ? h.to === at : h.from === at) {
+        at = side < 0 ? h.from : h.to;
+        moved = true;
+      }
+    }
+  }
+  if (side < 0 ? at === 0 : at === state.doc.length) return true;
+  let [from, to] = [at, at];
+  const drawn = widgetBeside(state, at, side);
+  if (drawn && !drawn.whole) {
+    view.dispatch({ selection: { anchor: side < 0 ? drawn.from : drawn.to }, scrollIntoView: true });
+    return true;
+  }
+  if (drawn) [from, to] = [drawn.from, drawn.to];
+  else {
+    const line = state.doc.lineAt(at);
+    if (side < 0) from = at === line.from ? at - 1 : line.from + findClusterBreak(line.text, at - line.from, false);
+    else to = at === line.to ? at + 1 : line.from + findClusterBreak(line.text, at - line.from, true);
+  }
+  // What empties a command takes the command with it, rather than leave it empty.
+  const before = parts.find((h) => h.to === from);
+  const after = before && parts.find((h) => h.from === to && h.group === before.group);
+  if (before && after) [from, to] = [before.from, after.to];
+  view.dispatch({ changes: { from, to }, selection: { anchor: from }, userEvent: side < 0 ? "delete.backward" : "delete.forward", scrollIntoView: true });
+  return true;
+}
+
+export const pageBackspace = (view: EditorView) => pageDeleteBy(view, -1);
+export const pageDelete = (view: EditorView) => pageDeleteBy(view, 1);
+
+/** Lines of commands that are not text, where Enter goes in as it does in the source. */
+const NOT_PROSE = /^\\(?:begin|end|label|centering|caption|includegraphics|hline|toprule|midrule|bottomrule|maketitle|tableofcontents)\b/;
+
+/**
+ * Enter as a word processor has it: a new paragraph (a blank line, in LaTeX), the next item in a
+ * list, and below a heading when at its end. Elsewhere, and in source being shown, as usual.
+ */
+export function pageEnter(view: EditorView): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  const drawn = state.field(drawing, false);
+  if (!range.empty || !drawn || drawn.touched || state.field(revealed, false)) return false;
+  const at = range.head;
+  const line = state.doc.lineAt(at);
+  const go = (pos: number, insert: string) =>
+    view.dispatch({ changes: { from: pos, insert }, selection: { anchor: pos + insert.length }, userEvent: "input", scrollIntoView: true });
+  let heading = false;
+  drawn.deco.between(line.from, line.from, (_f, _t, d) => {
+    if (/cm-v-line-(?:h\d|title)/.test(d.spec.class ?? "")) heading = true;
+  });
+  if (heading) {
+    const closing = hiddenParts(state, at, at).find((h) => h.from === at);
+    if (closing && !state.sliceDoc(closing.to, line.to).trim()) {
+      go(line.to, "\n");
+      return true;
+    }
+    return false;
+  }
+  const item = /^(\s*)\\item\b/.exec(line.text);
+  if (item) {
+    go(at, `\n${item[1]}\\item `);
+    return true;
+  }
+  if (!line.text.trim() || NOT_PROSE.test(line.text.trim())) return false;
+  go(at, "\n\n");
+  return true;
+}
+
+/** Ctrl+/: show the paragraph the cursor is in as its LaTeX, or draw it again. */
+export function toggleReveal(view: EditorView): boolean {
+  const { state } = view;
+  if (state.field(revealed, false)) {
+    view.dispatch({ effects: setReveal.of(null) });
+    return true;
+  }
+  const head = state.selection.main.head;
+  let first = state.doc.lineAt(head);
+  let last = first;
+  while (first.number > 1 && state.doc.line(first.number - 1).text.trim()) first = state.doc.line(first.number - 1);
+  while (last.number < state.doc.lines && state.doc.line(last.number + 1).text.trim()) last = state.doc.line(last.number + 1);
+  view.dispatch({ effects: setReveal.of({ from: first.from, to: last.to }) });
+  return true;
+}
+
+/** Stop showing what Ctrl+/ showed. */
+function hideReveal(view: EditorView): boolean {
+  if (!view.state.field(revealed, false)) return false;
+  view.dispatch({ effects: setReveal.of(null) });
+  return true;
+}
+
+/** Edits by typing, pasting or deleting that would take only part of a construct's hidden text are kept off it. */
+const keepConstructs = EditorState.changeFilter.of((tr) => {
+  const user = ["input.type", "input.paste", "input.drop", "delete", "move.drop"].some((e) => tr.isUserEvent(e));
+  const drawn = tr.startState.field(drawing, false);
+  if (!tr.docChanged || !user || !drawn) return true;
+  const keep: number[] = [];
+  tr.changes.iterChangedRanges((fromA, toA) => {
+    drawn.deco.between(fromA, toA, (f, t, d) => {
+      if (Math.min(t, toA) <= Math.max(f, fromA)) return;
+      const group = typeof d.spec.group === "number";
+      const whole = group && fromA <= d.spec.group && toA >= d.spec.end;
+      if ((group && !whole) || d.spec.widget instanceof FoldWidget) keep.push(f, t);
+    });
+  });
+  return keep.length ? keep : true;
+});
+
+/** The page view: visual mode that stays drawn under the cursor, and is edited as a word processor is. */
+export const visualPage: Extension = [
+  pageLook.of(true),
+  visualMode,
+  keepConstructs,
+  EditorView.atomicRanges.of((view) => view.state.field(drawing).covers),
+  EditorView.editorAttributes.of({ class: "cm-page" }),
+  Prec.high(
+    keymap.of([
+      { key: "Backspace", run: pageBackspace },
+      { key: "Delete", run: pageDelete },
+      { key: "Enter", run: pageEnter },
+      { key: "Mod-/", run: toggleReveal },
+      { key: "Escape", run: hideReveal },
+    ]),
+  ),
+];
+

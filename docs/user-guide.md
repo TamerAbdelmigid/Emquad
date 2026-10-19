@@ -18,16 +18,28 @@ The first time a document is compiled, Emquad downloads the LaTeX packages it us
 | Left rail | The file panel, search across the project, History, keyboard shortcuts, settings |
 | File tree | Your files. The buttons at its top create a file, create a folder, or add files from disk. The "···" on each row renames, deletes, or sets the main file |
 | File outline | The sections of the open file. Click one to go there |
-| Source | Where you type. Tabs along the top; a toolbar for undo, headings, bold, italic, tables, symbols and find; the Code / Visual switch |
+| Source | Where you type. Tabs along the top; in Visual, a ribbon like Word's, and in Code a toolbar for undo, headings, bold, italic, tables, symbols and find; the Code / Visual switch |
 | PDF | The typeset result, with page and zoom controls |
 
 Drag the gaps between the file panel, the source and the PDF to resize them. **Layout** switches between source and PDF together, source only, and PDF only.
 
 ### Code and Visual
 
-**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets or numbers, tables as tables, `\includegraphics` as the picture itself, citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark), references such as `\ref{fig:plot}` as the number the PDF shows (after the first compile; `?` until then), footnotes as a raised number whose text shows when you point at it, and the title, table of contents and bibliography as labelled blocks. The settings at the top of the file (the class, the packages, the title) are folded into one **Document settings** line; click it to see and change them. A project opens in Visual until you leave it in Code. Nothing in the file changes; switch back to **Code** at any time. Whatever the cursor is in is shown as plain source, so you always edit the real text. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile. Pictures are also found in the folders named by `\graphicspath`, and citation names also come from a `.bib` file the document names outside the project, such as `\bibliography{../shared}`.
+**Visual** draws your source as a document: section titles as headings, bold and italic as themselves, mathematics typeset, list items as bullets or numbers, tables as tables, `\includegraphics` as the picture itself, citations by author and year (taken from your `.bib` files; a key nobody defines is shown with a question mark), references such as `\ref{fig:plot}` as the number the PDF shows (after the first compile; `?` until then), footnotes as a raised number whose text shows when you point at it, and the title, table of contents and bibliography as labelled blocks. The settings at the top of the file (the class, the packages, the title) are folded into one **Document settings** line; click it to see and change them. A project opens in Visual until you leave it in Code. Nothing in the file changes; switch back to **Code** at any time. A formula Emquad cannot preview is shown as its source with a dotted underline; it may still compile. Pictures are also found in the folders named by `\graphicspath`, and citation names also come from a `.bib` file the document names outside the project, such as `\bibliography{../shared}`.
 
 **The toolbar acts on what is written**, in either mode. The heading menu (Tт) changes the level of the heading the cursor is in, and **Normal text** makes it ordinary text again; on a line with no heading it starts one. **B** and *I* (and Format ▸ Monospace and Emphasis) set the selection in that style, or, when it is in it already, take it out; with nothing selected, they take the group the cursor is in out of the style, or start an empty one to type in.
+
+### The page view
+
+Visual mode sets your document on a white page, as Word does, with the paper, margins, size of type and line spacing that **Document setup** gives it. (It is a likeness: where lines and pages break in the PDF is up to the compiler.) Above it is a ribbon with Word's tabs: **Home** (undo, bold, italic, underline, lists, the styles gallery, find, comment), **Insert** (page break, contents, table, figure, cross-reference, footnote, symbol, equation, citation and bibliography) and **View** (Page or Draft, zoom, Show LaTeX, page setup). Point at any tool to see its shortcut and the LaTeX it writes.
+
+What is drawn stays drawn while you work in it. Click into bold text and type: it is still bold. The arrow keys move over a formula or a citation in one step, and Backspace and Delete take the letter you see, never a hidden brace; taking the last letter of a bold word takes the bold with it. Enter starts a new paragraph (in LaTeX, a blank line), the next item in a list, or a new line below a heading.
+
+To see or change the LaTeX of a paragraph, press **Ctrl+/** (or View ▸ Show LaTeX). Press it again, or Esc, or move to another paragraph, and it is drawn again. Going to a line, an error or a search result that is inside something drawn shows it as LaTeX too.
+
+The status line at the bottom says where the cursor is in LaTeX's terms, such as `\section{Method} › itemize › \item › \textbf`, and holds the zoom.
+
+**View ▸ Draft** is the earlier visual mode, on the dark source screen, where whatever the cursor is in shows as its LaTeX. Emquad remembers your choice, and the zoom, for each project.
 
 ### Tables
 
@@ -243,6 +255,7 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Bold, italic, underline | Ctrl+B, Ctrl+I, Ctrl+U |
 | Search the project | Ctrl+Shift+F |
 | Comment on the selected text | Ctrl+Alt+M |
+| In the page view: show the paragraph as LaTeX, or draw it again | Ctrl+/ |
 | Equation editor | Alt+= |
 | Paste without formatting | Ctrl+Shift+V |
 | In a table: next or previous cell | Tab, Shift+Tab |

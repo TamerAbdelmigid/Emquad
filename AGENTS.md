@@ -14,7 +14,7 @@ These are the sources of truth. Code that contradicts them is wrong unless the d
 | How it looks | `mockup/emquad-fieldwork.html`, explained by `docs/04-design-system.md` |
 | What to build next and when it is done | `docs/05-implementation-plan.md` |
 
-Other files in `mockup/` are superseded explorations. Do not build from them.
+`mockup/proposal-visual-word.html` is the approved proposal for the page view of visual mode; `docs/04-design-system.md` says which parts are built. Other files in `mockup/` are superseded explorations. Do not build from them.
 
 ## Branching
 

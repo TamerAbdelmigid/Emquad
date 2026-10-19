@@ -39,6 +39,10 @@ export interface State {
   languageServer: boolean;
   /** The editor draws the source with headings, emphasis and typeset mathematics. */
   visual: boolean;
+  /** Visual mode draws the page view (a page that stays drawn under the cursor) rather than the draft view. */
+  pageView: boolean;
+  /** How large the page view draws the page, 1 being its printed size. */
+  pageZoom: number;
   /** The Symbol panel is open. */
   symbols: boolean;
   /** What the side panel shows when it is open. */
@@ -85,6 +89,8 @@ export const useStore = create<State>((set) => ({
   languageServer: false,
   // Visual mode is what a newcomer expects; the source is a click away.
   visual: true,
+  pageView: true,
+  pageZoom: 1,
   symbols: false,
   sidePanel: "files",
   comments: [],

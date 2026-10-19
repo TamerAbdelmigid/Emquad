@@ -5,7 +5,7 @@
 import { EditorState } from "@codemirror/state";
 import { expect, test } from "vitest";
 import { store } from "../../state/store";
-import { redrawVisual, visualMode } from "./visual";
+import { redrawVisual, visualMode, visualPage } from "./visual";
 
 const r = String.raw;
 
@@ -28,11 +28,14 @@ function makeDoc() {
   return out.join("\n");
 }
 
-test("visual mode keeps up with typing and moving in a long document", { timeout: 120000 }, () => {
+test.each([
+  ["the draft view", visualMode],
+  ["the page view", visualPage],
+])("%s keeps up with typing and moving in a long document", { timeout: 120000 }, (_name, extension) => {
   const citations = Array.from({ length: 3000 }, (_, i) => ({ key: `key${i}`, authors: `Author${i}`, year: "2020", title: `Title ${i}` }));
   store().set({ index: { labels: [], citeKeys: citations.map((c) => c.key), citations, stylePackages: {}, labelNumbers: {}, documentClass: "" } });
   const doc = makeDoc();
-  let state = EditorState.create({ doc, extensions: [visualMode] });
+  let state = EditorState.create({ doc, extensions: [extension] });
   const prose = doc.indexOf("Some prose line 3001 with");
   state = state.update({ selection: { anchor: prose } }).state;
   const time = (n: number, step: () => void) => {

@@ -102,6 +102,7 @@
     // A project opens in visual mode, its settings folded into one line, and is compiled at once.
     await until("the folded settings", () => $(".cm-v-fold"));
     await ok(text(".cm-v-fold").includes("e2e paper"), "a new project opens in visual mode, its settings folded into one line named by its title");
+    await ok($(".screen.paged .ribbon [role=tab]") && $(".cm-page .cm-content"), "visual mode is the page view: the document on a page, under a ribbon");
     await until("the first compile", () => store().build && !store().compiling, 120000);
     await ok(store().build.hasPdf, "a project never compiled is compiled as soon as it opens");
     await click("Code");
@@ -223,6 +224,28 @@
     await ok($(".cm-v-display .katex") && !$(".cm-v-math-bad"), "and typesets inline and display mathematics");
     await ok(buffers.text("main.tex") === rich, "the source text itself is unchanged by visual mode");
     await shot("02-visual");
+    // The page view keeps what is drawn drawn under the cursor; Ctrl+/ shows the LaTeX.
+    {
+      const into = rich.indexOf("writing") + 3;
+      buffers.run((v) => (v.dispatch({ selection: { anchor: into } }), true));
+      await sleep(200);
+      await ok($(".cm-v-bold") && !text(".cm-content").includes("\\textbf"), "in the page view, bold stays drawn with the cursor in it");
+      await until("the LaTeX path", () => text(".latex-path").includes("\\textbf"));
+      await ok(true, "the status line names where the cursor is in the LaTeX");
+      const key = (k, more = {}) => $(".cm-content").dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...more }));
+      key("/", { ctrlKey: true });
+      await until("the paragraph as LaTeX", () => text(".cm-content").includes("\\textbf{writing}"));
+      key("Escape");
+      await until("the paragraph drawn again", () => !text(".cm-content").includes("\\textbf{writing}"));
+      await ok(true, "Ctrl+/ shows the paragraph as its LaTeX, and Escape draws it again");
+      const here = rich.indexOf("here,");
+      buffers.run((v) => (v.dispatch({ selection: { anchor: here, head: here + 4 } }), true));
+      await click("Bold");
+      await until("the ribbon's bold", () => buffers.text("main.tex").includes("\\textbf{here}"));
+      await ok(true, "the ribbon's Bold writes \\textbf around the selection");
+      await undoText();
+      await until("bold undone", () => buffers.text("main.tex") === rich);
+    }
     await click("Code");
     await until("plain source again", () => !$(".cm-visual") && !$(".cm-v-math"));
     await ok(text(".cm-content").includes("\\begin{equation}"), "code mode shows the plain source again");
@@ -711,6 +734,8 @@
 
       // The size picker.
       buffers.goToLine(5);
+      // In the page view the table button is on the ribbon's Insert tab.
+      $("#rb-tab-insert")?.click();
       await click("Insert table");
       const picker = await until("the size picker", () => $(".tpick-grid"));
       await ok(document.activeElement === picker, "the table button opens a size picker that takes the keyboard");

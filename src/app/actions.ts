@@ -32,11 +32,12 @@ export async function guard<T>(work: () => Promise<T>): Promise<T | undefined> {
 
 export const clampFiles = (px: number) => Math.round(Math.min(480, Math.max(170, px)));
 export const clampSplit = (share: number) => Math.min(0.8, Math.max(0.2, share));
+export const clampZoom = (zoom: number) => (Number.isFinite(zoom) ? Math.round(Math.min(2, Math.max(0.5, zoom)) * 10) / 10 : 1);
 
 export function persistUi() {
   const s = store();
   if (!s.root) return;
-  const state = { tabs: s.tabs.map((t) => t.path), active: s.active, filesWidth: s.filesWidth, split: s.split, visual: s.visual };
+  const state = { tabs: s.tabs.map((t) => t.path), active: s.active, filesWidth: s.filesWidth, split: s.split, visual: s.visual, pageView: s.pageView, pageZoom: s.pageZoom };
   void api.uiStateSave(JSON.stringify(state)).catch(() => {});
 }
 
@@ -66,7 +67,7 @@ async function enter(opened: OpenedProject) {
   });
   // The project may check its spelling in a language of its own.
   void applySpelling();
-  let remembered: { tabs?: string[]; active?: string | null; filesWidth?: number; split?: number; visual?: boolean } = {};
+  let remembered: { tabs?: string[]; active?: string | null; filesWidth?: number; split?: number; visual?: boolean; pageView?: boolean; pageZoom?: number } = {};
   try {
     remembered = JSON.parse(opened.uiState ?? "{}");
   } catch {
@@ -75,7 +76,7 @@ async function enter(opened: OpenedProject) {
   if (typeof remembered.filesWidth === "number") store().set({ filesWidth: clampFiles(remembered.filesWidth) });
   if (typeof remembered.split === "number") store().set({ split: clampSplit(remembered.split) });
   // Visual mode as the project was last left, and on for a project never opened before.
-  store().set({ visual: remembered.visual ?? true });
+  store().set({ visual: remembered.visual ?? true, pageView: remembered.pageView ?? true, pageZoom: clampZoom(remembered.pageZoom ?? 1) });
   const wanted = remembered.tabs?.length ? remembered.tabs : [opened.info.mainFile];
   for (const path of wanted.filter(Boolean)) await openFile(path, undefined, true);
   const active = remembered.active && buffers.has(remembered.active) ? remembered.active : store().tabs[0]?.path;

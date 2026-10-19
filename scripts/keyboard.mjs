@@ -87,7 +87,7 @@ for (let i = 0; i < 80; i++) {
   await key("Tab");
   const info = await evaluate(`(() => { const el = document.activeElement; if (!el || el === document.body) return null;
     // Each part of the screen, known by a control only it has.
-    const area = el.matches(".rb") ? "rail" : el.matches(".file-main") ? "files" : el.closest(".stabs") ? "tabs" : el.closest(".tools") ? "toolbar" : el.closest(".cm-editor") ? "editor" : el.matches("button.menu") ? "menus" : el.matches(".zoomv, [aria-label='Zoom in']") ? "pdf" : el.className?.split?.(" ")[0] ?? "";
+    const area = el.matches(".rb") ? "rail" : el.matches(".file-main") ? "files" : el.closest(".stabs") ? "tabs" : el.closest(".tools, .ribbon") ? "toolbar" : el.closest(".cm-editor") ? "editor" : el.matches("button.menu") ? "menus" : el.matches(".zoomv, [aria-label='Zoom in']") ? "pdf" : el.className?.split?.(" ")[0] ?? "";
     const named = !!(el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent.trim() || (el.id && document.querySelector('label[for="' + el.id + '"]')));
     return { area, named }; })()`);
   if (!info) continue;
@@ -135,7 +135,12 @@ await key("Escape");
 await sleep(300);
 await check((await focusName()) === "Help", "Escape closes it and gives the keyboard back to the Help menu's button");
 
-// The symbol panel.
+// The symbol panel. In the page view it is on the ribbon's Insert tab, chosen with Enter.
+if (await evaluate("!!document.querySelector('#rb-tab-insert')")) {
+  await evaluate("document.querySelector('#rb-tab-insert').focus(); true");
+  await key("Enter");
+  await check(await evaluate("document.querySelector('#rb-tab-insert').getAttribute('aria-selected') === 'true'"), "Enter on a ribbon tab shows its tools");
+}
 await evaluate("document.querySelector('.sym-btn').focus(); true");
 await key("Enter");
 await sleep(300);

@@ -186,6 +186,14 @@ Agreed with the owner on 15 October 2026, after a review of the app for speed an
 | 0.12.0 | Pictures by drag and drop or paste; text pasted with its formatting from Word, Google Docs or a web page; an equation editor (Alt+=) |
 | 0.13.0 | Working with people who use Word: send to Word and open a Word file (through Pandoc, a separate program the user installs), a PDF that marks the changes since a version, and a PDF with the comments |
 | 0.14.0 | Asked for by the owner on 15 October 2026: an equation editor that edits complex formulas as they print, as Word's does; Word files read in Pandoc's sandbox and checked both ways with a real Pandoc |
+| 0.15.0 | The page view, first of the steps approved by the owner on 19 October 2026 (`mockup/proposal-visual-word.html`): visual mode on a white page with the document's margins, under a ribbon with Word's Home, Insert and View tabs; drawing that stays put under the cursor, with Ctrl+/ to show a paragraph's LaTeX; Enter, Backspace and Delete as in a word processor; tooltips that say what each tool writes; the LaTeX path in the status line; the earlier visual mode kept as Draft |
+
+The rest of that proposal, one version each, in this order (numbers as they fall):
+
+- **Formats like Word:** strikethrough, sub- and superscript, small capitals, colour, highlight, clear formatting and the format painter, each drawn in visual mode; list buttons with Tab for levels and Enter on an empty item to end a list; alignment and line spacing; a wider styles gallery (quote, abstract); a small toolbar over a selection and a right-click menu; LaTeX marks.
+- **Lays out like Word:** a Layout tab (margins, size, orientation, columns, breaks, line numbers); page breaks placed where the last compile broke the pages; a Picture tab for a picture's size and position; header and footer.
+- **Refers like Word:** a cross-reference picker; links and bookmarks; References and Review tabs; comments as balloons beside the page; changes since a snapshot drawn on the page; moving a section by dragging its heading.
+- **The bridge to LaTeX:** the page and its LaTeX side by side, linked both ways; blocks of LaTeX drawn from the compile; the preamble explained; commands of the user's own; KeyTips.
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.
 

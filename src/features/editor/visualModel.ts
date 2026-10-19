@@ -3,8 +3,11 @@
 import { MATH_NAMES, mathForDrawing } from "./mathEnvironments";
 
 export type Piece =
-  /** Do not draw this range (a command name, a brace). */
-  | { kind: "hide"; from: number; to: number }
+  /**
+   * Do not draw this range (a command name, a brace). The hidden parts of one construct, such as
+   * `\textbf{` and its `}`, share a `group`, so an edit can keep or remove them together.
+   */
+  | { kind: "hide"; from: number; to: number; group: number }
   /** Draw this range with a style: a heading, bold, a reference chip and so on. */
   | { kind: "style"; from: number; to: number; style: string }
   /** Draw this range as typeset mathematics. */
@@ -308,8 +311,8 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
       if (name in HEADINGS) pieces.push({ kind: "line", from: lineStart(from), style });
       if (end - 1 > open + 1) pieces.push({ kind: "style", from: open + 1, to: end - 1, style });
       if (!touched(from, end)) {
-        pieces.push({ kind: "hide", from, to: open + 1 });
-        pieces.push({ kind: "hide", from: end - 1, to: end });
+        pieces.push({ kind: "hide", from, to: open + 1, group: from });
+        pieces.push({ kind: "hide", from: end - 1, to: end, group: from });
       }
     } else if (name === "includegraphics" && !touched(from, end) && text.slice(open + 1, end - 1).trim()) {
       pieces.push({ kind: "image", from, to: end, path: text.slice(open + 1, end - 1).trim() });
@@ -341,19 +344,21 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
 
   // Lists: each item drawn as its bullet or number, and a line that only begins or ends a list
   // left out, as a word processor shows a list.
-  const lists: { kind: string; count: number }[] = [];
+  const lists: { kind: string; count: number; group: number }[] = [];
   const marks = [...text.matchAll(LISTS), ...text.matchAll(/\\item\b[ \t]?/g)].sort((a, b) => a.index - b.index);
   for (const m of marks) {
     const [from, to] = [m.index, m.index + m[0].length];
     if (!free(from, to)) continue;
     if (m[1] === "begin" || m[1] === "end") {
-      if (m[1] === "begin") lists.push({ kind: m[2], count: 0 });
-      else if (lists[lists.length - 1]?.kind === m[2]) lists.pop();
       const lineFrom = lineStart(from);
+      // A list's first and last lines are one construct: the end takes its beginning's group.
+      let group = lineFrom;
+      if (m[1] === "begin") lists.push({ kind: m[2], count: 0, group });
+      else if (lists[lists.length - 1]?.kind === m[2]) group = lists.pop()!.group;
       const lineEnd = text.indexOf("\n", to);
       const lineTo = lineEnd < 0 ? text.length : lineEnd;
       const alone = /^[ \t]*$/.test(text.slice(lineFrom, from)) && /^(?:\[[^\]\n]*\])?[ \t]*$/.test(text.slice(to, lineTo));
-      if (alone && lineEnd >= 0 && !touched(lineFrom, lineTo)) pieces.push({ kind: "hide", from: lineFrom, to: lineTo + 1 });
+      if (alone && lineEnd >= 0 && !touched(lineFrom, lineTo)) pieces.push({ kind: "hide", from: lineFrom, to: lineTo + 1, group });
       continue;
     }
     const list = lists[lists.length - 1];

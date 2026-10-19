@@ -19,4 +19,9 @@
   --tick:#A5A49E;--tick2:#8F8E88;--tick3:#6F6E69;
   --well:#D9D8D2;--dis-bg:#C9C8C2;--dis-tx:#5F5E59;
   --dlg-bg:#ECEBE6;--pop-bg:#F8F7F3;--toast-bg:#141414;--focus:#2450F0;
-  --hl:rgba(36,80,240,.18);--hl-edge:rgba(36,80,240,.55)}
+  --hl:rgba(36,80,240,.18);--hl-edge:rgba(36,80,240,.55);
+  /* The page of the page view: white in every theme, as the PDF is. */
+  --paper:#FFFFFF;--paper-tx:#1A1A1A;--paper-mu:#5C5B56;--paper-line:#E4E2DA;--paper-chip:#F1EFE8;--paper-sel:#CAD6FF;
+  --paper-k:#2F4FC8;--paper-m:#8A5A00;--paper-sh:0 1px 2px rgba(0,0,0,.10),0 14px 30px rgba(40,38,30,.16);
+  --page-serif:KaTeX_Main,'Latin Modern Roman','Times New Roman',serif;--page-times:'Times New Roman',Times,serif;
+  --page-palatino:'Palatino Linotype',Palatino,serif;--page-sans:var(--ui)}

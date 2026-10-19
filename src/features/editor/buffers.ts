@@ -36,7 +36,7 @@ import { recheckSpelling, spelling } from "./spell";
 import { type Insertion, type Sym, insertion, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
-import { drawingStale, forgetPictures, redrawVisual, visualMode } from "./visual";
+import { drawingStale, forgetPictures, redrawVisual, visualMode, visualPage } from "./visual";
 import { documentStart } from "./visualModel";
 
 const states = new Map<string, EditorState>();
@@ -48,6 +48,9 @@ let handlers = { save: () => {}, compile: () => {}, comment: () => {}, equation:
 /** Holds visual mode's extensions, or nothing, in every file's state. */
 const visual = new Compartment();
 let visualOn = false;
+/** Visual mode draws the page view rather than the draft view. */
+let pageOn = true;
+const visualExtension = () => (visualOn ? (pageOn ? visualPage : visualMode) : []);
 /** Holds the spelling checker's extensions, or nothing. */
 const spell = new Compartment();
 let spellOn = false;
@@ -194,7 +197,7 @@ function extensions(path: string): Extension[] {
     // With the language server, completion comes from it; without, from the built-in lists.
     autocompletion({ override: [lspActive() ? serverCompletionSource : complete] }),
     lspFor(path),
-    visual.of(visualOn ? visualMode : []),
+    visual.of(visualExtension()),
     spell.of(spellOn ? spelling : []),
     commenting,
     tablePaste,
@@ -233,11 +236,12 @@ function extensions(path: string): Extension[] {
 export const buffers = {
   has: (path: string) => states.has(path),
 
-  /** Switch every open file between plain source and visual mode. */
-  setVisual(on: boolean) {
-    if (on === visualOn) return;
+  /** Switch every open file between plain source and visual mode, in the page or the draft view. */
+  setVisual(on: boolean, page = pageOn) {
+    if (on === visualOn && page === pageOn) return;
     visualOn = on;
-    const effects = visual.reconfigure(on ? visualMode : []);
+    pageOn = page;
+    const effects = visual.reconfigure(visualExtension());
     for (const path of states.keys()) apply(path, { effects });
   },
 

@@ -378,3 +378,89 @@ body[data-dropping] .cm-editor{outline:2px dashed var(--acc);outline-offset:-6px
 .eq-source summary{cursor:pointer;color:var(--mu);font-size:13px}
 .eq-source textarea{width:100%;margin-top:8px;font:400 13px/1.5 var(--mono)}
 .eq-note{margin:0;padding:10px 12px;border-radius:10px;background:var(--card);box-shadow:inset 3px 0 0 var(--acc);color:var(--tx);font-size:13px}
+
+/* The page view: Visual drawn on a white page under a ribbon, as a word processor shows a document */
+.screen.paged{background:var(--mod-bg);box-shadow:var(--mod-sh);color:var(--tx);padding:0;overflow:hidden;
+  --scr-tx:var(--tx);--scr-dim:var(--mu);--scr-cur:var(--hover);--scr-line:var(--line);--scr-num:var(--mu)}
+.paged .stabs{padding:6px 10px 0}
+.paged .stab-x:hover{background:var(--hover)}
+.paged .seg{background:var(--well)}
+.paged .seg button{color:var(--mu)}
+.paged .seg .on{background:var(--on-bg);color:var(--on-tx)}
+.paged .mode{color:var(--tx);box-shadow:inset 0 0 0 1px var(--edge-b)}
+.paged .mode:hover:not(:disabled){background:var(--hover)}
+.paged .sfoot{align-items:center;border-top:1px solid var(--line);font-family:var(--ui);font-size:11.5px;color:var(--mu);padding:5px 10px 5px 14px}
+.paged .screen-empty{color:var(--mu)}
+
+.ribbon{position:relative;flex:none;color:var(--tx)}
+.rb-tabs{display:flex;align-items:flex-end;gap:2px;padding:2px 8px 0;border-bottom:1px solid var(--line)}
+.rb-tablist{display:flex;gap:2px}
+.rb-tab{padding:7px 12px 9px;font:600 12.5px/1 var(--ui);color:var(--mu);border-radius:8px 8px 0 0}
+.rb-tab:hover{background:var(--hover);color:var(--tx)}
+.rb-tab[aria-selected="true"]{color:var(--tx);box-shadow:inset 0 -3px 0 var(--acc)}
+.rb-right{margin-left:auto;display:flex;align-items:center;gap:8px;padding-bottom:5px}
+.rb-panel{display:flex;align-items:stretch;min-height:90px;padding:6px 4px 4px;overflow-x:auto;scrollbar-width:thin;border-bottom:1px solid var(--line)}
+.rb-group{display:flex;flex-direction:column;flex:none;padding:0 8px;border-right:1px solid var(--line)}
+.rb-group:last-child{border-right:0}
+.rb-tools{flex:1;display:flex;align-items:flex-start;gap:2px}
+.rb-label{margin-top:4px;text-align:center;font:var(--labf);letter-spacing:var(--lab-ls);text-transform:uppercase;color:var(--mu);white-space:nowrap}
+.rb-tool{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;min-width:28px;padding:0 6px;border-radius:6px;font:500 12px/1 var(--ui);color:var(--tx);white-space:nowrap}
+.rb-big{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:54px;max-width:86px;padding:6px 6px 5px;border-radius:8px;font:500 11.5px/1.15 var(--ui);color:var(--tx);text-align:center}
+.rb-tool:hover:not(:disabled),.rb-big:hover:not(:disabled){background:var(--hover)}
+.rb-tool[aria-pressed="true"],.rb-big[aria-pressed="true"]{background:var(--on-bg);color:var(--on-tx);box-shadow:0 2px 0 var(--on-edge)}
+.rb-tool:disabled,.rb-big:disabled{opacity:.4;cursor:default}
+.rb-tool.glyph{width:28px;padding:0;font:400 15px/1 var(--page-serif)}
+.rb-tool.glyph b{font-weight:700}
+.rb-tool.wide{width:auto;padding:0 8px}
+.rb-tool .mono{font:500 11px/1 var(--mono)}
+.ribbon .ib{color:var(--tx)}
+.ribbon .ib:hover{background:var(--hover)}
+.rb-gallery{display:flex;gap:3px;padding:3px;border-radius:9px;background:var(--card);box-shadow:inset 0 0 0 1px var(--edge-b)}
+.rb-style{display:flex;flex-direction:column;justify-content:space-between;width:74px;height:52px;padding:6px 7px 5px;border-radius:6px;text-align:left;color:var(--tx)}
+.rb-style:hover:not(:disabled){background:var(--hover)}
+.rb-style:disabled{opacity:.4}
+.rb-style[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--acc)}
+.rb-style-sample{font:400 14px/1.1 var(--page-serif);white-space:nowrap;overflow:hidden}
+.rb-style-chapter .rb-style-sample,.rb-style-section .rb-style-sample{font-weight:700;font-size:17px}
+.rb-style-subsection .rb-style-sample{font-weight:700;font-size:15px}
+.rb-style-subsubsection .rb-style-sample,.rb-style-paragraph .rb-style-sample{font-weight:700}
+.rb-style-name{font-size:10.5px;color:var(--mu);white-space:nowrap}
+.rb-tip{position:fixed;z-index:60;max-width:300px;padding:9px 11px;border-radius:9px;background:var(--toast-bg);color:var(--on-tx);font:400 12px/1.4 var(--ui);box-shadow:0 8px 20px rgba(0,0,0,.25);pointer-events:none}
+.rb-tip-name{display:flex;align-items:center;gap:12px;font-weight:600}
+.rb-tip kbd{margin-left:auto;padding:2px 5px;border-radius:4px;background:#2A2D33;font:500 10.5px/1 var(--mono)}
+.rb-tip code{display:block;margin-top:7px;padding:6px 8px;border-radius:6px;background:#26282C;color:#A9BCFF;font:400 11.5px/1.45 var(--mono);white-space:pre-wrap}
+.rb-tip-why{margin-top:6px;color:#B5B7BC}
+
+.latex-path{display:flex;align-items:center;min-width:0;flex:1;overflow:hidden;white-space:nowrap;padding:6px 10px;border-radius:7px;background:var(--lcd-bg);box-shadow:var(--lcd-sh);color:var(--lcd-tx);font:500 11.5px/1 var(--mono)}
+.latex-path-label{margin-right:10px;font:var(--labf);letter-spacing:var(--lab-ls);color:var(--lcd-mu)}
+.latex-path i{padding:0 6px;font-style:normal;color:var(--lcd-mu)}
+.latex-path .on{color:var(--acc)}
+.zoom{display:flex;align-items:center;gap:2px;font:500 11.5px/1 var(--mono);color:var(--tx)}
+.zoom span{min-width:40px;text-align:center}
+.zoom .ib{width:24px;height:24px}
+
+/* The page: the editor's text set on a sheet of the document's paper, with its margins */
+.paged .cm-host{background:var(--well);
+  --scr-bg:var(--paper);--scr-tx:var(--paper-tx);--scr-dim:var(--paper-mu);--scr-cur:var(--paper-chip);--scr-line:var(--paper-line);--scr-num:var(--paper-mu);--k:var(--paper-k);--m:var(--paper-m)}
+.paged .cm-page.cm-editor{font-size:var(--page-size)}
+.paged .cm-page .cm-scroller{font-family:var(--page-font);line-height:var(--page-lh);padding:22px 18px 60px}
+.paged .cm-page .cm-gutters{display:none}
+.paged .cm-page .cm-content{flex:0 0 var(--page-w);width:var(--page-w);margin:0 auto;min-height:calc(var(--page-w) * 1.414);padding:calc(var(--page-m) * .6) 0 var(--page-m);background:var(--paper);box-shadow:var(--paper-sh);font-family:var(--page-font);font-size:1em}
+.paged .cm-page .cm-line{padding:0 var(--page-m);line-height:var(--page-lh)}
+.paged .cm-page .cm-activeLine{background:transparent}
+.paged .cm-page .cm-selectionBackground,.paged .cm-page.cm-focused>.cm-scroller>.cm-selectionLayer .cm-selectionBackground{background:var(--paper-sel)!important}
+.paged .cm-page .cm-selectionMatch,.paged .cm-page .cm-matchingBracket{background:var(--paper-chip);outline:none}
+.paged .cm-page .cm-v-title{font-size:1.75em;font-weight:400;letter-spacing:0;color:inherit}
+.paged .cm-page .cm-v-line-title{text-align:center}
+.paged .cm-page .cm-v-h1{font-size:1.44em;font-weight:700;letter-spacing:0;color:inherit}
+.paged .cm-page .cm-v-h2{font-size:1.2em;font-weight:700;color:inherit}
+.paged .cm-page .cm-v-h3,.paged .cm-page .cm-v-bold{font-weight:700;color:inherit}
+.paged .cm-page .cm-v-math{color:inherit}
+.paged .cm-page .cm-v-bullet{color:inherit;font-weight:400}
+.paged .cm-page .cm-v-chip{background:var(--paper-chip)}
+.paged .cm-page .cm-v-fold{font-family:var(--ui)}
+.paged .cm-page .cm-v-line-preamble{opacity:.7}
+.paged .cm-panels{background:var(--paper-chip);color:var(--paper-tx)}
+.paged .cm-textfield{background:var(--paper);color:var(--paper-tx);border-color:var(--paper-line)}
+.paged .cm-button{background:var(--paper);color:var(--paper-tx);border-color:var(--paper-line)}
+.paged .cm-tooltip{background:var(--paper);color:var(--paper-tx);border-color:var(--paper-line)}

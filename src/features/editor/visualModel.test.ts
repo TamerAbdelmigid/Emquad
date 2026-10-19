@@ -183,6 +183,14 @@ describe("tables, figures and citations", () => {
     expect(missing.unknown).toBe(true);
   });
 
+  it("ties together the hidden parts of one construct, so they are kept or removed together", () => {
+    const text = "\\begin{document}\na \\textbf{b} c \\section{d}\n\\begin{itemize}\n\\item e\n\\end{itemize}\n\\end{document}";
+    const hides = of(visualPieces(text, []), "hide") as Extract<Piece, { kind: "hide" }>[];
+    const groups = new Map<number, string[]>();
+    for (const h of hides) groups.set(h.group, [...(groups.get(h.group) ?? []), slice(text, h)]);
+    expect([...groups.values()]).toEqual([["\\textbf{", "}"], ["\\section{", "}"], ["\\begin{itemize}\n", "\\end{itemize}\n"]]);
+  });
+
   it("styles a caption as a caption", () => {
     const text = "\\caption{Results by year}";
     expect(of(visualPieces(text + "\n", [{ from: text.length + 1, to: text.length + 1 }]), "style")).toEqual([

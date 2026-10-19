@@ -64,6 +64,7 @@ const SHORTCUTS: [string, string][] = [
   ["Find and replace", "Ctrl+F"],
   ["Search the project", "Ctrl+Shift+F"],
   ["Comment on the selected text", "Ctrl+Alt+M"],
+  ["In the page view: show the paragraph as LaTeX, or draw it again", "Ctrl+/"],
   ["Equation editor", "Alt+="],
   ["Paste without formatting", "Ctrl+Shift+V"],
   ["In a table: next or previous cell", "Tab, Shift+Tab"],

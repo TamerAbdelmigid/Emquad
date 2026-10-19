@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Mark, Menu } from "../design/ui";
 import { EditorPane, WITH_CHAPTERS } from "../features/editor/EditorPane";
 import { buffers, setHandlers } from "../features/editor/buffers";
+import { INSERT } from "../features/editor/insertions";
 import { outline } from "../features/editor/latex";
 import { onPastedNeeds, onPastedPicture } from "../features/editor/paste";
 import { onEditFormula } from "../features/editor/visual";
@@ -290,24 +291,24 @@ export function App() {
               <Menu
                 label="Insert"
                 items={[
-                  ...(WITH_CHAPTERS.test(s.index.documentClass) ? [{ label: "Chapter", run: () => buffers.insert("\\chapter{", "}") }] : []),
-                  { label: "Section", run: () => buffers.insert("\\section{", "}") },
-                  { label: "Figure", run: () => buffers.insert("\\begin{figure}[h]\n  \\centering\n  \\includegraphics[width=0.8\\linewidth]{", "}\n  \\caption{}\n  \\label{fig:}\n\\end{figure}\n") },
-                  { label: "Numbered equation", run: () => buffers.insert("\\begin{equation}\n  ", "\n\\end{equation}\n") },
-                  { label: "Bulleted list", run: () => buffers.insert("\\begin{itemize}\n  \\item ", "\n\\end{itemize}\n") },
-                  { label: "Numbered list", run: () => buffers.insert("\\begin{enumerate}\n  \\item ", "\n\\end{enumerate}\n") },
-                  { label: "Footnote", run: () => buffers.insertInline(() => ({ before: "\\footnote{", after: "}" })) },
+                  ...(WITH_CHAPTERS.test(s.index.documentClass) ? [INSERT.chapter] : []),
+                  INSERT.section,
+                  INSERT.figure,
+                  INSERT.equation,
+                  INSERT.bullets,
+                  INSERT.numbers,
+                  INSERT.footnote,
                   { label: "Citation…", run: () => set({ dialog: "cite" }) },
                   { label: "Citation from Zotero…", run: () => void act.citeFromZotero() },
-                  { label: "Cross-reference", run: () => buffers.insertInline(() => ({ before: "\\ref{", after: "}" })) },
+                  INSERT.crossReference,
                   "separator",
-                  { label: "Table of contents", run: () => buffers.insert("\\tableofcontents\n") },
-                  { label: "Page break", run: () => buffers.insert("\\newpage\n") },
+                  INSERT.contents,
+                  INSERT.pageBreak,
                   { label: "Bibliography", run: () => void act.insertBibliography() },
                   { label: "Citation style…", run: () => set({ dialog: "citationStyle" }) },
                   "separator",
                   { label: "Equation…", hint: "Alt+=", run: () => set({ dialog: "equation" }) },
-                  { label: "Formula in the line", run: () => buffers.insertInline((inMath) => (inMath ? { before: "", after: "" } : { before: "$", after: "$" })) },
+                  INSERT.inlineFormula,
                   { label: "Symbol…", run: () => set({ symbols: true }) },
                 ]}
               />
@@ -491,7 +492,27 @@ export function App() {
               recentSymbols={s.settings?.recentSymbols ?? []}
               onSymbolUsed={act.symbolUsed}
               chapters={WITH_CHAPTERS.test(s.index.documentClass)}
-            onShowChanges={() => openHistory(s.active)}
+              onShowChanges={() => openHistory(s.active)}
+              mainFile={s.info?.mainFile ?? ""}
+              pageView={s.pageView}
+              onPageView={(pageView) => {
+                set({ pageView });
+                act.persistUi();
+              }}
+              zoom={s.pageZoom}
+              onZoom={(zoom) => {
+                set({ pageZoom: act.clampZoom(zoom) });
+                act.persistUi();
+              }}
+              ribbon={{
+                equation: () => set({ dialog: "equation" }),
+                cite: () => set({ dialog: "cite" }),
+                zotero: () => void act.citeFromZotero(),
+                bibliography: () => void act.insertBibliography(),
+                citationStyle: () => set({ dialog: "citationStyle" }),
+                setup: () => set({ dialog: "setup" }),
+                comment: act.startComment,
+              }}
             />
           )}
 

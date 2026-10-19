@@ -5,7 +5,8 @@ export type IconName =
   | "file" | "newfile" | "folder" | "search" | "review" | "history" | "help" | "gear" | "up"
   | "down" | "x" | "undo" | "redo" | "table" | "layout" | "chev" | "chevup" | "left" | "right"
   | "log" | "play" | "plus" | "check" | "edit" | "trash" | "comment" | "al-l" | "al-c" | "al-r" | "merge"
-  | "split" | "borders" | "rows" | "caption" | "code";
+  | "split" | "borders" | "rows" | "caption" | "code" | "list-ul" | "list-ol" | "brk" | "toc" | "picture" | "xref"
+  | "footnote" | "sigma" | "formula" | "quote" | "page" | "draft" | "minus";
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (
