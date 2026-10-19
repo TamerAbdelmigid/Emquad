@@ -133,6 +133,11 @@ describe("what the review found", () => {
     expect(applyChanges(chapter, toggleList(chapter, chapter.indexOf("a\n"), chapter.indexOf("a\n"), "itemize")!.changes)).toBe("a\n");
   });
 
+  it("a paragraph starting with a square bracket keeps it as words when made an item", () => {
+    const text = DOC("[1] Smith, 2020.");
+    expect(body(after(text, toggleList(text, text.indexOf("Smith"), text.indexOf("Smith"), "itemize")))).toBe("\\begin{itemize}\n  \\item {}[1] |Smith, 2020.\n\\end{itemize}");
+  });
+
   it("draws enumitem's labels, and LaTeX's own numbers where there is none", () => {
     expect(enumLabel("label=\\alph*)", 2)).toBe("b)");
     expect(enumLabel("label=(\\roman*)", 4)).toBe("(iv)");

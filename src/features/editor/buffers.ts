@@ -33,7 +33,7 @@ import type { Fix, Help } from "./errorHelp";
 import { COMMANDS, ENVIRONMENTS, completionAt, setHeading, toggleCommand } from "./latex";
 import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
-import { type Insertion, type Sym, insertion, placeInsertion } from "./symbols";
+import { type Insertion, type Sym, insertion, mathAt, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
 import { applyListEdit, drawingStale, forgetPictures, redrawVisual, setLatexMarks, visualMode, visualPage } from "./visual";
@@ -567,6 +567,11 @@ export const buffers = {
     if (restyled) return restyle(restyled);
     // Where the text around cannot be read as runs of words, the selection is put in the
     // command's braces only when that cannot break anything.
+    // soul's and ulem's commands do not work in a formula.
+    if (/^(?:hl|sout|uline)$/.test(name) && mathAt(text, range.from)) {
+      store().notify("Highlight and strikethrough cannot be used inside a formula.", true);
+      return view.focus();
+    }
     if (!range.empty && !plainWrapSafe(text, range.from, range.to)) {
       store().notify("This selection cannot be formatted as it stands: it crosses a formula, a comment or the edge of a command or environment. Select less, or press Ctrl+/ to change the LaTeX.", true);
       return view.focus();

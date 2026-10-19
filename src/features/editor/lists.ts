@@ -184,7 +184,13 @@ export function toggleList(text: string, from: number, to: number, kind: ListKin
   const marked = text.slice(lines.from, from) + CURSOR + text.slice(from, lines.to);
   const paragraphs = marked.split(/\n[ \t]*\n(?:[ \t]*\n)*/).map((p) => p.split("\n").map((l) => l.trim()));
   const open = `${indent}\\begin{${kind}}${format ? `[${format}]` : ""}\n`;
-  const body = paragraphs.map((lines) => `${indent}  \\item ${lines.join(`\n${indent}    `)}`.replace(/[ \t]+$/, " ")).join("\n");
+  // A paragraph starting with a square bracket, such as "[1] Smith", keeps it as words, not as the item's label.
+  const words = (lines: string[]) => {
+    const joined = lines.join(`\n${indent}    `);
+    const lead = joined.startsWith(CURSOR) ? CURSOR : "";
+    return joined.startsWith(`${lead}[`) ? `${lead}{}${joined.slice(lead.length)}` : joined;
+  };
+  const body = paragraphs.map((lines) => `${indent}  \\item ${words(lines)}`.replace(/[ \t]+$/, " ")).join("\n");
   return finish(text, [{ from: lines.from, to: lines.to, insert: `${open}${body}\n${indent}\\end{${kind}}` }], needsFor(format));
 }
 
