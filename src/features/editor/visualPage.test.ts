@@ -196,3 +196,49 @@ describe("page view: what the review found", () => {
     expect(pageEnter(view)).toBe(false);
   });
 });
+
+describe("page view: what the second review found", () => {
+  const text = (view: EditorView) => view.state.doc.toString();
+  const FULL = "\\documentclass{article}\n\\begin{document}\n\\section{Intro}\n\nText.\n\\end{document}\n";
+
+  it("a list line hidden alone is kept by a deletion across it", () => {
+    const doc = "\\begin{document}\n\\begin{itemize} \\item a\n  \\item b\n\\end{itemize}\nNext\n\\end{document}";
+    const view = editor(doc, { anchor: doc.indexOf("b\n") + 1, head: doc.indexOf("Next") + 2 });
+    view.dispatch({ ...view.state.replaceSelection(""), userEvent: "delete.selection" });
+    expect(text(view)).toContain("\\end{itemize}");
+  });
+
+  it("the cursor cannot rest before the document's settings, so nothing is put in before them", () => {
+    const view = editor(FULL, FULL.indexOf("Text"));
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.state.selection.main.head).toBe(FULL.indexOf("\\begin{document}") + "\\begin{document}".length);
+  });
+
+  it("Backspace on an empty line under a heading takes the line", () => {
+    const view = editor(FULL, FULL.indexOf("\n\nText") + 1);
+    pageBackspace(view);
+    expect(text(view)).toContain("\\section{Intro}\nText.");
+  });
+
+  it("copying from inside a list item to past the list gives a list that starts with an item", () => {
+    const doc = "\\begin{document}\n\\begin{itemize}\n  \\item two\n\\end{itemize}\nNext\n\\end{document}";
+    const view = editor(doc, { anchor: doc.indexOf("wo"), head: doc.indexOf("Next") + 2 });
+    const out = view.state.facet(EditorView.clipboardOutputFilter).reduce((s, f) => f(s, view.state), view.state.sliceDoc(doc.indexOf("wo"), doc.indexOf("Next") + 2));
+    expect(out).toBe("\\begin{itemize}\n\\item wo\n\\end{itemize}\nNe");
+  });
+
+  it("an edit kept off hidden text keeps every cursor", () => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: DOC,
+        selection: EditorSelection.create([EditorSelection.range(at("\\textbf"), at("bold", 2)), EditorSelection.cursor(at("Next"))]),
+        extensions: [visualPage, EditorState.allowMultipleSelections.of(true)],
+      }),
+    });
+    views.push(view);
+    view.dispatch({ ...view.state.replaceSelection("Z"), userEvent: "input.type" });
+    expect(view.state.selection.ranges).toHaveLength(2);
+    expect(text(view)).toContain("\\textbf{Zld}");
+    expect(text(view)).toContain("ZNext");
+  });
+});

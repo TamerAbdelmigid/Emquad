@@ -571,7 +571,8 @@ function pageDeleteBy(view: EditorView, side: -1 | 1): boolean {
     else to = at === line.to ? at + 1 : line.from + findClusterBreak(line.text, at - line.from, true);
     // A line break next to a hidden line, such as a list's \begin or \end, stays: taking it would
     // join that line to the text and show it, half a command for the next key to take.
-    if (state.sliceDoc(from, to) === "\n" && parts.some((h) => h.from === to || h.to === from)) return true;
+    const wholeLine = (h: Hidden) => (h.from === 0 || state.sliceDoc(h.from - 1, h.from) === "\n") && state.sliceDoc(h.to - 1, h.to) === "\n";
+    if (state.sliceDoc(from, to) === "\n" && parts.some((h) => wholeLine(h) && (h.from === to || h.to === from))) return true;
   }
   // What empties a command takes the command with it, rather than leave it empty.
   const before = parts.find((h) => h.to === from);
@@ -675,9 +676,11 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged || !drawn || !USER_EDITS.some((e) => tr.isUserEvent(e))) return tr;
   const start = tr.startState;
   let parts: Hidden[] | null = null;
+  // A construct with only one part hidden (a list whose other end shares its line with text)
+  // has no span the edit can be seen to take whole, so that part is always kept.
   const span = (group: number) => {
     const mine = (parts ??= hiddenParts(start)).filter((h) => h.group === group);
-    return { from: mine[0].from, to: mine[mine.length - 1].to };
+    return mine.length < 2 ? null : { from: mine[0].from, to: mine[mine.length - 1].to };
   };
   let end: Range | null | undefined;
   const kept: Range[] = [];
@@ -689,7 +692,7 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
       if (Math.min(t, toA) <= Math.max(f, fromA) && !(fold && fromA === f)) return;
       if (group) {
         const whole = span(d.spec.group);
-        if (fromA <= whole.from && toA >= whole.to) return;
+        if (whole && fromA <= whole.from && toA >= whole.to) return;
       }
       kept.push({ from: f, to: t });
     });
@@ -728,7 +731,7 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
   const set = start.changes(changes);
   return {
     changes: set,
-    selection: { anchor: set.mapPos(caret, 1) },
+    selection: start.selection.ranges.length > 1 ? start.selection.map(set, 1) : { anchor: set.mapPos(caret, 1) },
     effects: tr.effects,
     userEvent: tr.annotation(Transaction.userEvent),
     scrollIntoView: true,
@@ -756,7 +759,24 @@ const wholeOnCopy = EditorView.clipboardOutputFilter.of((text, state) => {
   // The innermost is closed first, and the outermost opened first.
   const after = opened.sort((a, b) => b[0].from - a[0].from).map((p) => state.sliceDoc(p[p.length - 1].from, p[p.length - 1].to));
   const before = closed.sort((a, b) => b[b.length - 1].from - a[a.length - 1].from).map((p) => state.sliceDoc(p[0].from, p[0].to));
-  return before.join("") + text + after.join("");
+  // A list opened again must start with an item, or it will not compile.
+  const item = before.length && /\\begin\{(?:itemize|enumerate|description)\}\s*$/.test(before[before.length - 1]) && !/^\s*\\item\b/.test(text) ? "\\item " : "";
+  return before.join("") + item + text + after.join("");
+});
+
+/**
+ * In the page view the cursor never rests at the start of the folded settings, where whatever
+ * went in would go before \\documentclass: it goes just past them, into the document.
+ */
+const pastSettings = EditorState.transactionFilter.of((tr) => {
+  const range = tr.newSelection.main;
+  if (!tr.selection || !range.empty || range.head !== 0 || tr.newSelection.ranges.length > 1) return tr;
+  const drawn = tr.startState.field(drawing, false);
+  let end = -1;
+  drawn?.deco.between(0, 0, (f, t, d) => {
+    if (f === 0 && d.spec.widget instanceof FoldWidget) end = t;
+  });
+  return end < 0 ? tr : [tr, { selection: { anchor: tr.changes.mapPos(end, 1) }, sequential: true }];
 });
 
 /** The page view: visual mode that stays drawn under the cursor, and is edited as a word processor is. */
@@ -764,6 +784,7 @@ export const visualPage: Extension = [
   pageLook.of(true),
   visualMode,
   keepConstructs,
+  pastSettings,
   wholeOnCopy,
   EditorView.atomicRanges.of((view) => view.state.field(drawing).covers),
   EditorView.editorAttributes.of({ class: "cm-page" }),
