@@ -4,6 +4,10 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.15.1 - 2026-10-19
+
+Nothing changes for users: the checks run before a merge no longer count other working copies of the project kept inside it, and the timing test for typing in a long table cell no longer fails on a busy computer.
+
 ## 0.15.0 - 2026-10-19
 
 Visual mode looks and types like Word: the page view.
