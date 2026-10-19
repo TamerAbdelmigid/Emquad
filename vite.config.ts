@@ -1,4 +1,5 @@
 import { type Plugin, defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
@@ -50,4 +51,7 @@ export default defineConfig(() => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  // `.claude` holds other working copies of the project (git worktrees), each tested on its own.
+  test: { exclude: [...configDefaults.exclude, ".claude/**"] },
 }));

@@ -1450,9 +1450,21 @@ describe("speed", () => {
     const at = before.length / 2;
     const after = `${before.slice(0, at)}_${before.slice(at)}`;
     expect(escapeInserted(before, after)).toBe(`${before.slice(0, at)}\\_${before.slice(at)}`);
-    const t0 = performance.now();
-    for (let i = 0; i < 20; i++) escapeInserted(before, after);
-    expect((performance.now() - t0) / 20).toBeLessThan(2);
+    // Timed against text that differs at both ends, which has to be compared in full, so that
+    // a slow or busy machine slows both alike. Each side counts its fastest batch, which leaves
+    // out warming up and the moments when something else had the processor.
+    const fastest = (batches: number, runs: number, f: () => void) => {
+      let best = Infinity;
+      for (let b = 0; b < batches; b++) {
+        const t0 = performance.now();
+        for (let i = 0; i < runs; i++) f();
+        best = Math.min(best, (performance.now() - t0) / runs);
+      }
+      return best;
+    };
+    const keystroke = fastest(5, 10, () => escapeInserted(before, after));
+    const inFull = fastest(2, 1, () => escapeInserted(before, `_${before}_`));
+    expect(keystroke).toBeLessThan(inFull / 20);
   });
 });
 
