@@ -28,8 +28,8 @@ export type Piece =
   | { kind: "block"; from: number; to: number; label: string }
   /** Draw this range, the preamble, folded away as one line. */
   | { kind: "fold"; from: number; to: number; title: string }
-  /** Style the whole line that starts at `from`. */
-  | { kind: "line"; from: number; style: string };
+  /** Style the whole line that starts at `from`; `env` names the environment it opens, for LaTeX marks. */
+  | { kind: "line"; from: number; style: string; env?: string };
 
 export interface Cell {
   tex: string;
@@ -64,8 +64,23 @@ const INLINE: Record<string, string> = {
   emph: "italic",
   texttt: "mono",
   underline: "underline",
+  uline: "underline",
+  sout: "strike",
+  textsc: "smallcaps",
+  textsubscript: "sub",
+  textsuperscript: "sup",
+  hl: "highlight",
+  textsf: "sans",
   caption: "caption",
 };
+/**
+ * Colours drawn as they print: the ribbon's palette and the most common of xcolor's own names.
+ * Text in any other colour is drawn in its words' usual colour.
+ */
+export const DRAWN_COLOURS = new Set([
+  "darkred", "burntorange", "darkgreen", "royalblue", "darkpurple", "slategray",
+  "red", "green", "blue", "orange", "purple", "gray", "brown", "teal", "magenta", "cyan", "olive", "violet", "black",
+]);
 const CITES = new Set(["cite", "citep", "citet", "parencite", "textcite", "autocite", "footcite"]);
 const TABLE = /\\begin\{(tabular\*?|tabularx|longtable)\}/g;
 const RULE = /^\s*(?:\\(?:hline|toprule|midrule|bottomrule)\b|\\(?:cline|cmidrule)(?:\([^)]*\))?\{[^}]*\})/;
@@ -83,9 +98,41 @@ const BLOCKS: Record<string, string> = {
   clearpage: "Page break",
   pagebreak: "Page break",
 };
-/** The environments that make lists, and how each level of a numbered one is numbered. */
-const LISTS = /\\(begin|end)\{(itemize|enumerate|description)\}/g;
+/**
+ * The environments drawn without their \begin and \end lines, as a word processor shows a list or
+ * a centred paragraph: lists, alignment, quotations and the abstract.
+ */
+const BLOCKS_HIDDEN = /\\(begin|end)\{(itemize|enumerate|description|center|flushleft|flushright|quote|quotation|abstract)\}/g;
+const LIST_KINDS = new Set(["itemize", "enumerate", "description"]);
+/** How the lines of each environment that is not a list are drawn. */
+const BLOCK_LINES: Record<string, string> = {
+  center: "align-center",
+  flushright: "align-right",
+  flushleft: "align-left",
+  quote: "quote",
+  quotation: "quote",
+  abstract: "abstract",
+};
+/** How each level of a numbered list is numbered, when its \begin does not say. */
 const NUMBERING = [(n: number) => `${n}.`, (n: number) => `(${String.fromCharCode(96 + n)})`, (n: number) => `${roman(n)}.`, (n: number) => `${String.fromCharCode(64 + n)}.`];
+
+/**
+ * What enumitem's `label=` option, as in `\begin{enumerate}[label=\alph*)]`, prints for item `n`;
+ * null when the options give no label.
+ */
+export function enumLabel(options: string, n: number): string | null {
+  const m = /(?:^|,)\s*label\s*=\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|[^,]*)/.exec(options);
+  if (!m) return null;
+  const label = m[1].trim().replace(/^\{([\s\S]*)\}$/, "$1");
+  return label
+    .replace(/\\arabic\*/g, String(n))
+    .replace(/\\alph\*/g, String.fromCharCode(96 + ((n - 1) % 26) + 1))
+    .replace(/\\Alph\*/g, String.fromCharCode(64 + ((n - 1) % 26) + 1))
+    .replace(/\\roman\*/g, roman(n))
+    .replace(/\\Roman\*/g, roman(n).toUpperCase())
+    .replace(/\\[a-zA-Z]+\s*/g, "")
+    .replace(/[{}]/g, "");
+}
 
 function roman(n: number): string {
   const parts: [number, string][] = [[10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
@@ -306,7 +353,18 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
     if (name === "footnote") footnotes++;
     if (name === "chapter" && chapters) footnotes = 0;
 
-    if (name in HEADINGS || name in INLINE) {
+    if (name === "textcolor") {
+      // \textcolor{name}{text}: drawn in its colour, the command and its colour's name hidden as one.
+      if (text[end] !== "{") continue;
+      const close = closingBrace(text, end);
+      if (close < 0) continue;
+      const colour = text.slice(open + 1, end - 1).trim();
+      if (close - 1 > end + 1) pieces.push({ kind: "style", from: end + 1, to: close - 1, style: DRAWN_COLOURS.has(colour) ? `color-${colour}` : "color" });
+      if (!touched(from, close)) {
+        pieces.push({ kind: "hide", from, to: end + 1, group: from });
+        pieces.push({ kind: "hide", from: close - 1, to: close, group: from });
+      }
+    } else if (name in HEADINGS || name in INLINE) {
       const style = HEADINGS[name] ?? INLINE[name];
       if (name in HEADINGS) pieces.push({ kind: "line", from: lineStart(from), style });
       if (end - 1 > open + 1) pieces.push({ kind: "style", from: open + 1, to: end - 1, style });
@@ -345,9 +403,9 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
   // Lists: each item drawn as its bullet or number, and the lines that only begin and end a list
   // left out, as a word processor shows a list. They are left out as a pair or not at all: one
   // hidden without the other could be deleted, or kept, without its partner.
-  const lists: { kind: string; count: number; line: Range | null }[] = [];
+  const lists: { kind: string; count: number; line: Range | null; options: string; inner: number }[] = [];
   const listLines: Piece[] = [];
-  const marks = [...text.matchAll(LISTS), ...text.matchAll(/\\item\b[ \t]?/g)].sort((a, b) => a.index - b.index);
+  const marks = [...text.matchAll(BLOCKS_HIDDEN), ...text.matchAll(/\\item\b[ \t]?/g)].sort((a, b) => a.index - b.index);
   for (const m of marks) {
     const [from, to] = [m.index, m.index + m[0].length];
     if (!free(from, to)) continue;
@@ -357,18 +415,32 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
       const lineTo = lineEnd < 0 ? text.length : lineEnd;
       const alone = /^[ \t]*$/.test(text.slice(lineFrom, from)) && /^(?:\[[^\]\n]*\])?[ \t]*$/.test(text.slice(to, lineTo));
       const line = alone && lineEnd >= 0 && !touched(lineFrom, lineTo) ? { from: lineFrom, to: lineTo + 1 } : null;
-      if (m[1] === "begin") lists.push({ kind: m[2], count: 0, line });
-      else if (lists[lists.length - 1]?.kind === m[2]) {
-        const begin = lists.pop()!.line;
+      if (m[1] === "begin") {
+        const options = m[2] === "enumerate" ? (/^\[([^\]\n]*)\]/.exec(text.slice(to, lineTo))?.[1] ?? "") : "";
+        lists.push({ kind: m[2], count: 0, line, options, inner: lineEnd < 0 ? text.length : lineEnd + 1 });
+      } else if (lists[lists.length - 1]?.kind === m[2]) {
+        const open = lists.pop()!;
+        const begin = open.line;
+        const hidden = Boolean(begin && line);
         if (begin && line) listLines.push({ kind: "hide", ...begin, group: begin.from }, { kind: "hide", ...line, group: begin.from });
+        // The lines of a centred paragraph, a quotation or the abstract, drawn as they are set.
+        const style = BLOCK_LINES[m[2]];
+        let first = true;
+        for (let at = open.inner; at < lineFrom; at = text.indexOf("\n", at) + 1 || lineFrom) {
+          if (style) pieces.push({ kind: "line", from: at, style: first && m[2] === "abstract" ? "abstract abstract-first" : style });
+          // The environment's name, for LaTeX marks to show in the margin where its lines are hidden.
+          if (first && hidden) pieces.push({ kind: "line", from: at, style: "env", env: m[2] });
+          first = false;
+        }
       }
       continue;
     }
-    const list = lists[lists.length - 1];
+    const list = [...lists].reverse().find((l) => LIST_KINDS.has(l.kind));
     if (list) list.count++;
     if (touched(from, to)) continue;
     const depth = lists.filter((l) => l.kind === "enumerate").length;
-    const label = list?.kind === "enumerate" ? NUMBERING[(depth - 1) % NUMBERING.length](list.count) : list?.kind === "description" ? "" : undefined;
+    const label =
+      list?.kind === "enumerate" ? (enumLabel(list.options, list.count) ?? NUMBERING[(depth - 1) % NUMBERING.length](list.count)) : list?.kind === "description" ? "" : undefined;
     pieces.push({ kind: "bullet", from, to, ...(label !== undefined ? { label } : {}) });
   }
   pieces.push(...listLines.sort((a, b) => (a as Range).from - (b as Range).from));
