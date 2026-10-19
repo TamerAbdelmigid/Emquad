@@ -342,23 +342,26 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
     if (label && from > begin && free(from, to) && !touched(from, to)) pieces.push({ kind: "block", from, to, label });
   }
 
-  // Lists: each item drawn as its bullet or number, and a line that only begins or ends a list
-  // left out, as a word processor shows a list.
-  const lists: { kind: string; count: number; group: number }[] = [];
+  // Lists: each item drawn as its bullet or number, and the lines that only begin and end a list
+  // left out, as a word processor shows a list. They are left out as a pair or not at all: one
+  // hidden without the other could be deleted, or kept, without its partner.
+  const lists: { kind: string; count: number; line: Range | null }[] = [];
+  const listLines: Piece[] = [];
   const marks = [...text.matchAll(LISTS), ...text.matchAll(/\\item\b[ \t]?/g)].sort((a, b) => a.index - b.index);
   for (const m of marks) {
     const [from, to] = [m.index, m.index + m[0].length];
     if (!free(from, to)) continue;
     if (m[1] === "begin" || m[1] === "end") {
       const lineFrom = lineStart(from);
-      // A list's first and last lines are one construct: the end takes its beginning's group.
-      let group = lineFrom;
-      if (m[1] === "begin") lists.push({ kind: m[2], count: 0, group });
-      else if (lists[lists.length - 1]?.kind === m[2]) group = lists.pop()!.group;
       const lineEnd = text.indexOf("\n", to);
       const lineTo = lineEnd < 0 ? text.length : lineEnd;
       const alone = /^[ \t]*$/.test(text.slice(lineFrom, from)) && /^(?:\[[^\]\n]*\])?[ \t]*$/.test(text.slice(to, lineTo));
-      if (alone && lineEnd >= 0 && !touched(lineFrom, lineTo)) pieces.push({ kind: "hide", from: lineFrom, to: lineTo + 1, group });
+      const line = alone && lineEnd >= 0 && !touched(lineFrom, lineTo) ? { from: lineFrom, to: lineTo + 1 } : null;
+      if (m[1] === "begin") lists.push({ kind: m[2], count: 0, line });
+      else if (lists[lists.length - 1]?.kind === m[2]) {
+        const begin = lists.pop()!.line;
+        if (begin && line) listLines.push({ kind: "hide", ...begin, group: begin.from }, { kind: "hide", ...line, group: begin.from });
+      }
       continue;
     }
     const list = lists[lists.length - 1];
@@ -368,6 +371,7 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
     const label = list?.kind === "enumerate" ? NUMBERING[(depth - 1) % NUMBERING.length](list.count) : list?.kind === "description" ? "" : undefined;
     pieces.push({ kind: "bullet", from, to, ...(label !== undefined ? { label } : {}) });
   }
+  pieces.push(...listLines.sort((a, b) => (a as Range).from - (b as Range).from));
   return pieces;
 }
 

@@ -3,7 +3,7 @@
 // turns that into decorations.
 import {
   type ChangeSet,
-  type EditorSelection,
+  EditorSelection,
   EditorState,
   type Extension,
   Facet,
@@ -731,7 +731,12 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
   const set = start.changes(changes);
   return {
     changes: set,
-    selection: start.selection.ranges.length > 1 ? start.selection.map(set, 1) : { anchor: set.mapPos(caret, 1) },
+    // Each cursor after what went in at it; a range that held part of a command becomes a cursor,
+    // so the next key types after this one rather than over it.
+    selection:
+      start.selection.ranges.length > 1
+        ? EditorSelection.create(start.selection.ranges.map((r) => EditorSelection.cursor(set.mapPos(r.to, 1))), start.selection.mainIndex)
+        : { anchor: set.mapPos(caret, 1) },
     effects: tr.effects,
     userEvent: tr.annotation(Transaction.userEvent),
     scrollIntoView: true,
@@ -766,7 +771,9 @@ const wholeOnCopy = EditorView.clipboardOutputFilter.of((text, state) => {
 
 /**
  * In the page view the cursor never rests at the start of the folded settings, where whatever
- * went in would go before \\documentclass: it goes just past them, into the document.
+ * went in would go before \\documentclass. Moved there by the user (Ctrl+Home, a click), it goes
+ * just past them, into the document; sent there (going to line 1, to an error on it), it goes
+ * just inside them, which shows them, as going inside anything drawn does.
  */
 const pastSettings = EditorState.transactionFilter.of((tr) => {
   const range = tr.newSelection.main;
@@ -776,7 +783,9 @@ const pastSettings = EditorState.transactionFilter.of((tr) => {
   drawn?.deco.between(0, 0, (f, t, d) => {
     if (f === 0 && d.spec.widget instanceof FoldWidget) end = t;
   });
-  return end < 0 ? tr : [tr, { selection: { anchor: tr.changes.mapPos(end, 1) }, sequential: true }];
+  if (end < 0) return tr;
+  const anchor = tr.isUserEvent("select") || tr.docChanged ? tr.changes.mapPos(end, 1) : Math.min(1, tr.newDoc.length);
+  return [tr, { selection: { anchor }, sequential: true }];
 });
 
 /** The page view: visual mode that stays drawn under the cursor, and is edited as a word processor is. */

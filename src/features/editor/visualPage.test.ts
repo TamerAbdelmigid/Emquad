@@ -201,16 +201,9 @@ describe("page view: what the second review found", () => {
   const text = (view: EditorView) => view.state.doc.toString();
   const FULL = "\\documentclass{article}\n\\begin{document}\n\\section{Intro}\n\nText.\n\\end{document}\n";
 
-  it("a list line hidden alone is kept by a deletion across it", () => {
-    const doc = "\\begin{document}\n\\begin{itemize} \\item a\n  \\item b\n\\end{itemize}\nNext\n\\end{document}";
-    const view = editor(doc, { anchor: doc.indexOf("b\n") + 1, head: doc.indexOf("Next") + 2 });
-    view.dispatch({ ...view.state.replaceSelection(""), userEvent: "delete.selection" });
-    expect(text(view)).toContain("\\end{itemize}");
-  });
-
-  it("the cursor cannot rest before the document's settings, so nothing is put in before them", () => {
+  it("the cursor cannot be moved to before the document's settings, so nothing is put in before them", () => {
     const view = editor(FULL, FULL.indexOf("Text"));
-    view.dispatch({ selection: { anchor: 0 } });
+    view.dispatch({ selection: { anchor: 0 }, userEvent: "select" });
     expect(view.state.selection.main.head).toBe(FULL.indexOf("\\begin{document}") + "\\begin{document}".length);
   });
 
@@ -236,9 +229,25 @@ describe("page view: what the second review found", () => {
       }),
     });
     views.push(view);
-    view.dispatch({ ...view.state.replaceSelection("Z"), userEvent: "input.type" });
+    for (const ch of "abc") view.dispatch({ ...view.state.replaceSelection(ch), userEvent: "input.type" });
     expect(view.state.selection.ranges).toHaveLength(2);
-    expect(text(view)).toContain("\\textbf{Zld}");
-    expect(text(view)).toContain("ZNext");
+    expect(text(view)).toContain("\\textbf{abcld}");
+    expect(text(view)).toContain("abcNext");
+  });
+
+  it("going to the first line shows the settings, as going into anything drawn does", () => {
+    const view = editor(FULL, FULL.indexOf("Text"));
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(view.state.selection.main.head).toBe(1);
+    expect(notShown(view).some((s) => s.startsWith("\\documentclass"))).toBe(false);
+  });
+
+  it("deleting a whole list takes both its hidden lines, and a list line alone is not hidden", () => {
+    const doc = "\\begin{document}\nPara\n\\begin{itemize}\n  \\item a\n\\end{itemize}\nNext\n\\end{document}";
+    const view = editor(doc, { anchor: doc.indexOf("Para"), head: doc.indexOf("Next") });
+    view.dispatch({ ...view.state.replaceSelection(""), userEvent: "delete.selection" });
+    expect(text(view)).toBe("\\begin{document}\nNext\n\\end{document}");
+    const lone = "\\begin{document}\n\\begin{itemize} \\item a\n\\end{itemize}\n\\end{document}";
+    expect(notShown(editor(lone, lone.length))).not.toContain("\\end{itemize}\n");
   });
 });

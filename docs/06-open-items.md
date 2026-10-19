@@ -28,7 +28,7 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 ### Visual mode
 
-- **A line that only begins or ends a list is hidden**, and Backspace at the start of the line after it joins the two lines, showing the source; nothing is lost, and Ctrl+Z puts it back.
+- **The lines that only begin and end a list are hidden**, as a pair: when either shares its line with other text, both show as source. In the draft view, Backspace at the start of the line after a hidden one joins the two lines, showing the source; nothing is lost, and Ctrl+Z puts it back. The page view keeps those line breaks.
 - **The page view is a likeness of the page,** not the PDF: lines and pages break where the editor's width puts them, and page breaks from the compile are not drawn yet (planned with the Layout tab).
 - **In the page view, Backspace at the start of a list item** joins it to the item above, and does nothing on the first item, rather than turning the item into a paragraph as Word does. Lists get Word's behaviour with the list tools.
 - **Where typing goes at the edge of formatting** follows the cursor's place in the source: at the end of a bold word it goes into the bold when the cursor is before the hidden `}`, and after it once the cursor has stepped past. Word continues the formatting on the left; the page view does not yet decide this itself.
