@@ -28,9 +28,13 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 
 ### Visual mode
 
-- **The lines that only begin and end a list are hidden**, as a pair: when either shares its line with other text, both show as source. In the draft view, Backspace at the start of the line after a hidden one joins the two lines, showing the source; nothing is lost, and Ctrl+Z puts it back. The page view keeps those line breaks.
+- **The lines that only begin and end a list, an alignment, a quotation or the abstract are hidden**, as a pair: when either shares its line with other text, both show as source. In the draft view, Backspace at the start of the line after a hidden one joins the two lines, showing the source; nothing is lost, and Ctrl+Z puts it back. The page view keeps those line breaks.
 - **The page view is a likeness of the page,** not the PDF: lines and pages break where the editor's width puts them, and page breaks from the compile are not drawn yet (planned with the Layout tab).
-- **In the page view, Backspace at the start of a list item** joins it to the item above, and does nothing on the first item, rather than turning the item into a paragraph as Word does. Lists get Word's behaviour with the list tools.
+- **List tools need lists written one thing to a line.** A list whose `\item`s share lines with other text, or whose `\begin` or `\end` does, is left to ordinary editing by Tab, Enter and Backspace, and the Bullets and Numbering buttons say they cannot act on it. Rewriting such a list into lines of its own was not done, so that a hand-made layout is never changed unasked.
+- **Alignment and Quote act on the whole environment** a paragraph is in: centring one paragraph of three already set right changes all three. Splitting the environment, as Word would, is left for later.
+- **A numbered list cut in two** by Enter on an empty item numbers its second half from 1. Word continues the numbers; enumitem's `resume` would do it, but needs the first half to be found again when lists are edited later.
+- **Highlight uses soul,** whose `\hl` cannot hold every command: a footnote or a `\cite` inside a highlighted passage may not compile. The tool does not check what it is put around.
+- **Colours other than the palette's six** and xcolor's common names are kept but drawn in the text's usual colour; reading `\definecolor` lines to draw any colour is not done.
 - **Where typing goes at the edge of formatting** follows the cursor's place in the source: at the end of a bold word it goes into the bold when the cursor is before the hidden `}`, and after it once the cursor has stepped past. Word continues the formatting on the left; the page view does not yet decide this itself.
 
 ### Caption tool

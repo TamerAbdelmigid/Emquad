@@ -10,6 +10,7 @@ import { packagesFor } from "../features/editor/equationRibbon";
 import { type Setup, readSetup, setupChange } from "../features/editor/documentSetup";
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
 import { ensurePackage, packageNotice } from "../features/editor/tableModel";
+import { type Need, preambleFor } from "../features/editor/formatting";
 import type { Diagnostic } from "../ipc/api";
 import type { TreeNode } from "../ipc/bindings/TreeNode";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -315,6 +316,23 @@ export async function needPackage(name: string, why: string) {
   if (buffers.has(main)) buffers.change(main, need);
   else await api.fileWrite(main, text.slice(0, need.from) + need.insert + text.slice(need.to));
   store().notify(`Added \\usepackage{${name}} to the settings at the top of ${main}, ${why}.`);
+}
+
+/**
+ * Give the document what a formatting tool's commands need, in the settings at the top of its
+ * main file: packages (ulem, soul, xcolor, enumitem) and the names of the palette's colours.
+ */
+export async function needFormatting(needs: Need[]) {
+  const main = store().info?.mainFile;
+  if (!main || !needs.length) return;
+  const text = await mainText();
+  const { change, added, notes } = preambleFor(text, needs, store().index.stylePackages);
+  for (const note of notes) store().notify(note, true);
+  if (!change) return;
+  if (buffers.has(main)) buffers.change(main, change);
+  else await api.fileWrite(main, text.slice(0, change.from) + change.insert + text.slice(change.to));
+  const why = needs.find((n) => n.kind === "package")?.why ?? "for the colour";
+  store().notify(`Added ${added.join(", ")} to the settings at the top of ${main}, ${why}.`);
 }
 
 // ---------- equations ----------
@@ -694,6 +712,13 @@ export async function applySetup(setup: Setup) {
     store().set({ dialog: null });
     if (change) await compile();
   });
+}
+
+/** Line spacing from the ribbon: for the whole document, as Document setup sets it. */
+export async function setLineSpacing(spacing: Setup["spacing"]) {
+  const setup = await currentSetup();
+  if (!setup) return store().notify("The line spacing is set in the settings at the top of the main file, and they could not be read.", true);
+  if (setup.spacing !== spacing) await applySetup({ ...setup, spacing });
 }
 
 /** Put a compile error right as its fix says, then compile again to show it is gone. */

@@ -4,6 +4,18 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.16.0 - 2026-10-20
+
+The page view formats like Word.
+
+- The Home tab has Word's font tools: strikethrough, subscript (Ctrl+=), superscript (Ctrl+Shift+=), small capitals, highlight and font colour join bold, italic and underline, and each is drawn on the page as it will print. On a selection they work as in Word: if every word has the format it is taken off, otherwise all of them get it. The package each needs, and the name of each colour, is added to the settings at the top for you.
+- **Clear formatting** takes every format off the selection, or the word the cursor is in. The **format painter** (Ctrl+Shift+C) copies the formatting at the cursor onto the next text you select.
+- **Bullets** (Ctrl+Shift+L) and **Numbering** make paragraphs a list, and a list's items paragraphs again; the arrow beside Numbering chooses 1., a), i. or A. In a list, **Tab** and **Shift+Tab** move an item a level down or up, **Enter** on an empty item ends the list, and **Backspace** at the start of an item turns it into a paragraph (it used to join it to the item above).
+- **Align left**, **Centre** (Ctrl+E), **Align right** and **Justify**, and **Line spacing** for the whole document. The styles gallery adds **Quote** and **Abstract**. Centred and quoted paragraphs and the abstract are drawn as they print.
+- A small toolbar appears over words you select with the mouse, and a right-click (or Shift+F10) opens a menu with cut, copy, paste, paste words only, a new comment and Show LaTeX.
+- **LaTeX marks** (Ctrl+Shift+8), like Word's ¶, show the commands faintly around formatted text and the names of lists and other blocks in the margin, while you keep working on the page.
+- Fixed: a heading or other styled line just after a list was drawn without its style in the page view.
+
 ## 0.15.1 - 2026-10-19
 
 Nothing changes for users: the checks run before a merge no longer count other working copies of the project kept inside it, and the timing test for typing in a long table cell no longer fails on a busy computer.

@@ -24,4 +24,10 @@
   --paper:#FFFFFF;--paper-tx:#1A1A1A;--paper-mu:#5C5B56;--paper-line:#E4E2DA;--paper-chip:#F1EFE8;--paper-sel:#CAD6FF;
   --paper-k:#2F4FC8;--paper-m:#8A5A00;--paper-sh:0 1px 2px rgba(0,0,0,.10),0 14px 30px rgba(40,38,30,.16);
   --page-serif:KaTeX_Main,'Latin Modern Roman','Times New Roman',serif;--page-times:'Times New Roman',Times,serif;
-  --page-palatino:'Palatino Linotype',Palatino,serif;--page-sans:var(--ui)}
+  --page-palatino:'Palatino Linotype',Palatino,serif;--page-sans:var(--ui);
+  /* Text colours and the highlight, as the PDF prints them: the same in every theme. The first
+     six are the ribbon's palette (formatting.ts), the rest xcolor's own names. */
+  --ink-darkred:#C00000;--ink-burntorange:#C55A11;--ink-darkgreen:#2E7D32;--ink-royalblue:#2450F0;--ink-darkpurple:#7030A0;--ink-slategray:#595959;
+  --ink-red:#FF0000;--ink-green:#00A000;--ink-blue:#0000FF;--ink-orange:#FF8000;--ink-purple:#BF0040;--ink-gray:#808080;--ink-brown:#BF8040;
+  --ink-teal:#008080;--ink-magenta:#FF00FF;--ink-cyan:#00BFBF;--ink-olive:#808000;--ink-violet:#800080;--ink-black:#000000;
+  --ink-hl:#FFF27A;--ink-hl-dim:rgba(255,242,122,.3)}

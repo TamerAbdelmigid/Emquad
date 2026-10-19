@@ -9,7 +9,7 @@ afterEach(cleanup);
 
 const noop = () => {};
 const props = {
-  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop },
+  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop, spacing: noop },
   active: true,
   chapters: false,
   onSymbols: noop,
@@ -21,6 +21,10 @@ const props = {
   onPageView: noop,
   zoom: 1,
   onZoom: noop,
+  abstract: true,
+  spacing: "single" as const,
+  marks: false,
+  onMarks: noop,
 };
 
 describe("Ribbon", () => {
@@ -28,6 +32,20 @@ describe("Ribbon", () => {
     render(<Ribbon {...props} symbolsOpen={false} />);
     expect(screen.getByRole("tab", { name: "Home" }).getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("button", { name: "Bold" }).dataset.tex).toBe("\\textbf{…}");
+    // The tools of "Formats like Word", each saying what it writes.
+    const writes: [string, string][] = [
+      ["Strikethrough", "\\sout{…}"],
+      ["Subscript", "\\textsubscript{…}"],
+      ["Superscript", "\\textsuperscript{…}"],
+      ["Small capitals", "\\textsc{…}"],
+      ["Highlight", "\\hl{…}"],
+    ];
+    for (const [name, tex] of writes) expect(screen.getByRole("button", { name }).dataset.tex).toBe(tex);
+    for (const name of ["Format painter", "Clear formatting", "Bullets", "Numbering", "Increase indent", "Decrease indent", "Centre", "Align right", "Justify", "Show LaTeX marks", "Quote", "Abstract", "Paste", "Cut", "Copy"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    expect(screen.getByRole("button", { name: "Font colour" }).dataset.tex).toContain("\\textcolor");
+    expect(screen.getByRole("button", { name: "Line spacing" })).toBeTruthy();
   });
 
   it("turns to the Insert tab when the Symbol panel is asked for", () => {

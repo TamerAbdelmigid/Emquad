@@ -1,6 +1,6 @@
 // One CodeMirror state per open file, kept while its tab is open so undo history and the cursor
 // survive switching tabs. The single EditorView shows whichever state is active.
-import { prosePaste } from "./paste";
+import { pasteWordsNext, prosePaste } from "./paste";
 import {
   autocompletion,
   closeBrackets,
@@ -33,11 +33,14 @@ import type { Fix, Help } from "./errorHelp";
 import { COMMANDS, ENVIRONMENTS, completionAt, setHeading, toggleCommand } from "./latex";
 import { lspActive, lspFor } from "./lsp";
 import { recheckSpelling, spelling } from "./spell";
-import { type Insertion, type Sym, insertion, placeInsertion } from "./symbols";
+import { type Insertion, type Sym, insertion, mathAt, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
-import { drawingStale, forgetPictures, redrawVisual, visualMode, visualPage } from "./visual";
+import { applyListEdit, drawingStale, forgetPictures, redrawVisual, setLatexMarks, visualMode, visualPage } from "./visual";
 import { documentStart } from "./visualModel";
+import { type Alignment, type BlockStyle, alignmentAt, setAlignment, setBlockStyle } from "./blocks";
+import { type Need, type Restyled, type TextChange, clearFormatting, formatAt, headOf, needsOf, paintFormat, plainWrapSafe, setColour, toggleFormat, wordAt } from "./formatting";
+import { type ListEdit, type ListKind, indentItem, outdentItem, setNumbering, toggleList } from "./lists";
 
 const states = new Map<string, EditorState>();
 /** Text as last read from or written to disk, to tell whether a buffer has unsaved edits. */
@@ -58,6 +61,43 @@ let spellOn = false;
 const redrawWhenShown = new Set<string>();
 /** The project's comments, to place in each file as it is opened. */
 let comments: Comment[] = [];
+
+/** What the app does with the packages and colour names a formatting tool's commands need. */
+let formatNeeds: (needs: Need[]) => void = () => {};
+export function onFormatNeeds(load: (needs: Need[]) => void) {
+  formatNeeds = load;
+}
+/** The formatting the format painter holds, or null when it holds none, and the selection it was copied from. */
+let painted: string[] | null = null;
+let paintedFrom: { from: number; to: number } | null = null;
+
+/** The selection on screen, or the word the cursor is in, or the cursor. */
+function selectionOrWord(): { from: number; to: number } | null {
+  if (!view || !shownPath) return null;
+  const { from, to, empty } = view.state.selection.main;
+  return empty ? (wordAt(view.state.doc.toString(), from) ?? { from, to }) : { from, to };
+}
+
+/** Make a formatting change, the same text selected after it, and load what its commands need. */
+function restyle(done: Restyled) {
+  if (!view) return;
+  if (done.changes.length) view.dispatch({ changes: done.changes, selection: EditorSelection.range(done.select.from, done.select.to), userEvent: "input", scrollIntoView: true });
+  view.focus();
+  formatNeeds(needsOf(done.heads));
+}
+
+/** Make a list tool's change, or say why there is none. */
+function listEdit(edit: ListEdit | null, why: string) {
+  if (!view) return;
+  if (!applyListEdit(view, edit)) store().notify(why, true);
+  else if (edit?.needs?.length) formatNeeds(edit.needs);
+  view.focus();
+}
+
+/** Make a paragraph tool's change, keeping the cursor in its words. */
+function blockChange(changes: TextChange[]) {
+  view?.dispatch({ changes, userEvent: "input", scrollIntoView: true });
+}
 
 /** Change one open file's editor state, whether or not it is the one on screen. */
 function apply(path: string, spec: TransactionSpec) {
@@ -214,6 +254,12 @@ function extensions(path: string): Extension[] {
       { key: "Mod-b", run: () => (buffers.format("textbf"), true) },
       { key: "Mod-i", run: () => (buffers.format("textit"), true) },
       { key: "Mod-u", run: () => (buffers.format("underline"), true) },
+      // Word's keys for subscript, superscript and the format painter.
+      { key: "Mod-=", run: () => (buffers.format("textsubscript"), true) },
+      { key: "Mod-+", run: () => (buffers.format("textsuperscript"), true) },
+      { key: "Mod-Shift-=", run: () => (buffers.format("textsuperscript"), true) },
+      // The painter paints in the page view, where its second half is.
+      { key: "Mod-Shift-c", run: () => visualOn && pageOn && (buffers.copyFormat(), true) },
       { key: "Enter", run: closeEnvironment },
       ...closeBracketsKeymap,
       ...defaultKeymap,
@@ -506,16 +552,184 @@ export const buffers = {
   },
 
   /**
-   * Bold, italic and the like: on the selected cells of a table being worked on; else set the
-   * selection in it, or take it out of it when it is set in it already.
+   * Bold, italic, strikethrough and the like: on the selected cells of a table being worked on;
+   * else on the selected words, as Word does it: taken off when every word has it, put on all
+   * of them otherwise, with every command kept whole. With nothing selected, the group the
+   * cursor is in comes out of it, or an empty one goes in for typing. The packages it needs are
+   * loaded.
    */
   format(name: string) {
-    if (tableInput.format(name)) return;
+    if (tableInput.format(name)) return formatNeeds(needsOf([headOf(name)]));
     if (!view || !shownPath) return;
     const range = view.state.selection.main;
-    const done = toggleCommand(view.state.doc.toString(), range.from, range.to, name);
+    const text = view.state.doc.toString();
+    const restyled = range.empty ? null : toggleFormat(text, range.from, range.to, name);
+    if (restyled) return restyle(restyled);
+    // Where the text around cannot be read as runs of words, the selection is put in the
+    // command's braces only when that cannot break anything.
+    // soul's and ulem's commands do not work in a formula.
+    if (/^(?:hl|sout|uline)$/.test(name) && mathAt(text, range.from)) {
+      store().notify("Highlight and strikethrough cannot be used inside a formula.", true);
+      return view.focus();
+    }
+    if (!range.empty && !plainWrapSafe(text, range.from, range.to)) {
+      store().notify("This selection cannot be formatted as it stands: it crosses a formula, a comment or the edge of a command or environment. Select less, or press Ctrl+/ to change the LaTeX.", true);
+      return view.focus();
+    }
+    const done = toggleCommand(text, range.from, range.to, name);
     view.dispatch({ changes: done.changes, selection: EditorSelection.range(done.select.from, done.select.to), userEvent: "input", scrollIntoView: true });
     view.focus();
+    if (done.changes.some((c) => c.insert.includes(headOf(name)))) formatNeeds(needsOf([headOf(name)]));
+  },
+
+  /** Font colour: the selection, or the word at the cursor, in a colour of the palette; null takes the colour off. */
+  colour(name: string | null) {
+    const target = selectionOrWord();
+    if (!view || !target) return;
+    const text = view.state.doc.toString();
+    const restyled = target.from < target.to ? setColour(text, target.from, target.to, name) : null;
+    if (restyled) return restyle(restyled);
+    if (name && target.from === target.to) return buffers.format(`textcolor{${name}}`);
+    store().notify("A colour can be given to words in the text, not here.", true);
+  },
+
+  /** Clear formatting: every formatting command taken off the selection, or the word at the cursor. */
+  clearFormatting() {
+    const target = selectionOrWord();
+    if (!view || !target || target.from === target.to) return;
+    const restyled = clearFormatting(view.state.doc.toString(), target.from, target.to);
+    if (restyled) restyle(restyled);
+  },
+
+  /**
+   * The format painter: copy the formatting at the cursor. The next text selected (by the mouse,
+   * or with Shift and the arrow keys) is given it, by `paint`.
+   */
+  copyFormat() {
+    if (!view || !shownPath) return;
+    painted = formatAt(view.state.doc.toString(), view.state.selection.main.head);
+    paintedFrom = { from: view.state.selection.main.from, to: view.state.selection.main.to };
+    store().set({ painting: true });
+    store().notify(painted.length ? "Now select the text to give this formatting to. Esc cancels." : "No formatting here: the text you select next will be made plain. Esc cancels.");
+    view.focus();
+  },
+
+  /** Give the selection the formatting the painter holds, if it holds any. True when it did. */
+  paint(): boolean {
+    if (!painted || !view || view.state.selection.main.empty) return false;
+    const { from, to } = view.state.selection.main;
+    // The selection the formatting was copied from is not the next one.
+    if (paintedFrom && paintedFrom.from === from && paintedFrom.to === to) return false;
+    const heads = painted;
+    buffers.stopPainting();
+    const restyled = paintFormat(view.state.doc.toString(), from, to, heads);
+    if (restyled) restyle(restyled);
+    return true;
+  },
+
+  stopPainting() {
+    painted = null;
+    if (store().painting) store().set({ painting: false });
+  },
+
+  /** The Bullets or Numbering button, on the paragraphs or list items of the selection. */
+  list(kind: ListKind) {
+    if (!view || !shownPath) return;
+    const { from, to } = view.state.selection.main;
+    listEdit(toggleList(view.state.doc.toString(), from, to, kind), "Lists are made of paragraphs of text: there is none here to make one of.");
+  },
+
+  /** A numbering format from the Numbering menu, for the list the cursor is in or a new one. */
+  numbering(format: string) {
+    if (!view || !shownPath) return;
+    const { from, to } = view.state.selection.main;
+    listEdit(setNumbering(view.state.doc.toString(), from, to, format), "Numbering is for paragraphs of text: there is none here to number.");
+  },
+
+  /** Increase or decrease indent: a list item one level down or up. */
+  indent(by: 1 | -1) {
+    if (!view || !shownPath) return;
+    const at = view.state.selection.main.head;
+    const text = view.state.doc.toString();
+    listEdit(by > 0 ? indentItem(text, at) : outdentItem(text, at), "Indent moves a list item between levels. Put the cursor in a list item first.");
+  },
+
+  /** Align the paragraphs of the selection. */
+  align(alignment: Alignment) {
+    if (!view || !shownPath) return;
+    const { from, to } = view.state.selection.main;
+    const text = view.state.doc.toString();
+    const changes = setAlignment(text, from, to, alignment);
+    if (changes) blockChange(changes);
+    else if (alignment !== alignmentAt(text, from)) store().notify("This cannot be aligned on its own: alignment is for paragraphs of text, outside formulas and tables.", true);
+    view.focus();
+  },
+
+  /** Set the paragraphs of the selection as a quotation or the abstract; null takes that style off. */
+  blockStyle(style: BlockStyle | null) {
+    if (!view || !shownPath) return;
+    const { from, to } = view.state.selection.main;
+    const changes = setBlockStyle(view.state.doc.toString(), from, to, style);
+    if (changes) blockChange(changes);
+    else if (style) store().notify("This cannot be set as a quotation or an abstract: the styles are for paragraphs of text.", true);
+    view.focus();
+  },
+
+  /** Show or hide LaTeX marks in the page view of every open file. */
+  setMarks(on: boolean) {
+    setLatexMarks(on);
+    buffers.redrawVisual();
+  },
+
+  /** Where the selection is on screen, for the toolbar over it; null with nothing selected. */
+  selectionBox(): { left: number; right: number; top: number; bottom: number } | null {
+    if (!view || !shownPath) return null;
+    const { from, to, empty } = view.state.selection.main;
+    if (empty) return null;
+    const start = view.coordsAtPos(from, 1);
+    const end = view.coordsAtPos(to, -1);
+    if (!start || !end) return null;
+    return { left: Math.min(start.left, end.left), right: Math.max(start.right, end.right), top: Math.min(start.top, end.top), bottom: Math.max(start.bottom, end.bottom) };
+  },
+
+  /** Where the cursor is on screen, for a menu opened from the keyboard. */
+  cursorBox(): { left: number; right: number; top: number; bottom: number } | null {
+    if (!view || !shownPath) return null;
+    return view.coordsAtPos(view.state.selection.main.head);
+  },
+
+  /** A right-click: the cursor goes where it was made, unless that is inside the selection. */
+  placeCursorUnlessSelected(x: number, y: number) {
+    if (!view || !shownPath || (!x && !y)) return;
+    const at = view.posAtCoords({ x, y });
+    const { from, to } = view.state.selection.main;
+    if (at !== null && (at < from || at > to)) view.dispatch({ selection: { anchor: at }, userEvent: "select.pointer" });
+    view.focus();
+  },
+
+  /** Cut or copy the selection, as Ctrl+X and Ctrl+C do. */
+  clipboard(action: "cut" | "copy") {
+    if (!view) return;
+    view.focus();
+    document.execCommand(action);
+  },
+
+  /** Paste what is on the clipboard at the cursor, as Ctrl+V does, or the words alone, as Ctrl+Shift+V. */
+  async paste(wordsOnly: boolean) {
+    if (!view) return;
+    const target = view;
+    const data = new DataTransfer();
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        for (const type of item.types) if (type === "text/plain" || type === "text/html") data.setData(type, await (await item.getType(type)).text());
+      }
+    } catch {
+      data.setData("text/plain", await navigator.clipboard.readText().catch(() => ""));
+    }
+    if (!data.getData("text/plain")) return store().notify("There is no text on the clipboard to paste.", true);
+    target.focus();
+    if (wordsOnly) pasteWordsNext();
+    target.contentDOM.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
   },
 
   /** Make the heading the cursor is in one of `level`, or plain text; or start a new heading of that level. */

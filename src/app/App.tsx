@@ -6,11 +6,11 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Mark, Menu } from "../design/ui";
 import { EditorPane, WITH_CHAPTERS } from "../features/editor/EditorPane";
-import { buffers, setHandlers } from "../features/editor/buffers";
+import { buffers, onFormatNeeds, setHandlers } from "../features/editor/buffers";
 import { INSERT } from "../features/editor/insertions";
 import { outline } from "../features/editor/latex";
 import { onPastedNeeds, onPastedPicture } from "../features/editor/paste";
-import { onEditFormula } from "../features/editor/visual";
+import { onEditFormula, onToggleMarks } from "../features/editor/visual";
 import { lspReceive, setDisplay, stopLsp } from "../features/editor/lsp";
 import { Files } from "../features/files/Files";
 import { Comments } from "../features/comments/Comments";
@@ -64,6 +64,8 @@ export function App() {
     onPastedPicture((file) => void act.addPictures([{ file }]));
     onEditFormula(() => store().set({ dialog: "equation" }));
     onPastedNeeds((packages) => packages.forEach((name) => void act.needPackage(name, "which the pasted text needs")));
+    onFormatNeeds((needs) => void act.needFormatting(needs));
+    onToggleMarks(() => store().set({ latexMarks: !store().latexMarks }));
     // Go to definition into a file that is not open opens it.
     setDisplay(
       async (path) => {
@@ -492,6 +494,7 @@ export function App() {
               recentSymbols={s.settings?.recentSymbols ?? []}
               onSymbolUsed={act.symbolUsed}
               chapters={WITH_CHAPTERS.test(s.index.documentClass)}
+              abstract={!/^(?:book|scrbook)$/.test(s.index.documentClass)}
               onShowChanges={() => openHistory(s.active)}
               mainFile={s.info?.mainFile ?? ""}
               pageView={s.pageView}
@@ -512,6 +515,7 @@ export function App() {
                 citationStyle: () => set({ dialog: "citationStyle" }),
                 setup: () => set({ dialog: "setup" }),
                 comment: act.startComment,
+                spacing: (spacing) => void act.setLineSpacing(spacing),
               }}
             />
           )}

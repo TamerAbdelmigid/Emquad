@@ -1376,6 +1376,7 @@ const PROVIDED: Record<string, { packages: string[]; classes?: RegExp }> = {
   amssymb: { packages: ["unicode-math", "newtxmath", "newpxmath", "stix", "stix2", "mathabx", "libertinust1math", "mtpro2", "txfonts", "pxfonts", "kpfonts", "mathdesign"] },
   amsmath: { packages: ["mathtools", "physics", "empheq"], classes: /^ams(?:art|book|proc)$/ },
   array: { packages: ["tabularx", "tabulary", "colortbl", "dcolumn", "tabu", "nicematrix", "array"] },
+  xcolor: { packages: ["tikz", "pgfplots"] },
 };
 
 /**
@@ -1391,7 +1392,7 @@ export type PackageNeed = Change | "present" | "no-preamble" | "elsewhere";
  * each style file of the project's own, the packages it loads, so that a package loaded by one
  * the document uses counts as loaded.
  */
-export function ensurePackage(text: string, name: string, styles: Record<string, string[]> = {}): PackageNeed {
+export function ensurePackage(text: string, name: string, styles: Record<string, string[]> = {}, options = ""): PackageNeed {
   // Judged on the text with comments and verbatim blanked out, every character in its place:
   // a \begin{document} in a comment is not where the document begins.
   const { clean } = uncommented(text);
@@ -1416,12 +1417,19 @@ export function ensurePackage(text: string, name: string, styles: Record<string,
   if (begin < 0 || !klass) return "no-preamble";
   const reads = preamble.replace(/\\input\s*(?:\{\s*glyphtounicode(?:\.tex)?\s*\}|\s+glyphtounicode(?:\.tex)?(?![\w.-]))/g, "");
   if (/\\(?:input|include|import|subimport|InputIfFileExists)(?![a-zA-Z@])/.test(reads)) return "elsewhere";
-  // On a line of its own just before the document starts: the one place in a preamble that
-  // is never inside a condition or a group.
+  return settingsLine(text, `\\usepackage${options ? `[${options}]` : ""}{${name}}`, begin);
+}
+
+/**
+ * The change that puts `line` in the settings at the top, on a line of its own just before the
+ * document starts: the one place in a preamble that is never inside a condition or a group.
+ * `begin` is where the document's \begin{document} is.
+ */
+export function settingsLine(text: string, line: string, begin: number): Change {
   const at = text.lastIndexOf("\n", begin) + 1;
   const lead = text.slice(at, begin);
   const nl = /\r\n/.test(text) ? "\r\n" : "\n";
-  return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: `\\usepackage{${name}}${nl}` } : { from: begin, to: begin, insert: `${nl}\\usepackage{${name}}${nl}` };
+  return /^[ \t]*$/.test(lead) ? { from: at, to: at, insert: `${line}${nl}` } : { from: begin, to: begin, insert: `${nl}${line}${nl}` };
 }
 
 /** What to tell the user when a package could not be added for them, or null when it could. */

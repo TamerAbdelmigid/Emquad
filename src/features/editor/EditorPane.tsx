@@ -1,13 +1,14 @@
 import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Menu } from "../../design/ui";
-import { type Tab, useStore } from "../../state/store";
+import { type Tab, store, useStore } from "../../state/store";
+import { PageTools } from "./PageTools";
 import { Ribbon, type RibbonActions } from "./Ribbon";
 import { SymbolPicker } from "./SymbolPicker";
 import { TablePicker } from "./TablePicker";
 import { buffers } from "./buffers";
-import { readSetup } from "./documentSetup";
+import { type Setup, readSetup } from "./documentSetup";
 import { latexPath } from "./latexPath";
 import { type Geometry, pageGeometry } from "./pageGeometry";
 import { countWords } from "./spellModel";
@@ -30,6 +31,8 @@ interface Props {
   onSymbolUsed: (id: string) => void;
   /** The document's class has chapters. */
   chapters: boolean;
+  /** The document's class has an abstract. */
+  abstract: boolean;
   /** The main file, whose settings give the page when the file on screen has none of its own. */
   mainFile: string;
   pageView: boolean;
@@ -67,7 +70,12 @@ export function EditorPane(p: Props) {
 
   const name = (path: string) => path.slice(path.lastIndexOf("/") + 1);
   const paged = p.visual && p.pageView;
-  const geometry = useGeometry(paged ? p.active : null, p.mainFile);
+  const setup = useSetup(paged ? p.active : null, p.mainFile);
+  const geometry = useMemo(() => pageGeometry(setup), [setup]);
+  const marks = useStore((s) => s.latexMarks);
+  useEffect(() => {
+    buffers.setMarks(marks);
+  }, [marks]);
   const width = useWidth(host, paged);
   // A page wider than the pane is shown whole, made smaller to fit, as a word processor does; zoom is on top of that.
   const fit = width ? Math.max(0.2, Math.min(1, (width - 60) / (geometry.width * CM))) : 1;
@@ -102,6 +110,10 @@ export function EditorPane(p: Props) {
           onPageView={p.onPageView}
           zoom={p.zoom}
           onZoom={p.onZoom}
+          abstract={p.abstract}
+          spacing={setup?.spacing ?? null}
+          marks={marks}
+          onMarks={(latexMarks) => store().set({ latexMarks })}
         />
       ) : (
       <div className="tools">
@@ -153,6 +165,7 @@ export function EditorPane(p: Props) {
       </div>
       )}
       <div className="cm-host" ref={host} />
+      {paged && <PageTools host={host} onComment={p.onComment} />}
       {!p.active && <div className="screen-empty">Choose a file on the left to start editing.</div>}
       {paged ? (
         <div className="sfoot">
@@ -213,29 +226,28 @@ function pageStyle(g: Geometry, zoom: number): CSSProperties {
 }
 
 /**
- * The page the file on screen is set on, from its own settings or, for a file without any, the
- * main file's. Read again now and then, since Document setup and typing change them.
+ * How the file on screen is set, from its own settings or, for a file without any, the main
+ * file's. Read again now and then, since Document setup and typing change them.
  */
-function useGeometry(path: string | null, mainFile: string): Geometry {
-  const [geometry, setGeometry] = useState(() => pageGeometry(null));
+function useSetup(path: string | null, mainFile: string): Setup | null {
+  const [setup, setSetup] = useState<Setup | null>(null);
   useEffect(() => {
     if (!path) return;
     let last = "";
     const read = () => {
       const own = buffers.text(path) ?? "";
-      const setup = readSetup(own) ?? readSetup(buffers.text(mainFile) ?? "");
-      const next = pageGeometry(setup);
+      const next = readSetup(own) ?? readSetup(buffers.text(mainFile) ?? "");
       const key = JSON.stringify(next);
       if (key !== last) {
         last = key;
-        setGeometry(next);
+        setSetup(next);
       }
     };
     read();
     const timer = window.setInterval(read, 2000);
     return () => window.clearInterval(timer);
   }, [path, mainFile]);
-  return geometry;
+  return setup;
 }
 
 /** Where the cursor is, in LaTeX's terms: the section, the environments and commands around it. */

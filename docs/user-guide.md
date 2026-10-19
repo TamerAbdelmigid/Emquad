@@ -31,9 +31,25 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 ### The page view
 
-Visual mode sets your document on a white page, as Word does, with the paper, margins, size of type and line spacing that **Document setup** gives it. (It is a likeness: where lines and pages break in the PDF is up to the compiler.) Above it is a ribbon with Word's tabs: **Home** (undo, bold, italic, underline, lists, the styles gallery, find, comment), **Insert** (page break, contents, table, figure, cross-reference, footnote, symbol, equation, citation and bibliography) and **View** (Page or Draft, zoom, Show LaTeX, page setup). Point at any tool to see its shortcut and the LaTeX it writes.
+Visual mode sets your document on a white page, as Word does, with the paper, margins, size of type and line spacing that **Document setup** gives it. (It is a likeness: where lines and pages break in the PDF is up to the compiler.) Above it is a ribbon with Word's tabs: **Home** (undo, the clipboard and format painter, the font and paragraph tools, the styles gallery, find, comment), **Insert** (page break, contents, table, figure, cross-reference, footnote, symbol, equation, citation and bibliography) and **View** (Page or Draft, zoom, Show LaTeX, LaTeX marks, page setup). Point at any tool to see its shortcut and the LaTeX it writes.
 
 What is drawn stays drawn while you work in it. Click into bold text and type: it is still bold. The arrow keys move over a formula or a citation in one step, and Backspace and Delete take the letter you see, never a hidden brace; taking the last letter of a bold word takes the bold with it. Text you copy keeps its formatting whole, and selecting everything and typing keeps the document's settings. Enter starts a new paragraph (in LaTeX, a blank line), the next item in a list, or a new line below a heading.
+
+#### Formatting
+
+The **Font** group works as Word's: select words and press **Bold**, **Italic**, **Underline**, **Strikethrough**, **Subscript** (Ctrl+=), **Superscript** (Ctrl+Shift+=), **Small capitals**, **Emphasis**, **Typewriter** or **Highlight**, or choose a **Font colour**. If every word you selected has that format already it is taken off; otherwise all of them get it. **Clear formatting** takes every format off the selection, or off the word the cursor is in, and leaves the words. Each format is a LaTeX command around the words, such as `\sout{…}` or `\textcolor{royalblue}{…}`; the package it needs (ulem, soul, xcolor) is added to the settings at the top for you, and each colour is named there once, so every blue in the document is the same blue.
+
+The **Format painter** (Ctrl+Shift+C) copies the formatting where the cursor is. Then select other text, with the mouse or with Shift and the arrow keys, and it gets the same formatting. Esc puts the painter down.
+
+Select words with the mouse and a **small toolbar** appears over them, with bold, italic, underline, highlight, colour, clear formatting, comment and Show LaTeX. **Right-click** (or Shift+F10) for cut, copy, paste, **paste words only**, a new comment and Show LaTeX.
+
+#### Lists and paragraphs
+
+**Bullets** (Ctrl+Shift+L) and **Numbering** make the paragraph you are in, or the paragraphs you selected, a list; press them again in the list to make its items ordinary paragraphs. The arrow beside Numbering chooses 1. 2. 3., a) b) c), i. ii. iii. or A. B. C. In a list item, **Tab** moves the item one level down and **Shift+Tab** one level up (or use **Increase indent** and **Decrease indent**). **Enter** on an empty item ends the list, and **Backspace** at the start of an item turns it into an ordinary paragraph.
+
+**Align left**, **Centre** (Ctrl+E) and **Align right** set the paragraph in `flushleft`, `center` or `flushright`; **Justify**, LaTeX's usual setting, takes that away. **Line spacing** sets single, 1.5 or double spacing for the whole document. In the styles gallery, **Quote** sets the paragraph as a quotation, indented on both sides, and **Abstract** as the paper's abstract; **Normal** makes it an ordinary paragraph again.
+
+**LaTeX marks** (Ctrl+Shift+8, on Home and View), like Word's ¶ button, show the commands faintly where they stand, such as `\textbf{` before bold words, and the names of lists, quotations and the like in the left margin. You keep working on the page as usual; press it again to hide them.
 
 To see or change the LaTeX of a paragraph, press **Ctrl+/** (or View ▸ Show LaTeX). Press it again, or Esc, or move to another paragraph, and it is drawn again. Going to a line, an error or a search result that is inside something drawn shows it as LaTeX too.
 
@@ -256,6 +272,12 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Search the project | Ctrl+Shift+F |
 | Comment on the selected text | Ctrl+Alt+M |
 | In the page view: show the paragraph as LaTeX, or draw it again | Ctrl+/ |
+| Subscript, superscript | Ctrl+=, Ctrl+Shift+= |
+| Format painter: copy the formatting at the cursor | Ctrl+Shift+C |
+| In the page view: bullets, centre | Ctrl+Shift+L, Ctrl+E |
+| In the page view: a list item a level down or up | Tab, Shift+Tab |
+| In the page view: show or hide LaTeX marks | Ctrl+Shift+8 |
+| In the page view: the right-click menu | Shift+F10 |
 | Equation editor | Alt+= |
 | Paste without formatting | Ctrl+Shift+V |
 | In a table: next or previous cell | Tab, Shift+Tab |

@@ -1,6 +1,6 @@
 [package]
 name = "emquad"
-version = "0.15.1"
+version = "0.16.0"
 description = "Offline desktop LaTeX editor"
 authors = ["Emquad"]
 license = "MIT"

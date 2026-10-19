@@ -7,7 +7,7 @@ import { cursorCharRight } from "@codemirror/commands";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
-import { pageBackspace, pageDelete, pageEnter, toggleReveal, visualPage } from "./visual";
+import { pageBackspace, pageDelete, pageEnter, pageShiftTab, pageTab, setLatexMarks, toggleReveal, visualPage } from "./visual";
 
 /** The stretches of source that are not shown as they are written: hidden or drawn. */
 function notShown(view: EditorView): string[] {
@@ -179,13 +179,14 @@ describe("page view: what the review found", () => {
     expect(text(view)).toBe(LIST);
   });
 
-  it("Backspace after a bullet joins the item to the one above, and does nothing on the first", () => {
+  it("Backspace after a bullet makes the item a paragraph, the list kept around it, the first item too", () => {
     const view = editor(LIST, LIST.indexOf("two"));
     pageBackspace(view);
-    expect(text(view)).toContain("\\item onetwo\n\\end{itemize}");
+    expect(text(view)).toContain("\\item one\n\\end{itemize}\ntwo\nAfter.");
+    expect(view.state.selection.main.head).toBe(text(view).indexOf("two"));
     const first = editor(LIST, LIST.indexOf("one"));
     pageBackspace(first);
-    expect(text(first)).toBe(LIST);
+    expect(text(first)).toContain("See:\none\n\\begin{itemize}\n  \\item two\n\\end{itemize}");
   });
 
   it("Enter goes in as a plain line break in verbatim and inside a command's braces", () => {
@@ -277,5 +278,95 @@ describe("page view: what the second review found", () => {
     expect(text(view)).toBe("\\begin{document}\nNext\n\\end{document}");
     const lone = "\\begin{document}\n\\begin{itemize} \\item a\n\\end{itemize}\n\\end{document}";
     expect(notShown(editor(lone, lone.length))).not.toContain("\\end{itemize}\n");
+  });
+});
+
+describe("page view: formats like Word", () => {
+  const text = (view: EditorView) => view.state.doc.toString();
+  const type = (view: EditorView, insert: string, userEvent = "input.type") => view.dispatch({ ...view.state.replaceSelection(insert), userEvent });
+  const COLOUR = "\\begin{document}\nSee \\textcolor{darkred}{red} and \\sout{gone} or H\\textsubscript{2}O.\n\\end{document}";
+  const LIST = "\\begin{document}\n\\begin{itemize}\n  \\item a\n  \\item b\n\\end{itemize}\nAfter.\n\\end{document}";
+
+  it("draws colour, strikethrough and subscript with their commands hidden, each as one construct", () => {
+    const view = editor(COLOUR, COLOUR.indexOf("See"));
+    expect(notShown(view)).toEqual(["\\textcolor{darkred}{", "}", "\\sout{", "}", "\\textsubscript{", "}"]);
+    const classes = [...view.contentDOM.querySelectorAll("[class*=cm-v-]")].map((el) => el.className);
+    expect(classes).toEqual(expect.arrayContaining(["cm-v-color-darkred", "cm-v-strike", "cm-v-sub"]));
+  });
+
+  it("Backspace on the only letter of a subscript, or the last of a coloured word, takes the whole command", () => {
+    const view = editor(COLOUR, COLOUR.indexOf("2}O") + 1);
+    pageBackspace(view);
+    expect(text(view)).toContain("or HO.");
+    const red = editor("\\begin{document}\n\\textcolor{darkred}{x} y\n\\end{document}", 0);
+    red.dispatch({ selection: { anchor: text(red).indexOf("x}") + 1 } });
+    pageBackspace(red);
+    expect(text(red)).toBe("\\begin{document}\n y\n\\end{document}");
+  });
+
+  it("typing over a selection that starts at a colour's hidden opening keeps the command whole and what is typed", () => {
+    const view = editor(COLOUR, { anchor: COLOUR.indexOf("\\textcolor"), head: COLOUR.indexOf("ed} and") });
+    type(view, "XY");
+    expect(text(view)).toContain("See \\textcolor{darkred}{XYed} and");
+  });
+
+  it("with LaTeX marks shown, the commands are drawn faintly and edited just as when hidden", () => {
+    setLatexMarks(true);
+    try {
+      const view = editor(DOC, at("bold}", 4));
+      const marks = [...view.contentDOM.querySelectorAll(".cm-v-mark")].map((el) => el.textContent);
+      expect(marks).toEqual(["\\textbf{", "}"]);
+      expect(view.dom.classList.contains("cm-marks")).toBe(true);
+      pageBackspace(view);
+      expect(text(view)).toContain("Some \\textbf{bol} text");
+      const whole = editor(DOC, { anchor: at("\\textbf"), head: at("bold", 2) });
+      type(whole, "Q");
+      expect(text(whole)).toContain("Some \\textbf{Qld} text");
+      // The environment's name for the margin, on the first line of a list whose lines are hidden.
+      const list = editor(LIST, LIST.indexOf("a\n"));
+      expect(list.contentDOM.querySelector("[data-env]")?.getAttribute("data-env")).toBe("itemize");
+    } finally {
+      setLatexMarks(false);
+    }
+  });
+
+  it("Tab puts an item a level down and Shift+Tab back, the inner list's lines hidden too", () => {
+    const view = editor(LIST, LIST.indexOf("b\n"));
+    expect(pageTab(view)).toBe(true);
+    expect(text(view)).toContain("\\item a\n    \\begin{itemize}\n      \\item b\n    \\end{itemize}\n\\end{itemize}");
+    expect(notShown(view).filter((s) => s.includes("begin") || s.includes("end{itemize}"))).toHaveLength(4);
+    expect(view.contentDOM.querySelectorAll(".cm-v-bullet")).toHaveLength(2);
+    expect(pageShiftTab(view)).toBe(true);
+    expect(text(view)).toBe(LIST);
+  });
+
+  it("Enter on an empty item ends the list, the cursor in a new paragraph after it", () => {
+    const view = editor(LIST, LIST.indexOf("b\n") + 1);
+    pageEnter(view);
+    expect(text(view)).toContain("\\item b\n  \\item \n\\end{itemize}");
+    pageEnter(view);
+    expect(text(view)).toBe("\\begin{document}\n\\begin{itemize}\n  \\item a\n  \\item b\n\\end{itemize}\n\n\n\nAfter.\n\\end{document}");
+    expect(view.state.selection.main.head).toBe(text(view).indexOf("\n\n\nAfter") + 1);
+    type(view, "New");
+    expect(text(view)).toContain("\\end{itemize}\n\nNew\n\nAfter.");
+  });
+
+  it("a heading just after a list keeps its style, though the list's hidden last line joins it", () => {
+    const doc = "\\begin{document}\n\\begin{itemize}\n  \\item a\n\\end{itemize}\n\\section{Next}\nText.\n\\end{document}";
+    const view = editor(doc, doc.indexOf("Text"));
+    const heading = view.contentDOM.querySelector(".cm-v-line-h1");
+    expect(heading?.textContent).toBe("Next");
+  });
+
+  it("a centred paragraph's environment lines are hidden as a pair and kept by Delete and Backspace", () => {
+    const doc = "\\begin{document}\nBefore.\n\\begin{center}\nMiddle.\n\\end{center}\nAfter.\n\\end{document}";
+    const view = editor(doc, doc.indexOf("Middle.") + 7);
+    expect(notShown(view)).toEqual(["\\begin{center}\n", "\\end{center}\n"]);
+    pageDelete(view);
+    expect(text(view)).toBe(doc);
+    view.dispatch({ selection: { anchor: doc.indexOf("Middle") } });
+    pageBackspace(view);
+    expect(text(view)).toBe(doc);
+    expect(view.contentDOM.querySelector(".cm-v-line-align-center")?.textContent).toBe("Middle.");
   });
 });
