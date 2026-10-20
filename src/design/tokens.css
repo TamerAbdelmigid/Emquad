@@ -6,6 +6,8 @@
   --labf:500 10px/1 'DM Mono',ui-monospace,monospace;--lab-ls:.14em;
   --lcd-bg:linear-gradient(180deg,#1C1E1B,#121411);--lcd-sh:inset 0 2px 8px #000,inset 0 0 0 1px #000,0 1px 0 #fff;--lcd-tx:#F3F1E8;--lcd-mu:#8D9285;--lcd-div:#2E312B;--ok:#3EDC81;
   --scr-bg:#121315;--scr-sh:inset 0 0 0 1px #000,inset 0 0 0 6px #202226,inset 0 0 0 7px #2D3035,0 0 0 1px #C6C5BF,0 2px 0 #B7B6AF,0 8px 20px rgba(60,58,50,.09);
+  /* The dark screen's own colours, kept where a panel redefines the --scr ones (the page view): resolved here, on the root. */
+  --screen-tx:var(--scr-tx);--screen-dim:var(--scr-dim);--screen-num:var(--scr-num);--screen-line:var(--scr-line);--screen-cur:var(--scr-cur);
   --scr-tx:#ECEAE3;--scr-dim:#9A9CA2;--scr-num:#5C5F66;--scr-line:#26282C;--scr-cur:#1B1D21;--scr-seg:#202226;--k:#A9BCFF;--m:#EBC66E;--ts:#93ADFF;--ts-ink:#0D1330;
   --acc:#FF4D00;--acc-tx:#C23A00;--go-bg:linear-gradient(180deg,#FF5A14,#F74700);--go-sh:0 0 0 1px #C93B00,0 3px 0 #B03400;
   --theirs:#2450F0;--theirs-bg:#DCE4FF;--mine:#C23A00;--mine-bg:#FFE0D0;

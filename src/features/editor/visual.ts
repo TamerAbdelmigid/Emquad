@@ -28,6 +28,7 @@ import type { PageChange } from "./trackChanges";
 import { latexPath } from "./latexPath";
 import { type ListEdit, enterInEmptyItem, indentItem, outdentItem, toggleList } from "./lists";
 import { alignmentAt, environments, setAlignment, uncommented } from "./blocks";
+import { fromOtherSide } from "./split";
 
 
 /** What a double-click on a formula does: the app opens the equation editor on it. */
@@ -288,6 +289,76 @@ class ImageWidget extends WidgetType {
   }
 }
 
+/**
+ * What draws a block of LaTeX as it prints: the app crops the block, `source` beginning on line
+ * `line` of the file on screen, out of the last compile's PDF, as an image's address; null when
+ * it cannot.
+ */
+let blockPicture: (source: string, line: number) => Promise<string | null> = async () => null;
+export function onBlockPicture(draw: (source: string, line: number) => Promise<string | null>) {
+  blockPicture = draw;
+}
+/** Bumped when there is a new PDF, so blocks are drawn from it. */
+let blocksVersion = 0;
+export function forgetBlocks() {
+  blocksVersion++;
+}
+
+/**
+ * A block of LaTeX the editor cannot draw itself, a TikZ picture say, shown as it prints in the
+ * PDF of the last compile, under a bar naming it with a key to show its LaTeX. Before a compile,
+ * or when the PDF has no place for it, its LaTeX is shown instead.
+ */
+class LatexBlockWidget extends WidgetType {
+  constructor(
+    readonly name: string,
+    readonly source: string,
+    readonly line: number,
+    readonly version: number,
+  ) {
+    super();
+  }
+  // Moved by lines typed above it, it is the same picture.
+  eq(other: LatexBlockWidget) {
+    return other.source === this.source && other.version === this.version;
+  }
+  toDOM(view: EditorView) {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-v-latexblock";
+    const bar = wrap.appendChild(document.createElement("div"));
+    bar.className = "cm-v-lb-bar";
+    bar.appendChild(document.createElement("span")).textContent = `LaTeX · ${this.name}`;
+    const show = bar.appendChild(document.createElement("button"));
+    show.type = "button";
+    show.textContent = "Show LaTeX";
+    show.onclick = () => {
+      const at = view.posAtDOM(wrap);
+      view.dispatch({ selection: { anchor: Math.min(at + 1, view.state.doc.length) }, effects: setReveal.of({ from: at, to: at + this.source.length }) });
+      view.focus();
+    };
+    const body = wrap.appendChild(document.createElement("div"));
+    body.className = "cm-v-lb-body";
+    const code = body.appendChild(document.createElement("pre"));
+    code.textContent = this.source;
+    const note = wrap.appendChild(document.createElement("div"));
+    note.className = "cm-v-lb-note";
+    note.textContent = "Drawn as it prints after the next compile.";
+    void blockPicture(this.source, this.line).then((url) => {
+      if (!url) return;
+      const img = document.createElement("img");
+      img.alt = `The ${this.name} as it prints`;
+      img.onload = () => view.requestMeasure();
+      img.src = url;
+      body.replaceChildren(img);
+      note.textContent = "As it printed in the last compile.";
+    });
+    return wrap;
+  }
+  ignoreEvent(event: Event) {
+    return Boolean((event.target as HTMLElement | null)?.closest?.("button"));
+  }
+}
+
 class CiteWidget extends WidgetType {
   constructor(
     readonly label: string,
@@ -390,7 +461,7 @@ const revealed = StateField.define<Range | null>({
 });
 
 /** Pieces that cover source with something else, which the cursor cannot be put inside by hand. */
-const COVERS = new Set<Piece["kind"]>(["hide", "math", "table", "image", "cite", "bullet", "ref", "footnote", "block", "fold"]);
+const COVERS = new Set<Piece["kind"]>(["hide", "math", "table", "image", "cite", "bullet", "ref", "footnote", "block", "fold", "macro", "latexblock"]);
 
 /**
  * What the page view shows as source: what was asked for with Ctrl+/, and anything the cursor has
@@ -459,6 +530,11 @@ function build(state: EditorState): Drawn {
     else if (p.kind === "cite") {
       const { label, detail, unknown } = describeCitation(p.keys, index);
       out.push(Decoration.replace({ widget: new CiteWidget(label, detail, unknown) }).range(p.from, p.to));
+    } else if (p.kind === "macro") {
+      out.push(Decoration.replace({ widget: new LabelWidget(p.text, "A command of this document's own", "cm-v-macro") }).range(p.from, p.to));
+    } else if (p.kind === "latexblock") {
+      const widget = new LatexBlockWidget(p.name, p.source, state.doc.lineAt(p.from).number, blocksVersion);
+      out.push(Decoration.replace({ widget }).range(p.from, p.to));
     } else out.push(Decoration.replace({ widget: new MathWidget(p.tex, p.display) }).range(p.from, p.to));
   }
   const covers = out.filter((r) => r.value.spec.widget !== undefined || typeof r.value.spec.group === "number");
@@ -604,7 +680,7 @@ function widgetBeside(state: EditorState, at: number, side: -1 | 1): { from: num
     // A command's text shown as a LaTeX mark is part of a construct, not a drawing of its own.
     if (d.spec.widget && typeof d.spec.group !== "number" && (side < 0 ? t === at && f < at : f === at && t > at)) {
       // The settings and a table are too much to lose to one key: the key steps past them.
-      const big = d.spec.widget instanceof FoldWidget || d.spec.widget instanceof EditableTable || d.spec.widget instanceof TableWidget;
+      const big = d.spec.widget instanceof FoldWidget || d.spec.widget instanceof EditableTable || d.spec.widget instanceof TableWidget || d.spec.widget instanceof LatexBlockWidget;
       found = { from: f, to: t, whole: !big, bullet: d.spec.widget instanceof BulletWidget };
     }
   });
@@ -780,7 +856,7 @@ const USER_EDITS = ["input.type", "input.paste", "input.drop", "delete", "move.d
  */
 const keepConstructs = EditorState.transactionFilter.of((tr) => {
   const drawn = tr.startState.field(drawing, false);
-  if (!tr.docChanged || !drawn || !USER_EDITS.some((e) => tr.isUserEvent(e))) return tr;
+  if (!tr.docChanged || !drawn || tr.annotation(fromOtherSide) || !USER_EDITS.some((e) => tr.isUserEvent(e))) return tr;
   const start = tr.startState;
   let parts: Hidden[] | null = null;
   // A construct with only one part hidden (a list whose other end shares its line with text)
@@ -899,7 +975,7 @@ const wholeOnCopy = EditorView.clipboardOutputFilter.of((text, state) => {
  */
 const pastSettings = EditorState.transactionFilter.of((tr) => {
   const range = tr.newSelection.main;
-  if (!tr.selection || !range.empty || range.head !== 0 || tr.newSelection.ranges.length > 1) return tr;
+  if (!tr.selection || tr.annotation(fromOtherSide) || !range.empty || range.head !== 0 || tr.newSelection.ranges.length > 1) return tr;
   const drawn = tr.startState.field(drawing, false);
   let end = -1;
   drawn?.deco.between(0, 0, (f, t, d) => {

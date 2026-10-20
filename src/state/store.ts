@@ -45,6 +45,8 @@ export interface State {
   pageZoom: number;
   /** The page view shows LaTeX marks: the commands faintly around formatted text. */
   latexMarks: boolean;
+  /** The page view shows the LaTeX beside the page. */
+  splitLatex: boolean;
   /** The page view shows comments as balloons beside the page. */
   balloons: boolean;
   /** The format painter holds formatting to put on the next text selected. */
@@ -80,7 +82,7 @@ export interface State {
   pendingReviews: number;
   /** Bundle to select when History opens. */
   focusBundle: string | null;
-  dialog: null | "export" | "logs" | "settings" | "newProject" | "shortcuts" | "setup" | "cite" | "reference" | "citationStyle" | "equation" | "crossReference" | "link";
+  dialog: null | "export" | "logs" | "settings" | "newProject" | "shortcuts" | "setup" | "cite" | "reference" | "citationStyle" | "equation" | "crossReference" | "link" | "packages" | "myCommands";
   ask: Ask | null;
   toast: { text: string; error: boolean } | null;
   set: (patch: Partial<State>) => void;
@@ -99,6 +101,7 @@ export const useStore = create<State>((set) => ({
   pageZoom: 1,
   latexMarks: false,
   balloons: true,
+  splitLatex: false,
   painting: false,
   symbols: false,
   sidePanel: "files",

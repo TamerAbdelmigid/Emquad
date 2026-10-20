@@ -553,3 +553,31 @@ describe("page view: changes since a snapshot", () => {
     expect(view.state.doc.toString()).toContain("The quick brown fox.\nGone.\nLast line.");
   });
 });
+
+describe("page view: the bridge to LaTeX", () => {
+  const text = (view: EditorView) => view.state.doc.toString();
+
+  it("draws a TikZ picture as one block with its LaTeX until there is a PDF, steps past it on Backspace, and shows its LaTeX from its bar", () => {
+    const B = String.fromCharCode(92);
+    const doc = `${B}begin{document}\nBefore.\n${B}begin{tikzpicture}\n  ${B}draw (0,0) -- (1,1);\n${B}end{tikzpicture}\nAfter.\n${B}end{document}\n`;
+    const view = editor(doc, doc.indexOf("\nAfter."));
+    const block = view.contentDOM.querySelector(".cm-v-latexblock");
+    expect(block?.querySelector("pre")?.textContent).toContain(`${B}draw (0,0)`);
+    expect(block?.querySelector(".cm-v-lb-bar")?.textContent).toContain("tikzpicture");
+    pageBackspace(view);
+    expect(text(view)).toBe(doc);
+    expect(view.state.selection.main.head).toBeLessThan(doc.indexOf("After."));
+    (block?.querySelector("button") as HTMLButtonElement).click();
+    expect(view.contentDOM.querySelector(".cm-v-latexblock")).toBeNull();
+    expect(notShown(view)).not.toContain(`${B}draw (0,0) -- (1,1);`);
+  });
+
+  it("draws a command of the document's own as what it prints, and takes it whole on Backspace", () => {
+    const B = String.fromCharCode(92);
+    const doc = `${B}documentclass{article}\n${B}newcommand{${B}gwr}{groundwater recharge}\n${B}begin{document}\nThe ${B}gwr{} rate.\n${B}end{document}\n`;
+    const view = editor(doc, doc.indexOf(" rate"));
+    expect(view.contentDOM.querySelector(".cm-v-macro")?.textContent).toBe("groundwater recharge");
+    pageBackspace(view);
+    expect(text(view)).toBe(doc.replace(`${B}gwr{}`, ""));
+  });
+});

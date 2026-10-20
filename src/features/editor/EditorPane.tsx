@@ -74,6 +74,7 @@ export function EditorPane(p: Props) {
   const geometry = useMemo(() => pageGeometry(setup), [setup]);
   const marks = useStore((s) => s.latexMarks);
   const balloons = useStore((s) => s.balloons);
+  const split = useStore((s) => s.splitLatex);
   // Room beside the page for comment balloons, when the file on screen has comments to show.
   const commented = useStore((s) => s.balloons && s.comments.some((c) => c.path === p.active && (!c.resolved || c.id === s.comment) && !c.deleted));
   useEffect(() => {
@@ -118,6 +119,8 @@ export function EditorPane(p: Props) {
           marks={marks}
           onMarks={(latexMarks) => store().set({ latexMarks })}
           balloons={balloons}
+          split={split}
+          onSplit={(splitLatex) => store().set({ splitLatex })}
         />
       ) : (
       <div className="tools">
@@ -168,7 +171,10 @@ export function EditorPane(p: Props) {
         </div>
       </div>
       )}
-      <div className="cm-host" ref={host} />
+      <div className="cm-hosts">
+        <div className="cm-host" ref={host} />
+        {paged && split && <SourceSide />}
+      </div>
       {paged && <PageTools host={host} onComment={p.onComment} />}
       {!p.active && <div className="screen-empty">Choose a file on the left to start editing.</div>}
       {paged ? (
@@ -202,6 +208,16 @@ export function EditorPane(p: Props) {
 
 /** How wide the column of comment balloons beside the page is, in CSS pixels, with its gap. */
 const BALLOONS = 250;
+/** The LaTeX of the file on screen beside the page: the same text, as source. */
+function SourceSide() {
+  const side = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!side.current) return;
+    return buffers.attachSource(side.current);
+  }, []);
+  return <div className="cm-latex-host" ref={side} role="region" aria-label="The LaTeX of the page" />;
+}
+
 /** CSS pixels in a centimetre. */
 const CM = 96 / 2.54;
 

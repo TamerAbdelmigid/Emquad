@@ -1096,6 +1096,22 @@ pub fn synctex_inverse(
     Ok(synctex(&session, &current(&session)?)?.inverse(page, x, y))
 }
 
+/// Where lines `from` to `to` of `file` were set in the last compile, for the page view to draw
+/// a block of LaTeX as it prints. Nothing before the first compile.
+#[tauri::command(async)]
+pub fn synctex_block(
+    window: tauri::Window,
+    state: State<AppState>,
+    file: String,
+    from: u32,
+    to: u32,
+) -> Result<Option<PdfRect>> {
+    let session = state.session(window.label());
+    Ok(synctex(&session, &current(&session)?)
+        .ok()
+        .and_then(|map| map.block(&file, from, to)))
+}
+
 /// Where each page of the last compile begins in `file`, for the page view to draw its breaks.
 /// Nothing before the first compile.
 #[tauri::command(async)]

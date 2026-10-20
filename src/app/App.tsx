@@ -10,7 +10,7 @@ import { buffers, onFormatNeeds, setHandlers } from "../features/editor/buffers"
 import { INSERT } from "../features/editor/insertions";
 import { outline } from "../features/editor/latex";
 import { onPastedNeeds, onPastedPicture } from "../features/editor/paste";
-import { onEditFormula, onToggleMarks } from "../features/editor/visual";
+import { onBlockPicture, onEditFormula, onToggleMarks } from "../features/editor/visual";
 import { lspReceive, setDisplay, stopLsp } from "../features/editor/lsp";
 import { Files } from "../features/files/Files";
 import { Comments } from "../features/comments/Comments";
@@ -64,6 +64,7 @@ export function App() {
     // A picture pasted on its own, such as a screenshot, becomes a figure.
     onPastedPicture((file) => void act.addPictures([{ file }]));
     onEditFormula(() => store().set({ dialog: "equation" }));
+    onBlockPicture(act.blockPicture);
     onPastedNeeds((packages) => packages.forEach((name) => void act.needPackage(name, "which the pasted text needs")));
     onFormatNeeds((needs) => void act.needFormatting(needs));
     onToggleMarks(() => store().set({ latexMarks: !store().latexMarks }));
@@ -540,6 +541,11 @@ export function App() {
                 balloons: act.setBalloons,
                 snapshots: act.snapshotsToCompare,
                 showChanges: (since) => void act.showChangesSince(since),
+                packages: () => set({ dialog: "packages" }),
+                myCommands: () => set({ dialog: "myCommands" }),
+                logs: () => set({ dialog: "logs" }),
+                myCommandList: act.myCommandsNow,
+                insertMyCommand: act.insertMyCommand,
               }}
             />
           )}

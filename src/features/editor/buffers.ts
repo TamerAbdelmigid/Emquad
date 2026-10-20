@@ -4,18 +4,20 @@ import { pasteWordsNext, prosePaste } from "./paste";
 import {
   autocompletion,
   closeBrackets,
+  closeCompletion,
+  completionStatus,
   closeBracketsKeymap,
   completionKeymap,
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory, redo, undo } from "@codemirror/commands";
 import { serverCompletionSource } from "@codemirror/lsp-client";
 import { HighlightStyle, StreamLanguage, bracketMatching, syntaxHighlighting } from "@codemirror/language";
 import { stex } from "@codemirror/legacy-modes/mode/stex";
 import { type Diagnostic as CmDiagnostic, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension, type TransactionSpec } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension, Transaction, type TransactionSpec } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -36,9 +38,10 @@ import { recheckSpelling, spelling } from "./spell";
 import { type Insertion, type Sym, insertion, mathAt, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
-import { type PageLayout, applyListEdit, changesShown, showChanges, drawingStale, forgetPictures, pageFurniture, redrawVisual, setLatexMarks, setPageBreaks, visualMode, visualPage } from "./visual";
+import { type PageLayout, applyListEdit, changesShown, forgetBlocks, showChanges, drawingStale, forgetPictures, pageFurniture, redrawVisual, setLatexMarks, setPageBreaks, visualMode, visualPage } from "./visual";
 import { setPictureWidth, setPlacement } from "./floats";
 import type { PageChange } from "./trackChanges";
+import { blockAround, fromOtherSide, linkedBlock, linkedIn, setLinked } from "./split";
 import { documentStart } from "./visualModel";
 import { type Alignment, type BlockStyle, alignmentAt, setAlignment, setBlockStyle } from "./blocks";
 import { type Need, type Restyled, type TextChange, clearFormatting, formatAt, headOf, needsOf, paintFormat, plainWrapSafe, setColour, toggleFormat, wordAt } from "./formatting";
@@ -49,6 +52,9 @@ const states = new Map<string, EditorState>();
 const saved = new Map<string, string>();
 let view: EditorView | null = null;
 let shownPath: string | null = null;
+/** The LaTeX beside the page, when the two are shown side by side: the same text, in plain source. */
+let source: EditorView | null = null;
+/** A change one side made and passes to the other, which must not pass it back. */
 let handlers = { save: () => {}, compile: () => {}, comment: () => {}, equation: () => {}, link: () => {} };
 /** Holds visual mode's extensions, or nothing, in every file's state. */
 const visual = new Compartment();
@@ -241,6 +247,7 @@ function extensions(path: string): Extension[] {
     lspFor(path),
     visual.of(visualExtension()),
     pageFurniture,
+    linkedBlock,
     spell.of(spellOn ? spelling : []),
     commenting,
     tablePaste,
@@ -284,6 +291,63 @@ function extensions(path: string): Extension[] {
   ];
 }
 
+/** The LaTeX beside the page: the text on screen, as plain source with line numbers. */
+function sourceState(): EditorState {
+  return EditorState.create({
+    doc: view?.state.doc ?? "",
+    selection: { anchor: Math.min(view?.state.selection.main.head ?? 0, view?.state.doc.length ?? 0) },
+    extensions: [
+      lineNumbers(),
+      highlightActiveLine(),
+      drawSelection(),
+      bracketMatching(),
+      StreamLanguage.define(stex),
+      syntaxHighlighting(highlight),
+      EditorView.lineWrapping,
+      theme,
+      linkedBlock,
+      EditorView.editorAttributes.of({ class: "cm-latex-side" }),
+      keymap.of([
+        // One history, the page's: undo here undoes there, and the change comes back here.
+        { key: "Mod-z", run: () => (view ? undo(view) : false) },
+        { key: "Mod-y", run: () => (view ? redo(view) : false) },
+        { key: "Mod-Shift-z", run: () => (view ? redo(view) : false) },
+        { key: "Mod-s", run: () => (handlers.save(), true) },
+        { key: "Mod-Enter", run: () => (handlers.compile(), true) },
+        ...closeBracketsKeymap,
+        ...defaultKeymap,
+        ...searchKeymap,
+        indentWithTab,
+      ]),
+    ],
+  });
+}
+
+/**
+ * Pass what one side did to the other: its edits, as edits of the plain text (never filtered as
+ * typing on the page is, since they are typed as LaTeX), and the paragraph its cursor is in, lit.
+ */
+function mirror(trs: readonly Transaction[], from: EditorView, to: EditorView | null) {
+  if (!to) return;
+  for (const tr of trs) {
+    if (tr.annotation(fromOtherSide)) continue;
+    if (tr.docChanged) {
+      // As the edit was made, so that typing a word is one step to undo and is drawn as typing.
+      const userEvent = tr.annotation(Transaction.userEvent);
+      to.dispatch({ changes: tr.changes, annotations: fromOtherSide.of(true), ...(userEvent ? { userEvent } : {}) });
+      // Typing in the LaTeX does not ask the page for completions.
+      if (to === view && completionStatus(to.state)) closeCompletion(to);
+    }
+    if (tr.selection || tr.docChanged) {
+      const block = blockAround(from.state.doc, from.state.selection.main.head);
+      const was = linkedIn(to.state);
+      if (!was || was.from !== block.from || was.to !== block.to) {
+        to.dispatch({ effects: [setLinked.of(block), EditorView.scrollIntoView(block.from, { y: "nearest" })], annotations: fromOtherSide.of(true) });
+      }
+    }
+  }
+}
+
 export const buffers = {
   has: (path: string) => states.has(path),
 
@@ -307,6 +371,12 @@ export const buffers = {
     // Only the file on screen is drawn now; the others when they are next shown.
     if (shownPath && view) view.dispatch({ effects: redrawVisual.of(null) });
     for (const path of states.keys()) if (path !== shownPath) redrawWhenShown.add(path);
+  },
+
+  /** There is a new PDF: draw the blocks of LaTeX drawn from it again. */
+  newPdf() {
+    forgetBlocks();
+    buffers.redrawVisual();
   },
 
   /** Picture files changed: read them again where visual mode shows them. */
@@ -421,7 +491,14 @@ export const buffers = {
   },
 
   attach(parent: HTMLElement) {
-    view = new EditorView({ parent, state: EditorState.create({ doc: "" }) });
+    view = new EditorView({
+      parent,
+      state: EditorState.create({ doc: "" }),
+      dispatchTransactions: (trs, v) => {
+        v.update(trs);
+        if (v === view) mirror(trs, v, source);
+      },
+    });
     shownPath = null;
     return () => {
       buffers.stash();
@@ -441,9 +518,40 @@ export const buffers = {
     shownPath = path;
     const state = path ? states.get(path) : undefined;
     view.setState(state ?? EditorState.create({ doc: "" }));
+    source?.setState(sourceState());
+    // A page lights the LaTeX's paragraph only while the LaTeX is beside it.
+    if (!source && linkedIn(view.state)) view.dispatch({ effects: setLinked.of(null) });
     const outOfDate = path ? redrawWhenShown.delete(path) : false;
     if (path && visualOn && (outOfDate || drawingStale(view.state))) view.dispatch({ effects: redrawVisual.of(null) });
     if (state) view.focus();
+  },
+
+  /**
+   * Show the LaTeX of the file on screen beside the page, in `parent`: the same text, edited on
+   * either side, with one history (the page's), and the paragraph the cursor is in lit on the
+   * other side. Gives what takes it away again.
+   */
+  attachSource(parent: HTMLElement) {
+    source = new EditorView({
+      parent,
+      state: sourceState(),
+      dispatchTransactions: (trs, v) => {
+        v.update(trs);
+        if (v === source && view) mirror(trs, v, view);
+      },
+    });
+    const attached = source;
+    return () => {
+      if (source === attached) source = null;
+      attached.destroy();
+      // The page lights nothing once the LaTeX is gone.
+      view?.dispatch({ effects: setLinked.of(null) });
+    };
+  },
+
+  /** The LaTeX beside the page, when it is shown. */
+  sourceView(): EditorView | null {
+    return source;
   },
 
   /** Show an open file now, and give the editor that shows it. */

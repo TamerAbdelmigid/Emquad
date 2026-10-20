@@ -524,6 +524,83 @@
       await writeOutside({ path: "main.tex", text: rich });
       await until("the document as it was", () => doc() === rich);
     }
+    // The bridge to LaTeX: KeyTips, the LaTeX beside the page, a command of the document's own,
+    // the packages explained, and a block of LaTeX drawn as it prints.
+    {
+      const B = String.fromCharCode(92);
+      const doc = () => buffers.text("main.tex");
+      const select = (word, length = word.length) => {
+        const at = doc().indexOf(word);
+        buffers.run((v) => (v.dispatch({ selection: { anchor: at, head: at + length } }), true));
+      };
+      // KeyTips: Alt alone, then X for the LaTeX tab.
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keyup", { key: "Alt", bubbles: true }));
+      await until("the KeyTips", () => $$(".rb-kt").some((k) => k.textContent === "X"));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
+      await until("the LaTeX tab", () => $("#rb-tab-latex")?.getAttribute("aria-selected") === "true" && $$(".rb-kt").length > 3);
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await until("the KeyTips put away", () => !$(".rb-kt"));
+      await ok(true, "Alt alone shows KeyTips on the ribbon's tabs, X chooses the LaTeX tab and shows its tools' letters, Escape puts them away");
+      // The page and its LaTeX side by side.
+      await click("Split with LaTeX");
+      const side = await until("the LaTeX beside the page", () => $(".cm-latex-host .cm-content"));
+      await ok(side.textContent.includes(`${B}textbf{writing}`), "Split with LaTeX shows the page's LaTeX beside it, the same text as source");
+      const { latex } = { latex: buffers.sourceView() };
+      latex.dispatch({ changes: { from: doc().indexOf("here,"), insert: "right " }, userEvent: "input.type" });
+      await until("the edit on the page", () => doc().includes("right here,") && text(".cm-page .cm-content").includes("right here"));
+      buffers.run((v) => (v.dispatch({ selection: { anchor: doc().indexOf("right") } }), true));
+      await until("the paragraph lit beside", () => $$(".cm-latex-host .cm-linked").some((l) => l.textContent.includes("right here")));
+      await ok(true, "an edit in the LaTeX goes into the page at once, and the paragraph the cursor is in is lit beside it");
+      await shot("02-split");
+      await click("Split with LaTeX");
+      await until("the page alone", () => !$(".cm-latex-host"));
+      // A command of the document's own, made from the selection.
+      select("here,", 4);
+      await click("My commands");
+      type(await until("the command's name", () => $("#cmd-name")), "wh");
+      await ok($("#cmd-body").value === "here", "My commands takes the selection as what the command prints");
+      $$("dialog[open] button").find((b) => b.textContent.trim() === "Make command").click();
+      await until("the command", () => doc().includes(`${B}newcommand{${B}wh}{here}\n${B}begin{document}`) && doc().includes(`right ${B}wh{},`));
+      await until("drawn as it prints", () => $$(".cm-v-macro").some((m) => m.textContent === "here"));
+      await undoText();
+      await until("the command undone", () => !doc().includes(`${B}wh`) && doc().includes("right here,"));
+      await ok(true, "one undo takes back both the command's definition and its use");
+      buffers.run((v) => (v.dispatch({ selection: { anchor: doc().indexOf("here,"), head: doc().indexOf("here,") + 4 } }), true));
+      await click("My commands");
+      type(await until("the command's name", () => $("#cmd-name")), "wh");
+      $$("dialog[open] button").find((b) => b.textContent.trim() === "Make command").click();
+      await until("the command again", () => doc().includes(`right ${B}wh{},`));
+      const made = await until("its button", () => button(`${B}wh`));
+      await ok(true, "and writes \\newcommand once in the settings, uses it in place of the selection, draws it as what it prints, and shows it as a button");
+      buffers.run((v) => (v.dispatch({ selection: { anchor: doc().indexOf("Start") } }), true));
+      made.click();
+      await until("the command used again", () => doc().includes(`${B}wh{}Start`));
+      // The packages explained.
+      await click("Packages");
+      const table = await until("the packages", () => $("dialog[open] .pk-list"));
+      await ok(table.textContent.includes("graphicx") && table.textContent.includes("Insert ▸ Picture") && table.textContent.includes("amsmath"), "Packages lists each package the settings load, what it is for and the tool that loads it");
+      $$("dialog[open] button").find((b) => b.textContent.trim() === "Close").click();
+      // A block of LaTeX the editor cannot draw, drawn from the PDF.
+      const pictured = doc().replace(`${B}begin{itemize}`, `${B}begin{picture}(120,40)${B}put(0,0){${B}framebox(120,40){A drawn box}}${B}end{picture}\n\n${B}begin{itemize}`);
+      await act.save();
+      await writeOutside({ path: "main.tex", text: pictured });
+      await until("the block", () => $(".cm-v-latexblock pre"));
+      await ok($(".cm-v-latexblock").textContent.includes("picture"), "a picture environment is drawn as a block of LaTeX, its LaTeX shown until it is compiled");
+      await act.compile();
+      await until("the status after the compile", () => text(".proj .st") !== "Compiling…");
+      await ok(text(".proj .st") === "Compiled", `the document with a command of its own and a picture compiles (${text(".proj .st")})`);
+      await until("the block drawn from the PDF", () => $(".cm-v-latexblock img"), 30000);
+      await ok($(".cm-v-latexblock img").naturalWidth > 20, "and after the compile it is drawn as it prints, cropped out of the PDF where SyncTeX says it was set");
+      await shot("02-latexblock");
+      $(".cm-v-latexblock button").click();
+      await until("its LaTeX", () => !$(".cm-v-latexblock") && text(".cm-content").includes("framebox"));
+      await ok(true, "Show LaTeX on its bar shows the block as its LaTeX on the page");
+      await act.save();
+      await writeOutside({ path: "main.tex", text: rich });
+      await until("the document as it was", () => doc() === rich);
+    }
     await click("Code");
     await until("plain source again", () => !$(".cm-visual") && !$(".cm-v-math"));
     await ok(text(".cm-content").includes("\\begin{equation}"), "code mode shows the plain source again");

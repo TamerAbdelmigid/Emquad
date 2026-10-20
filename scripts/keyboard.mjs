@@ -38,11 +38,11 @@ const send = (method, params = {}) =>
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const evaluate = async (expression) => (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.result?.value;
 
-const CODES = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, F10: 121, "=": 187 };
+const CODES = { Tab: 9, Enter: 13, Escape: 27, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, F10: 121, "=": 187, Alt: 18 };
 async function key(name, mods = {}) {
   const modifiers = (mods.alt ? 1 : 0) | (mods.ctrl ? 2 : 0) | (mods.shift ? 8 : 0);
   const code = CODES[name] ?? name.toUpperCase().charCodeAt(0);
-  const base = { key: name, code: name === "=" ? "Equal" : name.length === 1 ? `Key${name.toUpperCase()}` : name, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers };
+  const base = { key: name, code: name === "=" ? "Equal" : name === "Alt" ? "AltLeft" : name.length === 1 ? `Key${name.toUpperCase()}` : name, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers };
   await send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...base });
   if (name === "Enter") await send("Input.dispatchKeyEvent", { type: "char", text: "\r", ...base });
   await send("Input.dispatchKeyEvent", { type: "keyUp", ...base });
@@ -254,6 +254,20 @@ await check(await focusIs("#link-address"), "Ctrl+K in the text opens the Link d
 await key("Escape");
 await sleep(300);
 await check(!(await evaluate("!!document.querySelector('dialog[open]')")), "Escape closes it");
+// KeyTips: Alt alone, then X for the LaTeX tab, then the letter of its Split tool.
+await evaluate("document.querySelector('.cm-content').focus(); true");
+await key("Alt", { alt: true });
+await check(await evaluate("[...document.querySelectorAll('.rb-kt')].some((k) => k.textContent === 'X')"), "Alt pressed alone shows KeyTips on the ribbon's tabs");
+await key("x");
+await check(await evaluate("document.querySelector('#rb-tab-latex').getAttribute('aria-selected') === 'true' && document.querySelectorAll('.rb-kt').length > 3"), "X chooses the LaTeX tab and shows a letter on each of its tools");
+const splitKey = await evaluate("[...document.querySelectorAll('.rb-kt')].find((k) => Math.abs(k.getBoundingClientRect().left + 7 - (document.querySelector('[aria-label=\"Split with LaTeX\"]').getBoundingClientRect().left + document.querySelector('[aria-label=\"Split with LaTeX\"]').getBoundingClientRect().width / 2)) < 2)?.textContent");
+await key(String(splitKey).toLowerCase());
+await sleep(400);
+await check(await evaluate("!!document.querySelector('.cm-latex-host .cm-content') && !document.querySelector('.rb-kt')"), `its letter (${splitKey}) uses the tool: the LaTeX is shown beside the page`);
+await evaluate("document.querySelector('[aria-label=\"Split with LaTeX\"]').focus(); true");
+await key("Enter");
+await sleep(300);
+await check(!(await evaluate("!!document.querySelector('.cm-latex-host')")), "Enter on Split with LaTeX puts the LaTeX away again");
 await evaluate("document.querySelector('#rb-tab-home').focus(); true");
 await key("Enter");
 // The word is selected by the script; the format comes from the key press.
