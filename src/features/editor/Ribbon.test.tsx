@@ -4,6 +4,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Ribbon } from "./Ribbon";
+import { buffers } from "./buffers";
 import type { Setup } from "./documentSetup";
 
 afterEach(cleanup);
@@ -178,5 +179,37 @@ describe("Ribbon", () => {
     expect(letter).toBeTruthy();
     fireEvent.keyDown(window, { key: "b" });
     expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Bold" }));
+  });
+
+  it("gives the keyboard back to the LaTeX side of Split when that is where the typing was", () => {
+    const page = document.body.appendChild(document.createElement("div"));
+    const latex = document.body.appendChild(document.createElement("div"));
+    const detach = [buffers.attach(page)];
+    try {
+      buffers.open("main.tex", "\\begin{document}\nText.\n\\end{document}\n");
+      buffers.show("main.tex");
+      detach.push(buffers.attachSource(latex));
+      render(<Ribbon {...props} symbolsOpen={false} />);
+      const side = buffers.sourceView()!;
+      side.focus();
+      expect(side.hasFocus).toBe(true);
+      fireEvent.keyDown(window, { key: "Alt" });
+      fireEvent.keyUp(window, { key: "Alt" });
+      fireEvent.keyDown(window, { key: "h" });
+      fireEvent.keyDown(window, { key: "b" });
+      expect(side.hasFocus).toBe(true);
+      // Typing on the page, the keyboard goes back to the page.
+      buffers.showNow("main.tex")!.focus();
+      fireEvent.keyDown(window, { key: "Alt" });
+      fireEvent.keyUp(window, { key: "Alt" });
+      fireEvent.keyDown(window, { key: "h" });
+      fireEvent.keyDown(window, { key: "b" });
+      expect(buffers.showNow("main.tex")!.hasFocus).toBe(true);
+    } finally {
+      detach.reverse().forEach((d) => d());
+      buffers.closeAll();
+      page.remove();
+      latex.remove();
+    }
   });
 });

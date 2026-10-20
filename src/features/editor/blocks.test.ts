@@ -60,6 +60,40 @@ describe("alignment", () => {
     expect(setAlignment(text, text.indexOf("Text"), text.indexOf("Text"), "center")).toBeNull();
   });
 
+  it("aligns one paragraph of several aligned together, the environment cut round it, as Word aligns a paragraph", () => {
+    const text = DOC("\\begin{flushright}\nOne.\n\nTwo.\n\nThree.\n\\end{flushright}");
+    const centred = applyChanges(text, setAlignment(text, text.indexOf("Two"), text.indexOf("Two"), "center")!);
+    expect(body(centred)).toBe("\\begin{flushright}\nOne.\n\\end{flushright}\n\n\\begin{center}\nTwo.\n\\end{center}\n\n\\begin{flushright}\nThree.\n\\end{flushright}");
+    expect(alignmentAt(centred, centred.indexOf("One"))).toBe("right");
+    expect(alignmentAt(centred, centred.indexOf("Two"))).toBe("center");
+    expect(lineStyles(centred)).toEqual(expect.arrayContaining(["One.:align-right", "Two.:align-center", "Three.:align-right"]));
+    // The first, justified: the environment begins after it.
+    const first = applyChanges(text, setAlignment(text, text.indexOf("One"), text.indexOf("One"), "justify")!);
+    expect(body(first)).toBe("One.\n\n\\begin{flushright}\nTwo.\n\nThree.\n\\end{flushright}");
+    // The last two at once.
+    const last = applyChanges(text, setAlignment(text, text.indexOf("Two"), text.indexOf("Three"), "left")!);
+    expect(body(last)).toBe("\\begin{flushright}\nOne.\n\\end{flushright}\n\n\\begin{flushleft}\nTwo.\n\nThree.\n\\end{flushleft}");
+    // Every paragraph of it: the environment changes, as before.
+    const all = applyChanges(text, setAlignment(text, text.indexOf("One"), text.indexOf("Three"), "center")!);
+    expect(body(all)).toBe("\\begin{center}\nOne.\n\nTwo.\n\nThree.\n\\end{center}");
+  });
+
+  it("keeps a paragraph taken out of an environment apart from the text written just outside it", () => {
+    const text = DOC("A\n\\begin{center}\nB\n\nC\n\\end{center}\nD");
+    const last = applyChanges(text, setAlignment(text, text.indexOf("C\n"), text.indexOf("C\n"), "justify")!);
+    expect(body(last)).toBe("A\n\\begin{center}\nB\n\\end{center}\n\nC\n\nD");
+    const first = applyChanges(text, setAlignment(text, text.indexOf("B\n"), text.indexOf("B\n"), "justify")!);
+    expect(body(first)).toBe("A\n\nB\n\n\\begin{center}\nC\n\\end{center}\nD");
+    const whole = DOC("A\n\\begin{center}\nB\n\\end{center}\nD");
+    expect(body(applyChanges(whole, setAlignment(whole, whole.indexOf("B\n"), whole.indexOf("B\n"), "justify")!))).toBe("A\n\nB\n\nD");
+  });
+
+  it("writes the environment for the paragraph at the indentation of the one it is cut from", () => {
+    const text = DOC("  \\begin{flushright}\n    One.\n\n    Two.\n  \\end{flushright}");
+    const out = applyChanges(text, setAlignment(text, text.indexOf("Two"), text.indexOf("Two"), "center")!);
+    expect(body(out)).toBe("  \\begin{flushright}\n    One.\n  \\end{flushright}\n\n  \\begin{center}\n    Two.\n  \\end{center}");
+  });
+
   it("refuses where the lines would cut an environment in two", () => {
     const text = DOC("\\begin{minipage}{3cm}\nText.\n\\end{minipage}");
     expect(setAlignment(text, text.indexOf("\\begin{mini") - 1, text.indexOf("Text"), "center")).toBeNull();
@@ -78,5 +112,19 @@ describe("Quote and Abstract from the styles gallery", () => {
     expect(lineStyles(abstract)).toContain("Said once.:abstract abstract-first");
     const normal = applyChanges(abstract, setBlockStyle(abstract, abstract.indexOf("once"), abstract.indexOf("once"), null)!);
     expect(body(normal)).toBe("Said once.");
+  });
+
+  it("act on the paragraph, not the whole quotation it is in", () => {
+    const text = DOC("\\begin{quote}\nFirst said.\n\nThen said.\n\\end{quote}");
+    const normal = applyChanges(text, setBlockStyle(text, text.indexOf("Then"), text.indexOf("Then"), null)!);
+    expect(body(normal)).toBe("\\begin{quote}\nFirst said.\n\\end{quote}\n\nThen said.");
+    expect(blockStyleAt(normal, normal.indexOf("First"))).toBe("quote");
+    expect(blockStyleAt(normal, normal.indexOf("Then"))).toBeNull();
+    const abstract = applyChanges(text, setBlockStyle(text, text.indexOf("First"), text.indexOf("First"), "abstract")!);
+    expect(body(abstract)).toBe("\\begin{abstract}\nFirst said.\n\\end{abstract}\n\n\\begin{quote}\nThen said.\n\\end{quote}");
+    // A paragraph in a quotation inside a centred block: the quotation is what is cut, not the centring.
+    const nested = DOC("\\begin{center}\n\\begin{quote}\nA.\n\nB.\n\\end{quote}\n\\end{center}");
+    const out = applyChanges(nested, setBlockStyle(nested, nested.indexOf("B."), nested.indexOf("B."), null)!);
+    expect(body(out)).toBe("\\begin{center}\n\\begin{quote}\nA.\n\\end{quote}\n\nB.\n\\end{center}");
   });
 });

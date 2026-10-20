@@ -98,7 +98,6 @@ function restyle(done: Restyled) {
 function listEdit(edit: ListEdit | null, why: string) {
   if (!view) return;
   if (!applyListEdit(view, edit)) store().notify(why, true);
-  else if (edit?.needs?.length) formatNeeds(edit.needs);
   view.focus();
 }
 

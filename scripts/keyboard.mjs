@@ -264,6 +264,18 @@ const splitKey = await evaluate("[...document.querySelectorAll('.rb-kt')].find((
 await key(String(splitKey).toLowerCase());
 await sleep(400);
 await check(await evaluate("!!document.querySelector('.cm-latex-host .cm-content') && !document.querySelector('.rb-kt')"), `its letter (${splitKey}) uses the tool: the LaTeX is shown beside the page`);
+// Typing on the LaTeX side, a tool used by its letter gives the keyboard back there.
+const tipOf = (label) =>
+  evaluate(`(() => { const tool = document.querySelector('[aria-label=${JSON.stringify(label)}]').getBoundingClientRect(); return [...document.querySelectorAll('.rb-kt')].find((k) => Math.abs(k.getBoundingClientRect().left + 7 - (tool.left + tool.width / 2)) < 2)?.textContent; })()`);
+await evaluate("document.querySelector('.cm-latex-host .cm-content').focus(); true");
+for (const turn of ["on", "off"]) {
+  await key("Alt", { alt: true });
+  await key("x");
+  const marksKey = await tipOf("LaTeX marks");
+  await key(String(marksKey).toLowerCase());
+  await sleep(300);
+  await check((await focusIn(".cm-latex-host")) && !(await evaluate("!!document.querySelector('.rb-kt')")), `LaTeX marks by its letter (${marksKey}), turned ${turn} while typing on the LaTeX side, gives the keyboard back to the LaTeX side`);
+}
 await evaluate("document.querySelector('[aria-label=\"Split with LaTeX\"]').focus(); true");
 await key("Enter");
 await sleep(300);
@@ -276,6 +288,18 @@ await sleep(200);
 await key("=", { ctrl: true });
 await sleep(300);
 await check(await evaluate("window.emquad.store().tabs.some((t) => t.dirty) && document.querySelector('.cm-v-sub')?.textContent === 'Start'"), "Ctrl+= sets the selected word as a subscript, drawn lowered");
+
+// Typing at the edge of bold with real key presses: it goes on in the formatting of the letter before it, as in Word.
+const inPage = (body) => `(async () => { const { buffers } = await import("/src/features/editor/buffers.ts"); const path = window.emquad.store().active; const v = buffers.showNow(path); const B = String.fromCharCode(92); ${body} })()`;
+await evaluate(inPage(`const at = v.state.doc.toString().indexOf(", with a formula"); v.dispatch({ changes: { from: at, insert: " and " + B + "textbf{bold}" }, userEvent: "input" }); v.dispatch({ selection: { anchor: at + 5 + B.length + "textbf{bold}".length } }); v.focus(); return true;`));
+await sleep(300);
+await typeKeys("er(s)");
+await check(await evaluate(inPage(`return v.state.doc.toString().includes(" and " + B + "textbf{bolder(s)}, with");`)), "typed after a bold word's hidden brace, letters go on in bold, a bracket closing itself there once");
+await evaluate(inPage(`v.dispatch({ selection: { anchor: v.state.doc.toString().indexOf(B + "textbf{bolder(s)}") + B.length + 7 } }); v.focus(); return true;`));
+await sleep(200);
+await typeKeys("so ");
+await check(await evaluate(inPage(`return v.state.doc.toString().includes(" and so " + B + "textbf{bolder(s)}, with");`)), "typed after a plain word just before a bold one, letters stay plain");
+await evaluate(inPage(`const t = v.state.doc.toString(); const at = t.indexOf(" and so "); v.dispatch({ changes: { from: at, to: t.indexOf(", with a formula"), insert: "" }, userEvent: "input" }); return true;`));
 
 // History.
 await key("H", { ctrl: true, shift: true });

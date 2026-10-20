@@ -54,6 +54,13 @@ describe("the Bullets and Numbering buttons", () => {
     expect(compiles(out.replace("|", ""))).toBe(true);
   });
 
+  it("make the middle item of a numbered list a paragraph, the items after it numbered on", () => {
+    const text = DOC("\\begin{enumerate}[label=\\alph*)]\n  \\item a\n  \\item b\n  \\item c\n\\end{enumerate}");
+    const edit = backspaceAtItemStart(text, text.indexOf("b\n"));
+    expect(body(after(text, edit))).toBe("\\begin{enumerate}[label=\\alph*)]\n  \\item a\n\\end{enumerate}\n|b\n\\begin{enumerate}[label=\\alph*),resume]\n  \\item c\n\\end{enumerate}");
+    expect(edit?.needs?.map((n) => n.name)).toEqual(["enumitem"]);
+  });
+
   it("change a bulleted list to a numbered one, and set its numbering with enumitem", () => {
     const text = DOC("\\begin{itemize}\n  \\item a\n\\end{itemize}");
     const numbered = applyChanges(text, toggleList(text, text.indexOf("a\n"), text.indexOf("a\n"), "enumerate")!.changes);
@@ -159,6 +166,36 @@ describe("Enter and Backspace in a list, as in a word processor", () => {
     const out = after(text, enterInEmptyItem(text, text.indexOf("\\item \n") + 6));
     expect(body(out)).toBe("\\begin{itemize}\n  \\item a\n\\end{itemize}\n\n|\n\n\\begin{itemize}\n  \\item c\n\\end{itemize}");
     expect(compiles(out.replace("|", ""))).toBe(true);
+  });
+
+  it("Enter on an empty item in the middle of a numbered list cuts it in two, the second half numbered on, as Word does", () => {
+    const text = DOC("\\begin{enumerate}\n  \\item a\n  \\item b\n  \\item \n  \\item d\n\\end{enumerate}");
+    const edit = enterInEmptyItem(text, text.indexOf("\\item \n") + 6);
+    const out = after(text, edit);
+    expect(body(out)).toBe("\\begin{enumerate}\n  \\item a\n  \\item b\n\\end{enumerate}\n\n|\n\n\\begin{enumerate}[resume]\n  \\item d\n\\end{enumerate}");
+    expect(edit?.needs?.map((n) => n.name)).toEqual(["enumitem"]);
+    const labels = (t: string) => visualPieces(t, []).flatMap((p) => (p.kind === "bullet" ? [p.label] : []));
+    expect(labels(out.replace("|", ""))).toEqual(["1.", "2.", "3."]);
+    // A format of its own is kept, and a list cut again goes on numbering from where it was.
+    const lettered = DOC("\\begin{enumerate}[label=\\alph*)]\n  \\item a\n  \\item \n  \\item c\n  \\item \n  \\item e\n\\end{enumerate}");
+    const once = applyChanges(lettered, enterInEmptyItem(lettered, lettered.indexOf("\\item \n") + 6)!.changes);
+    expect(once).toContain("\\begin{enumerate}[label=\\alph*),resume]\n  \\item c");
+    const twice = applyChanges(once, enterInEmptyItem(once, once.indexOf("\\item \n") + 6)!.changes);
+    expect(twice).toContain("\\begin{enumerate}[label=\\alph*),resume]\n  \\item e");
+    expect(labels(twice)).toEqual(["a)", "b)", "c)"]);
+    // Where the first half starts is not where the second does.
+    const started = DOC("\\begin{enumerate}[start=5]\n  \\item a\n  \\item \n  \\item c\n\\end{enumerate}");
+    expect(applyChanges(started, enterInEmptyItem(started, started.indexOf("\\item \n") + 6)!.changes)).toContain("\\begin{enumerate}[resume]\n  \\item c");
+    // A list written for the enumerate package's short labels is cut as before: enumitem would refuse them.
+    const short = DOC("\\begin{enumerate}[(a)]\n  \\item a\n  \\item \n  \\item c\n\\end{enumerate}");
+    const shortEdit = enterInEmptyItem(short, short.indexOf("\\item \n") + 6);
+    expect(applyChanges(short, shortEdit!.changes)).toContain("\n\\begin{enumerate}[(a)]\n  \\item c");
+    expect(shortEdit?.needs).toBeUndefined();
+    // resume* numbers on too, and is drawn so.
+    expect(labels(DOC("\\begin{enumerate}\n  \\item a\n\\end{enumerate}\nx\n\\begin{enumerate}[resume*]\n  \\item b\n\\end{enumerate}"))).toEqual(["1.", "2."]);
+    // A bulleted list has no numbers to go on with.
+    const bullets = DOC("\\begin{itemize}\n  \\item a\n  \\item \n  \\item c\n\\end{itemize}");
+    expect(enterInEmptyItem(bullets, bullets.indexOf("\\item \n") + 6)?.needs).toBeUndefined();
   });
 
   it("Enter on the only, empty, item takes the list away", () => {

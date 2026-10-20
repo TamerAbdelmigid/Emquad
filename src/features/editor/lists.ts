@@ -156,9 +156,17 @@ function itemsToParagraphs(text: string, list: List, first: number, last: number
     if (i < last) changes.push({ from: item.end, to: item.end, insert: "\n" });
   }
   if (last === items.length - 1) changes.push({ from: list.close.from, to: list.close.to, insert: "" });
-  else changes.push({ from: items[last].end, to: items[last].end, insert: `${indent}${beginLine(text, list).trimStart()}` });
+  else {
+    // The items after a numbered list's paragraphs number on, as Word's do.
+    const resumed = first > 0 ? resumedLine(text, list) : null;
+    changes.push({ from: items[last].end, to: items[last].end, insert: `${indent}${(resumed ?? beginLine(text, list)).trimStart()}` });
+    if (resumed) return finish(text, changes, RESUME_NEEDS);
+  }
   return finish(text, changes);
 }
+
+/** What a numbered list that numbers on after a paragraph needs. */
+const RESUME_NEEDS: Need[] = [{ kind: "package", name: "enumitem", why: "to number a list on after a paragraph" }];
 
 /**
  * The Bullets or Numbering button: the paragraphs of the selection made a list of that kind; in
@@ -328,10 +336,25 @@ export function enterInEmptyItem(text: string, at: number): ListEdit | null {
       { from: item.line, to: item.end, insert: "" },
     ];
   } else {
-    // An item in the middle: the list is cut in two there, with a paragraph between.
-    changes = [{ from: item.line, to: item.end, insert: `${endLine(text, list)}\n${CURSOR}\n\n${beginLine(text, list)}` }];
+    // An item in the middle: the list is cut in two there, with a paragraph between. A numbered
+    // list's second half numbers on from the first, as Word's does, with enumitem's resume.
+    const resumed = resumedLine(text, list);
+    changes = [{ from: item.line, to: item.end, insert: `${endLine(text, list)}\n${CURSOR}\n\n${resumed ?? beginLine(text, list)}` }];
+    if (resumed) return finish(text, changes, RESUME_NEEDS);
   }
   return finish(text, changes);
+}
+
+/**
+ * A numbered list's \begin line for a part that numbers on from the part before, with enumitem's
+ * resume: its options kept, but where it starts. Null for a list that is not numbered, or whose
+ * options are not enumitem's, such as the enumerate package's short labels, `[(a)]`.
+ */
+function resumedLine(text: string, list: List): string | null {
+  if (list.env.name !== "enumerate") return null;
+  const options = list.env.options.split(",").filter((o) => o.trim() && !/^\s*(?:start\s*=|resume\b)/.test(o));
+  if (!options.every((o) => o.includes("=") || /^\s*(?:noitemsep|nosep|nolistsep|wide)\s*$/.test(o))) return null;
+  return `${text.slice(list.open.from, list.env.begin)}\\begin{enumerate}[${[...options, "resume"].join(",")}]${text.slice(list.env.head, list.open.to)}`;
 }
 
 /**
