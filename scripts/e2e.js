@@ -9,7 +9,9 @@
 // The app exits with code 0 when every check passes. It covers: compile, errors, source/PDF
 // lookup, snapshot, export, opening a bundle as a new project, a merge with a conflict, spelling,
 // visual mode, the page view's formatting (character formats, colour, clear, the format painter,
-// the selection toolbar and right-click menu, lists, alignment, quote, LaTeX marks), comments,
+// the selection toolbar and right-click menu, lists, alignment, quote, LaTeX marks), its layout
+// (line numbers, margins, orientation, columns, a header, page breaks from the compile, the
+// Picture tab), comments,
 // references and citation styles, pictures dropped and pasted, text pasted
 // with its formatting, the equation editor (typing, its ribbon, several lines, a double-click), PDFs with comments and changes on them, Send to Word
 // (or, with no Pandoc, its refusal), and a bundle that carries its LaTeX packages.
@@ -352,6 +354,75 @@
       await click("Recompile");
       await until("the formatted document compiled", () => store().pdfVersion > version && !store().compiling, 300000);
       await ok(text(".proj .st") === "Compiled", `the document with every new format compiles (${text(".proj .st")})`);
+      await writeOutside({ path: "main.tex", text: rich });
+      await until("the document as it was", () => doc() === rich);
+    }
+    // Lays out like Word: the Layout tab writes the page's settings, the header goes in the top
+    // margin, the pages break where the compile broke them, and a figure has a Picture tab.
+    {
+      const B = String.fromCharCode(92);
+      const doc = () => buffers.text("main.tex");
+      const menuItem = (start) => until(`the menu item ${start}`, () => $$(".menu-item").find((i) => i.textContent.trim().startsWith(start)));
+      const filler = Array.from({ length: 45 }, (_, i) => `Paragraph ${i + 1} of filler text, long enough to run over a line or two, so that the document needs more than one page to hold it.\n\n`).join("");
+      const long = rich.replace("Start ", `${filler}Start `);
+      // Each Layout tool compiles; clicked one after another they must not trip over each other.
+      const errors = [];
+      const watch = setInterval(() => store().toast?.error && !errors.includes(store().toast.text) && errors.push(store().toast.text), 50);
+      await writeOutside({ path: "main.tex", text: long });
+      await until("the long document", () => doc() === long);
+      $("#rb-tab-layout").click();
+      await click("Line numbers");
+      await until("line numbers", () => doc().includes(`${B}usepackage{lineno}\n${B}linenumbers\n`));
+      await until("Line numbers pressed", () => button("Line numbers")?.getAttribute("aria-pressed") === "true");
+      await ok(true, "Layout ▸ Line numbers loads lineno and writes \\linenumbers, and shows pressed");
+      await click("Margins");
+      (await menuItem("Narrow")).click();
+      await until("narrow margins", () => doc().includes(`${B}usepackage[margin=1.27cm]{geometry}`));
+      await click("Orientation");
+      (await menuItem("Landscape")).click();
+      await until("landscape", () => doc().includes(`${B}usepackage[margin=1.27cm, landscape]{geometry}`));
+      const page = () => getComputedStyle($(".screen.paged"));
+      await until("the page turned on its side", () => parseFloat(page().getPropertyValue("--page-h")) < parseFloat(page().getPropertyValue("--page-w")));
+      await click("Columns");
+      (await menuItem("Two")).click();
+      await until("two columns", () => /\\documentclass\[[^\]]*twocolumn[^\]]*\]\{article\}/.test(doc()));
+      await ok(true, "Margins, Orientation and Columns write geometry's margin and landscape and the class's twocolumn, and the page view turns the page");
+      $("#rb-tab-insert").click();
+      await click("Header");
+      type(await until("the header prompt", () => $("#ask-value")), "Draft for review");
+      await click("Set");
+      await until("the header", () => doc().includes(`${B}usepackage{fancyhdr}\n${B}pagestyle{fancy}\n${B}fancyhf{}\n${B}fancyhead[R]{Draft for review}\n${B}fancyfoot[C]{${B}thepage}`));
+      await until("the header on the page", () => text(".cm-v-pagetop .cm-v-pb-head") === "Draft for review");
+      await ok(true, "Insert ▸ Header writes it with fancyhdr, the page number kept at the foot, and the page view shows it in the top margin");
+      // Each Layout tool compiled as it went; this compile, the last asked for, is the one waited for.
+      await act.compile();
+      await until("the status after the compile", () => text(".proj .st") !== "Compiling…");
+      await ok(text(".proj .st") === "Compiled", `the document laid out in landscape, two columns, with line numbers and a header compiles (${text(".proj .st")})`);
+      clearInterval(watch);
+      await ok(errors.length === 0, `the Layout tools, used one after another, each compile without an error${errors.length ? `: ${errors.join(" | ")}` : ""}`);
+      const first = await until("a page break drawn", () => $(".cm-v-pagebreak"));
+      const starts = await invoke("synctex_page_starts", { file: "main.tex" });
+      await ok(
+        first.getAttribute("aria-label") === "Page 2" && $$(".cm-v-pagebreak").length === starts.length - 1 && first.querySelector(".cm-v-pb-head")?.textContent === "Draft for review",
+        `the page view breaks the pages where the compile broke them (${starts.length - 1} breaks), each with the header at the top of the next page`,
+      );
+      await shot("02-layout");
+      // A figure has a Picture tab while the cursor is in it: its width as a share of the line and its place.
+      const figure = `${B}begin{figure}[h]\n  ${B}centering\n  ${B}includegraphics[width=0.8${B}linewidth]{figures/none.png}\n  ${B}caption{A picture.}\n${B}end{figure}\n`;
+      buffers.change("main.tex", { from: doc().indexOf(`${B}begin{equation}`), insert: figure });
+      buffers.run((v) => (v.dispatch({ selection: { anchor: doc().indexOf("A picture") + 2 } }), true));
+      (await until("the Picture tab", () => $("#rb-tab-picture"))).click();
+      await click("Half width");
+      await until("half width", () => doc().includes(`${B}includegraphics[width=0.5${B}linewidth]{figures/none.png}`));
+      await click("Position");
+      (await menuItem("Exactly here")).click();
+      await until("exactly here", () => doc().includes(`${B}begin{figure}[H]`) && doc().includes(`${B}usepackage{float}`));
+      await ok(true, "the Picture tab makes the picture half the line wide and puts it exactly here, loading the float package");
+      buffers.run((v) => (v.dispatch({ selection: { anchor: doc().indexOf("Paragraph 3") } }), true));
+      await until("the Picture tab gone", () => !$("#rb-tab-picture") && $("#rb-tab-home").getAttribute("aria-selected") === "true");
+      await ok(true, "the Picture tab goes when the cursor leaves the figure, back on Home");
+      // Saved first: a file changed on disk does not replace unsaved edits.
+      await act.save();
       await writeOutside({ path: "main.tex", text: rich });
       await until("the document as it was", () => doc() === rich);
     }
@@ -759,13 +830,25 @@
       drag(td(1, 0), td(1, 0));
       const original = box().value;
       type(box(), `${original} $`);
+      // Moving between the cell and the Symbol panel is told by focus events, which the page gets
+      // only while its window has the focus.
+      await invoke("e2e_focus");
+      await until("the window focused", () => document.hasFocus(), 5000).catch(() => log("note: the window could not be given the focus"));
+      box().focus();
+      const table0 = $(".cm-v-tedit");
+      const trail = [];
+      const name = (el) => (el ? `${el.tagName}.${String(el.className).split(" ")[0]}` : "null");
+      const trace = (e) => trail.push(`${e.type}:${name(e.target)}->${name(e.relatedTarget)}`);
+      document.addEventListener("focusin", trace, true);
+      document.addEventListener("focusout", trace, true);
+      document.addEventListener("mousedown", trace, true);
       store().set({ symbols: true });
       const search = await until("the symbol panel", () => $(".sym-search"));
       await ok(document.activeElement === search && $$(".sym-grid button").length > 10, "the Symbol panel opens with the keyboard in its search box");
       type(search, "alpha");
       press(search, "Enter");
       await until("alpha in the cell", () => box()?.value === `${original} $\\alpha `).catch((e) => {
-        throw new Error(`${e.message}: cell ${JSON.stringify(box()?.value)}, focus ${document.activeElement?.className}, panel ${!!$(".sym-pop")}, first ${$(".sym-grid button")?.getAttribute("aria-label")}`);
+        throw new Error(`${e.message}: cell ${JSON.stringify(box()?.value)}, focus ${document.activeElement?.className}, panel ${!!$(".sym-pop")}, first ${$(".sym-grid button")?.getAttribute("aria-label")}, same table ${table0 === $(".cm-v-tedit")}, connected ${table0?.isConnected}, alpha in the text ${buffers.text("main.tex").includes("\\alpha")}, tab ${$(".rb-tab[aria-selected=true]")?.textContent}, focus trail ${trail.join(" | ")}`);
       });
       await ok(box().classList.contains("bad") && document.activeElement === box(), "a symbol chosen while a formula is half typed in a cell goes into it, as part of the formula, and nothing typed is lost");
       type(box(), `${original} $\\alpha$`);
@@ -916,6 +999,11 @@
     await until("the bundle's project", () => store().root === c.root && ($(".cm-v-fold") || text(".cm-content").includes("\\documentclass")));
     await until("its comments", () => store().comments.length === 1);
     await ok(store().comments[0].replies.length === 1 && !store().comments[0].resolved, "the recipient gets the comment and its reply, as they were when the bundle was made");
+    // A project opened without a PDF compiles at once; the first compile from its own packages
+    // can take a while, and Recompile shows again when it has ended.
+    const opening = Date.now();
+    await until("the first compile of the bundle's project to end", () => !store().compiling && button("Recompile"), 300000);
+    await log(`note: the opening compile ended after ${Math.round((Date.now() - opening) / 1000)} s`);
     await click("Recompile");
     await until("a PDF from the bundle's own packages", () => text(".proj .st") === "Compiled", 300000);
     await ok(true, "and compiles the project from the packages that came with it");

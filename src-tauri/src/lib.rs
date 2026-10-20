@@ -55,6 +55,7 @@ macro_rules! handlers {
             commands::pdf_save,
             commands::synctex_forward,
             commands::synctex_inverse,
+            commands::synctex_page_starts,
             commands::history_list,
             commands::history_snapshot,
             commands::history_keep_while_writing,
@@ -171,7 +172,7 @@ pub fn run() {
             e2e::on_page_load(webview, payload);
         });
     #[cfg(any(debug_assertions, feature = "e2e"))]
-    let builder = builder.invoke_handler(handlers!(e2e::e2e_log, e2e::e2e_exit));
+    let builder = builder.invoke_handler(handlers!(e2e::e2e_log, e2e::e2e_exit, e2e::e2e_focus));
     #[cfg(not(any(debug_assertions, feature = "e2e")))]
     let builder = builder.invoke_handler(handlers!());
     builder

@@ -34,6 +34,17 @@ pub struct SourcePos {
     pub line: u32,
 }
 
+/// Where a page of the PDF begins in one source file: the first line set on it.
+#[derive(Debug, Clone, Serialize, PartialEq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PageStart {
+    /// 1-based page number.
+    pub page: u32,
+    /// 1-based line of the source file.
+    pub line: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Kind {
     HBox,
@@ -301,6 +312,69 @@ impl SyncTex {
         })
     }
 
+    /// Where each page with `file`'s text on it begins in the file: the line its text goes on
+    /// from, the first of them being the page the file starts on. The text flows down the source
+    /// in order, but a picture or a table may be set pages after the line it is written on, and a
+    /// footnote at the foot of a page, so each page's first line is taken as the place that
+    /// leaves the fewest of the file's records on the wrong side of it. Pages with nothing of the
+    /// file on them are left out.
+    pub fn page_starts(&self, file: &str) -> Vec<PageStart> {
+        let want = file.replace('\\', "/").to_lowercase();
+        let tags: Vec<u32> = self
+            .inputs
+            .iter()
+            .filter(|(_, p)| p.to_lowercase() == want)
+            .map(|(t, _)| *t)
+            .collect();
+        // Each page's lines of the file, one entry per record.
+        let pages: Vec<Vec<u32>> = self
+            .pages
+            .iter()
+            .map(|page| {
+                page.iter()
+                    .filter(|r| tags.contains(&r.tag) && r.kind != Kind::VBox && r.line > 0)
+                    .map(|r| r.line)
+                    .collect()
+            })
+            .collect();
+        let mut lines: Vec<u32> = pages.iter().flatten().copied().collect();
+        lines.sort_unstable();
+        lines.dedup();
+        let slot = |line: u32| lines.binary_search(&line).unwrap_or(0);
+        // Records on the pages before the one looked at, and on it and after, by line.
+        let mut before = vec![0usize; lines.len()];
+        let mut after = vec![0usize; lines.len()];
+        for line in pages.iter().flatten() {
+            after[slot(*line)] += 1;
+        }
+        let mut out: Vec<PageStart> = Vec::new();
+        for (index, page) in pages.iter().enumerate() {
+            if !page.is_empty() {
+                // Breaking before line j leaves before[j..] and after[..j] on the wrong side.
+                let mut cost: usize = before.iter().sum();
+                let (mut best, mut best_cost) = (0, cost);
+                for j in 1..lines.len() {
+                    cost = cost + after[j - 1] - before[j - 1];
+                    if cost < best_cost {
+                        (best, best_cost) = (j, cost);
+                    }
+                }
+                let line = lines[best];
+                if out.last().is_none_or(|last| line > last.line) {
+                    out.push(PageStart {
+                        page: index as u32 + 1,
+                        line,
+                    });
+                }
+            }
+            for line in page {
+                before[slot(*line)] += 1;
+                after[slot(*line)] -= 1;
+            }
+        }
+        out
+    }
+
     pub fn page_count(&self) -> usize {
         self.pages.len()
     }
@@ -445,6 +519,75 @@ Count:12
         // Below all text on the page: the nearest line still answers.
         assert_eq!(at(9900000.0, 30000000.0).line, 3);
         assert!(s.inverse(9, 0.0, 0.0).is_none());
+    }
+
+    /// Three pages of `main.tex`: lines 1 to 9 on the first, a paragraph on line 10 running
+    /// over onto the second, which goes on to line 20, a figure from line 15 put at the top of
+    /// the third, and lines 21 to 30 under it.
+    fn three_pages() -> SyncTex {
+        let mut text =
+            String::from("SyncTeX Version:1\nInput:1:/p/main.tex\nInput:2:/p/other.tex\nUnit:1\n");
+        let page = |text: &mut String, n: u32, lines: &[u32]| {
+            text.push_str(&format!("{{{n}\n[1,1:0,0:100,100,0\n"));
+            for (i, line) in lines.iter().enumerate() {
+                let v = 1000 * (i + 1);
+                // Lines from 100 on stand for other.tex's lines 1, 2…
+                let (tag, line) = if *line >= 100 {
+                    (2, line - 99)
+                } else {
+                    (1, *line)
+                };
+                text.push_str(&format!(
+                    "({tag},{line}:100,{v}:500,10,0\nx{tag},{line}:100,{v}\n)\n"
+                ));
+            }
+            text.push_str(&format!("]\n}}{n}\n"));
+        };
+        let first: Vec<u32> = (1..=10).collect();
+        let second: Vec<u32> = [10, 10].into_iter().chain(11..=20).collect();
+        let third: Vec<u32> = [15].into_iter().chain(21..=30).collect();
+        page(&mut text, 1, &first);
+        page(&mut text, 2, &second);
+        page(&mut text, 3, &third);
+        // A fourth page of other.tex alone, brought in after main.tex's text.
+        page(&mut text, 4, &[100, 101, 102]);
+        SyncTex::parse(&text, Path::new("/p"), Path::new("/p"))
+    }
+
+    #[test]
+    fn pages_start_where_the_text_goes_on_past_a_float_and_a_paragraph_split_across_them() {
+        let s = three_pages();
+        assert_eq!(
+            s.page_starts("main.tex"),
+            vec![
+                PageStart { page: 1, line: 1 },
+                PageStart { page: 2, line: 10 },
+                PageStart { page: 3, line: 21 }
+            ]
+        );
+        // A file set from the fourth page on starts there.
+        assert_eq!(
+            s.page_starts("other.tex"),
+            vec![PageStart { page: 4, line: 1 }]
+        );
+        assert!(s.page_starts("missing.tex").is_empty());
+    }
+
+    #[test]
+    fn pages_start_in_the_order_of_the_source_and_skip_pages_without_its_text() {
+        let s = sample();
+        // The second page holds only proof.tex's line 9, which comes after its line 3 on the first.
+        assert_eq!(
+            s.page_starts("sections/proof.tex"),
+            vec![
+                PageStart { page: 1, line: 3 },
+                PageStart { page: 2, line: 9 }
+            ]
+        );
+        assert_eq!(
+            s.page_starts("main.tex"),
+            vec![PageStart { page: 1, line: 5 }]
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@ import { cursorCharRight } from "@codemirror/commands";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
-import { pageBackspace, pageDelete, pageEnter, pageShiftTab, pageTab, setLatexMarks, toggleReveal, visualPage } from "./visual";
+import { pageBackspace, pageDelete, pageEnter, pageFurniture, pageShiftTab, pageTab, pagesState, setLatexMarks, setPageBreaks, toggleReveal, visualMode, visualPage } from "./visual";
 
 /** The stretches of source that are not shown as they are written: hidden or drawn. */
 function notShown(view: EditorView): string[] {
@@ -368,5 +368,110 @@ describe("page view: formats like Word", () => {
     pageBackspace(view);
     expect(text(view)).toBe(doc);
     expect(view.contentDOM.querySelector(".cm-v-line-align-center")?.textContent).toBe("Middle.");
+  });
+});
+
+describe("page view: lays out like Word", () => {
+  const PAGED = "\\documentclass{article}\n\\begin{document}\nFirst page.\n\nSecond page.\n\nThird page.\n\\end{document}\n";
+  const text = (view: EditorView) => view.state.doc.toString();
+  function paged(doc = PAGED, at = doc.indexOf("First"), extensions = [visualPage, pageFurniture]) {
+    const view = new EditorView({ state: EditorState.create({ doc, selection: { anchor: at }, extensions }) });
+    views.push(view);
+    return view;
+  }
+  const breaks = (view: EditorView) => [...view.contentDOM.querySelectorAll(".cm-v-pagebreak")];
+  const lineOf = (view: EditorView, s: string) => view.state.doc.lineAt(view.state.doc.toString().indexOf(s)).number;
+
+  it("draws a page break before each line the last compile began a page with, named by its page", () => {
+    const view = paged();
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(view, "Second") }, { page: 3, line: lineOf(view, "Third") }], header: "", footer: "", numbers: true }) });
+    const drawn = breaks(view);
+    expect(drawn.map((b) => b.getAttribute("aria-label"))).toEqual(["Page 2", "Page 3"]);
+    expect(drawn[0].nextElementSibling?.textContent).toBe("Second page.");
+    // The page number of the page each ends is at its foot.
+    expect(drawn[0].querySelector(".cm-v-pb-foot")?.textContent).toContain("1");
+  });
+
+  it("keeps each break before its line as text is written above it, and never in the draft view", () => {
+    const view = paged();
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(view, "Second") }], header: "", footer: "", numbers: true }) });
+    view.dispatch({ changes: { from: PAGED.indexOf("First"), insert: "A new line.\n\n" }, userEvent: "input.type" });
+    expect(breaks(view)[0].nextElementSibling?.textContent).toBe("Second page.");
+    const draft = paged(PAGED, PAGED.indexOf("First"), [visualMode, pageFurniture]);
+    draft.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(draft, "Second") }], header: "", footer: "", numbers: true }) });
+    expect(breaks(draft)).toEqual([]);
+  });
+
+  it("never takes or moves text: typing at a break's line goes in on the next page, and Backspace there joins the lines as usual", () => {
+    const view = paged();
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(view, "Second") }], header: "", footer: "", numbers: true }) });
+    const at = PAGED.indexOf("Second");
+    view.dispatch({ selection: { anchor: at } });
+    view.dispatch(view.state.replaceSelection("New "));
+    expect(text(view)).toBe(PAGED.replace("Second", "New Second"));
+    expect(breaks(view)[0].nextElementSibling?.textContent).toBe("New Second page.");
+    view.dispatch({ selection: { anchor: at } });
+    pageBackspace(view);
+    expect(text(view)).toBe(PAGED.replace("\n\nSecond", "\nNew Second"));
+  });
+
+  it("draws the header at the top of each page and the footer and page number at the foot, as the settings give them", () => {
+    const view = paged();
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(view, "Second") }], header: "Draft \\& notes", footer: "Confidential", numbers: true }) });
+    const [one] = breaks(view);
+    expect(one.querySelector(".cm-v-pb-foot")?.textContent).toBe("Confidential1");
+    expect(one.querySelector(".cm-v-pb-head")?.textContent).toBe("Draft & notes");
+    expect(view.contentDOM.querySelector(".cm-v-pagetop .cm-v-pb-head")?.textContent).toBe("Draft & notes");
+    expect(view.contentDOM.querySelector(".cm-v-pageend .cm-v-pb-foot")?.textContent).toBe("Confidential2");
+    expect(text(view)).toBe(PAGED);
+  });
+
+  it("numbers each page's foot by the page the file's text is on, pages of other files skipped", () => {
+    const view = paged();
+    // The file is set from page 7, and its last part on page 9, after a page of another file.
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 7, line: 1 }, { page: 9, line: lineOf(view, "Second") }], header: "", footer: "", numbers: true }) });
+    expect(breaks(view)[0].getAttribute("aria-label")).toBe("Page 9");
+    expect(breaks(view)[0].querySelector(".cm-v-pb-foot")?.textContent).toBe("7");
+    expect(view.contentDOM.querySelector(".cm-v-pageend .cm-v-pb-foot")?.textContent).toBe("9");
+  });
+
+  it("draws a break that falls inside a figure or a formula before it, never splitting it", () => {
+    const doc = "\\begin{document}\nText.\n\\begin{figure}[h]\n  \\centering\n  \\caption{A}\n\\end{figure}\nMore.\n\\end{document}\n";
+    const view = paged(doc, doc.indexOf("Text"));
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(view, "\\caption") }], header: "", footer: "", numbers: true }) });
+    expect(view.state.field(pagesState).marks.map((m) => view.state.doc.lineAt(m.at).text)).toEqual(["\\begin{figure}[h]"]);
+  });
+
+  it("draws a break that falls inside a formula set with \\[ and \\] before it", () => {
+    const doc = "\\begin{document}\nText.\n\\[\n  x = 1\n\\]\nMore.\n\\end{document}\n";
+    const view = paged(doc, doc.indexOf("Text"));
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(view, "x = 1") }], header: "", footer: "", numbers: true }) });
+    expect(view.state.field(pagesState).marks.map((m) => view.state.doc.lineAt(m.at).text)).toEqual(["\\["]);
+  });
+
+  it("does not take a line break with spacing, \\\\[2pt], or a comment for a formula", () => {
+    const doc = "\\begin{document}\n\\begin{tabular}{l}\na \\\\[2pt]\nb\n\\end{tabular}\n% a \\[ in a comment\nPage three.\n\nPage four.\n\n\\[ x = 1 \\]\nPage five.\n\\end{document}\n";
+    const view = paged(doc, doc.indexOf("Page three"));
+    const lines = ["Page three", "Page four", "Page five"].map((s) => lineOf(view, s));
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, ...lines.map((line, i) => ({ page: i + 2, line }))], header: "", footer: "", numbers: true }) });
+    expect(view.state.field(pagesState).marks.map((m) => view.state.doc.lineAt(m.at).text)).toEqual(["Page three.", "Page four.", "Page five."]);
+  });
+
+  it("keeps the breaks it has, following the edits, when told only of the header and footer", () => {
+    const view = paged();
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [{ page: 1, line: 1 }, { page: 2, line: lineOf(view, "Second") }], header: "", footer: "", numbers: true }) });
+    view.dispatch({ changes: { from: PAGED.indexOf("First"), insert: "New.\n\n" } });
+    view.dispatch({ effects: setPageBreaks.of({ breaks: null, header: "Head", footer: "", numbers: true }) });
+    expect(breaks(view)[0].nextElementSibling?.textContent).toBe("Second page.");
+    expect(breaks(view)[0].querySelector(".cm-v-pb-head")?.textContent).toBe("Head");
+  });
+
+  it("keeps the foot of the last page at the end when the whole text is replaced by a shorter one, with no breaks", () => {
+    const view = paged();
+    view.dispatch({ effects: setPageBreaks.of({ breaks: [], header: "", footer: "", numbers: true }) });
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "Short." } });
+    view.dispatch({ changes: { from: 0, insert: "A " } });
+    expect(view.contentDOM.querySelector(".cm-v-pageend .cm-v-pb-foot")?.textContent).toBe("1");
+    expect(text(view)).toBe("A Short.");
   });
 });

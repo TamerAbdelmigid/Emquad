@@ -7,7 +7,9 @@ export type IconName =
   | "log" | "play" | "plus" | "check" | "edit" | "trash" | "comment" | "al-l" | "al-c" | "al-r" | "merge"
   | "split" | "borders" | "rows" | "caption" | "code" | "list-ul" | "list-ol" | "brk" | "toc" | "picture" | "xref"
   | "footnote" | "sigma" | "formula" | "quote" | "page" | "draft" | "minus" | "paste" | "cut" | "copy" | "brush"
-  | "outdent" | "indent" | "al-j" | "spacing" | "marks" | "hl" | "clear";
+  | "outdent" | "indent" | "al-j" | "spacing" | "marks" | "hl" | "clear" | "margins" | "orient" | "size" | "cols"
+  | "lnum" | "header" | "footer" | "pagenum" | "link" | "bookmark" | "pkg" | "wand" | "eye" | "send" | "word" | "snap"
+  | "abc" | "nav" | "learn";
 
 export function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
   return (

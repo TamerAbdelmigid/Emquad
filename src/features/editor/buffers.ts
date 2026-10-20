@@ -36,7 +36,8 @@ import { recheckSpelling, spelling } from "./spell";
 import { type Insertion, type Sym, insertion, mathAt, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
-import { applyListEdit, drawingStale, forgetPictures, redrawVisual, setLatexMarks, visualMode, visualPage } from "./visual";
+import { type PageLayout, applyListEdit, drawingStale, forgetPictures, pageFurniture, redrawVisual, setLatexMarks, setPageBreaks, visualMode, visualPage } from "./visual";
+import { setPictureWidth, setPlacement } from "./floats";
 import { documentStart } from "./visualModel";
 import { type Alignment, type BlockStyle, alignmentAt, setAlignment, setBlockStyle } from "./blocks";
 import { type Need, type Restyled, type TextChange, clearFormatting, formatAt, headOf, needsOf, paintFormat, plainWrapSafe, setColour, toggleFormat, wordAt } from "./formatting";
@@ -238,6 +239,7 @@ function extensions(path: string): Extension[] {
     autocompletion({ override: [lspActive() ? serverCompletionSource : complete] }),
     lspFor(path),
     visual.of(visualExtension()),
+    pageFurniture,
     spell.of(spellOn ? spelling : []),
     commenting,
     tablePaste,
@@ -543,6 +545,30 @@ export const buffers = {
       annotations: isolateHistory.of("full"),
       scrollIntoView: true,
     });
+    view.focus();
+  },
+
+  /** Where the last compile broke a file's pages, and what its header and footer print. */
+  setPages(path: string, pages: PageLayout) {
+    apply(path, { effects: setPageBreaks.of(pages) });
+  },
+
+  /** Ask LaTeX to place the figure or table at the cursor as `placement` says ("htbp", "H" and so on). */
+  placement(placement: string) {
+    if (!view || !shownPath) return;
+    const set = setPlacement(view.state.doc.toString(), view.state.selection.main.head, placement);
+    if (!set) return store().notify("Put the cursor in a figure or a table first.", true);
+    view.dispatch({ changes: set.changes, userEvent: "input", scrollIntoView: true });
+    view.focus();
+    if (set.needs.length) formatNeeds(set.needs.map((name) => ({ kind: "package", name, why: "which keeps a figure or table exactly where it is written" })));
+  },
+
+  /** Make the picture in the figure at the cursor `share` of the line wide. */
+  pictureWidth(share: number) {
+    if (!view || !shownPath) return;
+    const changes = setPictureWidth(view.state.doc.toString(), view.state.selection.main.head, share);
+    if (!changes) return store().notify("This figure holds several pictures, or none; change their sizes in its LaTeX (Ctrl+/).", true);
+    view.dispatch({ changes, userEvent: "input", scrollIntoView: true });
     view.focus();
   },
 

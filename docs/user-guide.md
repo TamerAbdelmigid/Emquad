@@ -31,7 +31,7 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 ### The page view
 
-Visual mode sets your document on a white page, as Word does, with the paper, margins, size of type and line spacing that **Document setup** gives it. (It is a likeness: where lines and pages break in the PDF is up to the compiler.) Above it is a ribbon with Word's tabs: **Home** (undo, the clipboard and format painter, the font and paragraph tools, the styles gallery, find, comment), **Insert** (page break, contents, table, figure, cross-reference, footnote, symbol, equation, citation and bibliography) and **View** (Page or Draft, zoom, Show LaTeX, LaTeX marks, page setup). Point at any tool to see its shortcut and the LaTeX it writes.
+Visual mode sets your document on a white page, as Word does, with the paper, margins, size of type and line spacing that **Document setup** gives it. (It is a likeness: where lines break in the PDF is up to the compiler.) After each compile the page is broken into pages where the PDF breaks them, with a gap between the sheets. Above it is a ribbon with Word's tabs: **Home** (undo, the clipboard and format painter, the font and paragraph tools, the styles gallery, find, comment), **Insert** (page break, contents, table, figure, cross-reference, header and footer, footnote, symbol, equation, citation and bibliography), **Layout** (margins, orientation, size, columns, breaks, line numbers, the first line of paragraphs, text size, position) and **View** (Page or Draft, zoom, Show LaTeX, LaTeX marks, page setup). Point at any tool to see its shortcut and the LaTeX it writes.
 
 What is drawn stays drawn while you work in it. Click into bold text and type: it is still bold. The arrow keys move over a formula or a citation in one step, and Backspace and Delete take the letter you see, never a hidden brace; taking the last letter of a bold word takes the bold with it. Text you copy keeps its formatting whole, and selecting everything and typing keeps the document's settings. Enter starts a new paragraph (in LaTeX, a blank line), the next item in a list, or a new line below a heading.
 
@@ -50,6 +50,18 @@ Select words with the mouse and a **small toolbar** appears over them, with bold
 **Align left**, **Centre** (Ctrl+E) and **Align right** set the paragraph in `flushleft`, `center` or `flushright`; **Justify**, LaTeX's usual setting, takes that away. **Line spacing** sets single, 1.5 or double spacing for the whole document. In the styles gallery, **Quote** sets the paragraph as a quotation, indented on both sides, and **Abstract** as the paper's abstract; **Normal** makes it an ordinary paragraph again.
 
 **LaTeX marks** (Ctrl+Shift+8, on Home and View), like Word's ¶ button, show the commands faintly where they stand, such as `\textbf{` before bold words, and the names of lists, quotations and the like in the left margin. You keep working on the page as usual; press it again to hide them.
+
+#### Layout, pages, header and footer
+
+The **Layout** tab sets the page for the whole document, in the settings at the top of the main file, and compiles to show it: **Margins** (Normal, Narrow, Moderate, Wide, or LaTeX's own; **Custom margins…** opens Document setup), **Orientation** (portrait or landscape), **Size** (A4, Letter and others), **Columns** (one or two), **Breaks** (a page break, a page break after the pictures still waiting, or in two columns a column break), **Line numbers** (what journals ask for in a draft sent for review), whether a paragraph's **first line** is indented or paragraphs have space between them, and the **text size**.
+
+Where the PDF breaks a page, the page view shows a gap between two sheets, named by the page it begins. LaTeX decides where a page ends; after you change the text, **Recompile** to see the pages break anew.
+
+**Insert ▸ Header** and **Footer** ask for the text printed at the top right, or in the middle of the foot, of every page; the page view shows it at the top and foot of each page. The page number stays at the foot, beside the footer's text; **Page number ▸ None** leaves the numbers out. Clear the text to take the header or footer away.
+
+#### Pictures
+
+Put the cursor in a figure and a **Picture** tab appears. **Half width**, **Most of it** and **Full width** make the picture that share of the line, so it stays right if the margins change. **Position** asks LaTeX where to put the figure: where it fits best, here if it fits, at the top of a page, on a page of its own, or exactly here. LaTeX moves pictures and tables to where they fit best, so that no page is left half empty, which is why the text refers to them by number ("see Figure 2") rather than "below"; *Exactly here* keeps it where it is written, even if that leaves a gap, and loads the `float` package for you. The same **Position** menu is on the Layout tab, for a table too.
 
 To see or change the LaTeX of a paragraph, press **Ctrl+/** (or View ▸ Show LaTeX). Press it again, or Esc, or move to another paragraph, and it is drawn again. Going to a line, an error or a search result that is inside something drawn shows it as LaTeX too.
 

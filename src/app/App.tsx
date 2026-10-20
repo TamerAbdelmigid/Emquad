@@ -133,6 +133,11 @@ export function App() {
   }, [s.active]);
   const sections = useMemo(() => outline(outlineText), [outlineText]);
 
+  // The page view draws the file on screen broken into pages where the last compile broke them.
+  useEffect(() => {
+    if (s.active) void act.refreshPages();
+  }, [s.active]);
+
   useEffect(() => {
     if (!s.toast) return;
     const timer = window.setTimeout(() => set({ toast: null }), s.toast.error ? 8000 : 3200);
@@ -516,6 +521,8 @@ export function App() {
                 setup: () => set({ dialog: "setup" }),
                 comment: act.startComment,
                 spacing: (spacing) => void act.setLineSpacing(spacing),
+                layout: (patch) => void act.applyLayout(patch),
+                headerFooter: (which) => void act.editHeaderFooter(which),
               }}
             />
           )}

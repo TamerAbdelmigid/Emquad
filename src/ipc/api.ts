@@ -12,6 +12,7 @@ import type { HistoryList } from "./bindings/HistoryList";
 import type { Manifest } from "./bindings/Manifest";
 import type { OpenedProject } from "./bindings/OpenedProject";
 import type { PackagesInfo } from "./bindings/PackagesInfo";
+import type { PageStart } from "./bindings/PageStart";
 import type { PdfRect } from "./bindings/PdfRect";
 import type { Picked } from "./bindings/Picked";
 import type { ProjectIndex } from "./bindings/ProjectIndex";
@@ -35,6 +36,7 @@ export type {
   Manifest,
   OpenedProject,
   PackagesInfo,
+  PageStart,
   PdfRect,
   Picked,
   ProjectIndex,
@@ -123,6 +125,7 @@ export const api = {
     invoke<PdfRect | null>("synctex_forward", { file, line }),
   synctexInverse: (page: number, x: number, y: number) =>
     invoke<SourcePos | null>("synctex_inverse", { page, x, y }),
+  synctexPageStarts: (file: string) => invoke<PageStart[]>("synctex_page_starts", { file }),
 
   historyList: () => invoke<HistoryList>("history_list"),
   historySnapshot: (label: string) => invoke<string>("history_snapshot", { label }),

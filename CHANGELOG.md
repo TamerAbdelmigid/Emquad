@@ -4,6 +4,17 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.17.0 - 2026-10-20
+
+The page view lays out like Word.
+
+- A **Layout** tab sets the page for the whole document: **Margins**, **Orientation** (portrait or landscape), **Size**, **Columns** (one or two), **Breaks** (page, page after the pictures, column), **Line numbers**, the **first line** of paragraphs (indented or space between) and the **text size**. Each is written in the settings at the top, as Document setup writes them, and the document is compiled to show it.
+- The page view now breaks the document into pages where the last compile broke them, with a gap between the sheets named by the page it begins. A landscape page is drawn on its side.
+- **Insert ▸ Header** and **Footer** put text at the top and foot of every page, written with fancyhdr; the page number stays at the foot. **Page number ▸ None** leaves the numbers out. The page view shows the header and footer on each page.
+- Put the cursor in a figure and a **Picture** tab appears: make the picture half, most or all of the line wide, and choose its **Position**: where it fits best, here, at the top of a page, on a page of its own, or exactly here (which loads the float package). The tooltip says why LaTeX moves pictures. Position is on the Layout tab too, for tables.
+- New lines added to the settings at the top now go after a package's own set-up lines (such as `\doublespacing` after setspace) rather than between them. A setting written in a way the app cannot change for certain is now refused with a message, rather than left as it was without a word.
+- Fixed: compiling again while a compile was running could fail on Windows with "Access is denied", because the file being compiled could not be saved over.
+
 ## 0.16.0 - 2026-10-20
 
 The page view formats like Word.
