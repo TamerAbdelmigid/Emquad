@@ -26,6 +26,10 @@ export type Piece =
   | { kind: "footnote"; from: number; to: number; number: number; text: string }
   /** Draw this range, a command that makes something of its own, as a labelled block. */
   | { kind: "block"; from: number; to: number; label: string }
+  /** Draw this range, a command of the document's own that takes nothing, as what it prints. */
+  | { kind: "macro"; from: number; to: number; text: string }
+  /** Draw this range, an environment the editor cannot draw itself (a TikZ picture, say), as it prints in the PDF. */
+  | { kind: "latexblock"; from: number; to: number; name: string; source: string }
   /** Draw this range, the preamble, folded away as one line. */
   | { kind: "fold"; from: number; to: number; title: string }
   /** Style the whole line that starts at `from`; `env` names the environment it opens, for LaTeX marks. */
@@ -84,6 +88,8 @@ export const DRAWN_COLOURS = new Set([
 ]);
 const CITES = new Set(["cite", "citep", "citet", "parencite", "textcite", "autocite", "footcite"]);
 const TABLE = /\\begin\{(tabular\*?|tabularx|longtable)\}/g;
+/** Environments the editor cannot draw itself, drawn as they print in the PDF of the last compile. */
+const DRAWN_FROM_PDF = /\\begin\{(tikzpicture|pgfpicture|circuitikz|forest|algorithm|algorithmic|pspicture|picture)\}/g;
 const RULE = /^\s*(?:\\(?:hline|toprule|midrule|bottomrule)\b|\\(?:cline|cmidrule)(?:\([^)]*\))?\{[^}]*\})/;
 const CHIPS = new Set(["label", "includegraphics", "input", "include", ...CITES]);
 /** Commands that print what the last compile numbered a label. */
@@ -279,6 +285,32 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
     }
   }
 
+  // Blocks of LaTeX the editor cannot draw: drawn whole, from the PDF, nothing inside them on its own.
+  // Their ends are looked for outside comments.
+  const code = text.replace(/(?<!\\)%[^\n]*/g, (c) => " ".repeat(c.length));
+  for (const m of code.matchAll(DRAWN_FROM_PDF)) {
+    const from = m.index;
+    if (from < begin || !free(from, from + 1)) continue;
+    const open = `\\begin{${m[1]}}`;
+    const close = `\\end{${m[1]}}`;
+    let end = -1;
+    for (let depth = 1, i = from + m[0].length; i < code.length; ) {
+      const a = code.indexOf(open, i);
+      const z = code.indexOf(close, i);
+      if (z < 0) break;
+      if (a >= 0 && a < z) {
+        depth++;
+        i = a + open.length;
+      } else if (--depth === 0) {
+        end = z + close.length;
+        break;
+      } else i = z + close.length;
+    }
+    if (end < 0) continue;
+    taken.add(from, end);
+    if (!touched(from, end)) pieces.push({ kind: "latexblock", from, to: end, name: m[1], source: text.slice(from, end) });
+  }
+
   // Tables first: one that is drawn covers everything inside it. One being edited is left as
   // source, with whatever it contains drawn as usual.
   for (const m of text.matchAll(TABLE)) {
@@ -336,6 +368,30 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
   // Inline mathematics: \( \) and $ $ on one line.
   for (const m of text.matchAll(/\\\(([^\n]*?)\\\)/g)) math(m.index, m.index + m[0].length, m[1], false);
   for (const m of text.matchAll(/(?<![\\$])\$(?!\$)((?:\\.|[^$\\\n])+?)\$/g)) math(m.index, m.index + m[0].length, m[1], false);
+
+  // Commands of the document's own that take nothing, defined in its settings: drawn as what they print.
+  if (begin > 0) {
+    const defined = new Map<string, string>();
+    const settings = text.slice(0, begin).replace(/(?<!\\)%[^\n]*/g, (c) => " ".repeat(c.length));
+    // Only those the document makes: one it redefines (\renewcommand) is LaTeX's own.
+    for (const d of settings.matchAll(/\\(?:provide|new)command\*?\s*(?:\{\s*\\([a-zA-Z]+)\s*\}|\\([a-zA-Z]+))\s*\{/g)) {
+      const open = d.index + d[0].length - 1;
+      const close = closingBrace(settings, open);
+      const printed = close > 0 ? plainText(text.slice(open + 1, close - 1)) : "";
+      if (printed) defined.set(d[1] ?? d[2], printed);
+    }
+    if (defined.size) {
+      const names = [...defined.keys()].join("|");
+      for (const m of text.matchAll(new RegExp(String.raw`\\(${names})(?![a-zA-Z])(\{\})?`, "g"))) {
+        const [from, to] = [m.index, m.index + m[0].length];
+        if (from < begin || !free(from, to)) continue;
+        // Its name being defined again in the text is not a use of it.
+        if (/\\(?:re|provide)?newcommand\*?\s*\{?\s*$/.test(text.slice(Math.max(0, from - 40), from))) continue;
+        taken.add(from, to);
+        if (!touched(from, to)) pieces.push({ kind: "macro", from, to, text: defined.get(m[1])! });
+      }
+    }
+  }
 
   // Commands with one braced argument.
   for (const m of text.matchAll(/\\([a-zA-Z]+)\*?(?:\[[^\]\n]*\])?\{/g)) {

@@ -73,6 +73,16 @@ In the page view, comments show as **balloons** beside the page; click one to op
 
 To move a section with everything under it, **drag its heading** in the File outline onto the heading it should come before, or to "Move to the end". From the keyboard, **Alt+Shift+Up** and **Alt+Shift+Down** on a heading in the outline move its section up or down.
 
+#### The LaTeX tab
+
+**Split with LaTeX** (LaTeX or View tab) shows your file's LaTeX beside the page. Type on either side: the other changes at once, and the paragraph you are in is lit on the other side, so you see what each thing on the page is written as. Ctrl+Z undoes on either side.
+
+A drawing written in LaTeX, such as a TikZ picture, cannot be drawn by the editor itself. After you compile, the page shows it as it prints in the PDF; before that, its LaTeX. Press **Show LaTeX** on its bar to change it.
+
+**Packages…** lists the packages your document loads, what each is for in plain words, and which tool loaded it. **My commands…** makes a shortcut from the words you selected: give it a name, and it is written once at the top as `\newcommand` and appears as a button on the LaTeX tab.
+
+As in Word, press and let go **Alt** to see a letter on each tab of the ribbon; press one to open that tab and see a letter on each tool, and press that to use it. Esc goes back.
+
 To see or change the LaTeX of a paragraph, press **Ctrl+/** (or View ▸ Show LaTeX). Press it again, or Esc, or move to another paragraph, and it is drawn again. Going to a line, an error or a search result that is inside something drawn shows it as LaTeX too.
 
 The status line at the bottom says where the cursor is in LaTeX's terms, such as `\section{Method} › itemize › \item › \textbf`, and holds the zoom.
@@ -294,6 +304,7 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Search the project | Ctrl+Shift+F |
 | Comment on the selected text | Ctrl+Alt+M |
 | A link | Ctrl+K |
+| KeyTips on the ribbon | Alt, then a letter |
 | In the File outline: move a section up or down | Alt+Shift+Up, Alt+Shift+Down |
 | In the page view: show the paragraph as LaTeX, or draw it again | Ctrl+/ |
 | Subscript, superscript | Ctrl+=, Ctrl+Shift+= |

@@ -42,6 +42,16 @@ The limits users will meet are also listed, in user terms, under "Known limitati
 - **Colours other than the palette's six** and xcolor's common names are kept but drawn in the text's usual colour; reading `\definecolor` lines to draw any colour is not done.
 - **Where typing goes at the edge of formatting** follows the cursor's place in the source: at the end of a bold word it goes into the bold when the cursor is before the hidden `}`, and after it once the cursor has stepped past. Word continues the formatting on the left; the page view does not yet decide this itself.
 
+- **Split with LaTeX** shows the file on screen; the LaTeX side has no completion, spelling or comments of its own, though Ctrl+F searches it, and its edits are undone from the page's history, a word typed there being one step. A block drawn from the PDF is found by its LaTeX as the last compile read it; once that LaTeX has changed it is shown as written until the next compile. A new command's name is checked against the commands the app knows and those the document defines; a package's own command that is neither is not known to be taken. It is in the page view only.
+- **Blocks drawn from the PDF** are the environments listed in the product spec; another environment the editor cannot draw (one of the document's own, say) is shown as its source. The crop is the box around the lines the block set on its first page, so a block split over two pages shows its first part; after an edit it shows the last compile's drawing until the next.
+- **My commands** are commands that take nothing; one written with arguments, or defined in another file than the one on screen, is used as written and not drawn as what it prints.
+- **Packages…** explains and does not remove: taking a package out is done in the source.
+- **KeyTips** give each tool the first letter of its name not taken already, so the letters can change as tools come and go; Word's own two-letter tips are not copied.
+
+### The rest of the Word proposal
+
+Not built in 0.15.0–0.19.0, from `mockup/proposal-visual-word.html`: a ruler with margins to drag; Focus; pages in the Navigation pane; Hyphenation; Wrap text (wrapfig); Kind of document; a landscape page for one table (pdflscape); multicols for one passage; drawing two columns and line numbers on the page; Endnote, Next footnote, Mark entry, Insert index and Acronym; Manage sources; F7 to step through misspellings and the document's language from the ribbon; Typeface and Size on Home, Title and Code styles, Modify and New style; the Table and Equation contextual tabs (their tools are in the table's bar and the equation editor); LaTeX block, Show what buttons write, the cheat sheet; the bibliography's entries drawn from the `.bbl`.
+
 ### Caption tool
 
 - **Definitions in other files** (a class, a style file of the user's own, a file brought in with `\input`) are not read; a preamble that reads another file is declined, and what a class or style file defines is taken on trust.

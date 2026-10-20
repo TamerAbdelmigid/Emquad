@@ -2,7 +2,7 @@
 // editor already has. Every tool writes plain LaTeX, and its tooltip says which.
 import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon, type IconName, Menu, type MenuItem } from "../../design/ui";
 import { useStore } from "../../state/store";
 import { SymbolPicker } from "./SymbolPicker";
@@ -49,6 +49,12 @@ export interface RibbonActions {
   snapshots: () => Promise<{ id: string; label: string }[]>;
   /** Draw the changes since a snapshot on the page, or stop (null). */
   showChanges: (since: { id: string; label: string } | null) => void;
+  packages: () => void;
+  myCommands: () => void;
+  logs: () => void;
+  /** The commands the document defines, for their buttons. */
+  myCommandList: () => Promise<{ name: string; body: string }[]>;
+  insertMyCommand: (name: string) => void;
 }
 
 interface Props {
@@ -73,9 +79,12 @@ interface Props {
   onMarks: (on: boolean) => void;
   /** Comments are shown as balloons beside the page. */
   balloons: boolean;
+  /** The LaTeX is shown beside the page. */
+  split: boolean;
+  onSplit: (on: boolean) => void;
 }
 
-type TabName = "home" | "insert" | "layout" | "references" | "review" | "view" | "picture";
+type TabName = "home" | "insert" | "layout" | "references" | "review" | "view" | "latex" | "picture";
 
 /** A tool: a real button named for assistive technology, with what its tooltip says kept on it. */
 function Tool(p: {
@@ -322,6 +331,199 @@ const placeItems = (here: FloatHere | null): MenuItem[] =>
     run: () => buffers.placement(pl.value),
   }));
 
+/** Each tab's KeyTip, as Word has them. */
+const TAB_KEYS: Record<TabName, string> = { home: "H", insert: "N", layout: "P", references: "S", review: "R", view: "W", latex: "X", picture: "J" };
+
+/**
+ * Word's KeyTips: Alt pressed and let go alone shows a letter on each tab; pressing one chooses
+ * the tab and shows a letter on each of its tools, and pressing that uses the tool. Escape goes
+ * back a step; a click or any other key puts them away. Alt held for a shortcut shows nothing.
+ */
+function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown: TabName, choose: (tab: TabName) => void) {
+  const [mode, setModeShown] = useState<"off" | "tabs" | "tools">("off");
+  const [tips, setTips] = useState<{ key: string; x: number; y: number; el: HTMLElement }[]>([]);
+  // Kept beside what is drawn, so that each key sees the one before it at once.
+  const modeNow = useRef(mode);
+  const tipsNow = useRef(tips);
+  tipsNow.current = tips;
+  const setMode = (next: "off" | "tabs" | "tools" | ((was: "off" | "tabs" | "tools") => "off" | "tabs" | "tools")) => {
+    modeNow.current = typeof next === "function" ? next(modeNow.current) : next;
+    setModeShown(modeNow.current);
+  };
+  const tabsKey = tabs.join(" ");
+  useEffect(() => {
+    let alone = false;
+    // A dialog has the keyboard to itself.
+    const dialogOpen = () => Boolean(document.querySelector("dialog[open]"));
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "Alt") {
+        alone = !e.ctrlKey && !e.shiftKey && !e.metaKey && !dialogOpen();
+        return;
+      }
+      alone = false;
+      const mode = modeNow.current;
+      if (mode === "off") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") return setMode(mode === "tools" ? "tabs" : "off");
+      const key = e.key.toUpperCase();
+      if (mode === "tabs") {
+        const tab = tabsKey.split(" ").find((t) => TAB_KEYS[t as TabName] === key) as TabName | undefined;
+        if (!tab) return setMode("off");
+        choose(tab);
+        return setMode("tools");
+      }
+      const tool = tipsNow.current.find((t) => t.key === key);
+      setMode("off");
+      if (tool) {
+        tool.el.focus();
+        tool.el.click();
+        // A menu keeps the keyboard; any other tool gives it back to the writing.
+        if (!tool.el.hasAttribute("aria-haspopup")) {
+          tool.el.blur();
+          buffers.run(() => true);
+        }
+      }
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key === "Alt" && alone && !dialogOpen()) {
+        e.preventDefault();
+        setMode((m) => (m === "off" ? "tabs" : "off"));
+      }
+      alone = false;
+    };
+    // A click, or leaving the window, puts them away, and Alt let go after it shows none.
+    const away = () => {
+      alone = false;
+      if (modeNow.current !== "off") setMode("off");
+    };
+    const hidden = () => document.visibilityState === "hidden" && away();
+    window.addEventListener("keydown", down, true);
+    window.addEventListener("keyup", up, true);
+    window.addEventListener("mousedown", away, true);
+    window.addEventListener("blur", away);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("keydown", down, true);
+      window.removeEventListener("keyup", up, true);
+      window.removeEventListener("mousedown", away, true);
+      window.removeEventListener("blur", away);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, [tabsKey, choose]);
+  // Where each letter goes, read from the ribbon as it is drawn.
+  useLayoutEffect(() => {
+    const host = root.current;
+    if (mode === "off" || !host) return setTips([]);
+    const box = host.getBoundingClientRect();
+    const at = (el: HTMLElement, key: string) => {
+      const r = el.getBoundingClientRect();
+      return { key, el, x: r.left - box.left + r.width / 2 - 7, y: r.bottom - box.top - 10 };
+    };
+    if (mode === "tabs") {
+      return setTips(
+        tabsKey
+          .split(" ")
+          .map((t) => [document.getElementById(`rb-tab-${t}`), TAB_KEYS[t as TabName]] as const)
+          .flatMap(([el, key]) => (el ? [at(el, key)] : [])),
+      );
+    }
+    // A tool's letter is the first of its name not taken already, else a digit.
+    const used = new Set<string>();
+    const out: { key: string; x: number; y: number; el: HTMLElement }[] = [];
+    for (const el of host.querySelectorAll<HTMLButtonElement>("#rb-panel button:not(:disabled)")) {
+      const name = (el.getAttribute("aria-label") ?? el.textContent ?? "").toUpperCase();
+      const key = [...name.replace(/[^A-Z]/g, ""), ..."123456789"].find((c) => !used.has(c));
+      if (!key) continue;
+      used.add(key);
+      out.push(at(el, key));
+    }
+    setTips(out);
+  }, [mode, shown, tabsKey, root]);
+  return tips;
+}
+
+/** The page and its LaTeX side by side, or the page alone. */
+function SplitTool(p: Props) {
+  return (
+    <Tool
+      name="Split with LaTeX"
+      icon="split"
+      big
+      label="Split"
+      why="The page and its LaTeX side by side: edit either, and the paragraph you are in is lit in the other."
+      pressed={p.split}
+      disabled={!p.active}
+      run={() => p.onSplit(!p.split)}
+    />
+  );
+}
+
+/** The LaTeX tab, the bridge: write LaTeX, learn it, the document's settings and commands, and the build. */
+function LatexTab(p: Props & { off: boolean }) {
+  const off = p.off;
+  const [mine, setMine] = useState<{ name: string; body: string }[]>([]);
+  const read = useRef(p.actions.myCommandList);
+  read.current = p.actions.myCommandList;
+  const dialog = useStore((s) => s.dialog);
+  useEffect(() => {
+    // Read as the tab opens, and again after the My commands dialog closes.
+    if (off || dialog) return;
+    let live = true;
+    void read
+      .current()
+      .then((list) => live && setMine(list))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [off, dialog]);
+  return (
+    <>
+      <Group label="Write LaTeX">
+        <Tool
+          name="Show LaTeX"
+          keys="Ctrl+/"
+          icon="code"
+          big
+          label="Show LaTeX"
+          why="Opens the paragraph, table or figure you are in as its LaTeX, right on the page. Ctrl+/ again draws it again."
+          disabled={off || !p.pageView}
+          run={() => buffers.run(toggleReveal)}
+        />
+        <SplitTool {...p} />
+      </Group>
+      <Group label="Learn">
+        <Tool
+          name="LaTeX marks"
+          keys="Ctrl+Shift+8"
+          icon="marks"
+          big
+          label="Marks"
+          why="Like Word's ¶: the commands are shown faintly around the text."
+          pressed={p.marks}
+          run={() => p.onMarks(!p.marks)}
+        />
+      </Group>
+      <Group label="Document">
+        <Tool name="Packages" icon="pkg" big label="Packages…" why="What each \usepackage line in the settings at the top is for, and which tool loaded it." disabled={off} run={p.actions.packages} />
+        <Tool name="My commands" icon="wand" big label="My commands…" why="Make a shortcut from the selection: \newcommand. Your commands appear as buttons here." disabled={off} run={p.actions.myCommands} />
+        {mine.length > 0 && (
+          <div className="rb-col rb-mine">
+            {mine.slice(0, 9).map((c) => (
+              <Tool key={c.name} name={`\\${c.name}`} tex={`\\${c.name}{}`} why={`Prints: ${c.body}`} glyph={<span className="mono">\{c.name}</span>} className="wide" disabled={off} run={() => p.actions.insertMyCommand(c.name)} />
+            ))}
+          </div>
+        )}
+      </Group>
+      <Group label="Build">
+        <Tool name="Recompile" keys="Ctrl+Enter" icon="play" big label="Recompile" disabled={off} run={p.actions.compile} />
+        <Tool name="Logs" icon="log" big label="Logs" why="What the compiler said, and the errors explained." run={p.actions.logs} />
+      </Group>
+    </>
+  );
+}
+
 /** Word's Review tab: proofing, comments, the changes since a snapshot, versions and sharing. */
 function ReviewTab(p: Props & { off: boolean }) {
   const off = p.off;
@@ -444,8 +646,15 @@ export function Ribbon(p: Props) {
     ["references", "References"],
     ["review", "Review"],
     ["view", "View"],
+    ["latex", "LaTeX"],
     ...(figure ? [["picture", "Picture"] as [TabName, string]] : []),
   ];
+  const keyTips = useKeyTips(
+    root,
+    tabs.map(([id]) => id),
+    shown,
+    setTab,
+  );
   return (
     <div className="ribbon" ref={root}>
       <div className="rb-tabs">
@@ -458,7 +667,7 @@ export function Ribbon(p: Props) {
               id={`rb-tab-${id}`}
               aria-selected={shown === id}
               aria-controls="rb-panel"
-              className={id === "picture" ? "rb-tab rb-ctx" : "rb-tab"}
+              className={id === "picture" ? "rb-tab rb-ctx" : id === "latex" ? "rb-tab rb-lx" : "rb-tab"}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setTab(id)}
             >
@@ -990,10 +1199,24 @@ export function Ribbon(p: Props) {
               />
               <Tool name="Document setup" icon="page" big label="Page setup" why="Paper, margins, type size, line spacing, typeface." disabled={off} run={p.actions.setup} />
             </Group>
+            <Group label="Window">
+              <SplitTool {...p} />
+            </Group>
           </>
         )}
+        {shown === "latex" && <LatexTab {...p} off={off} />}
       </div>
       <Tip root={root} />
+      {keyTips.map((t) => (
+        <span key={t.key} className="rb-kt" style={{ left: t.x, top: t.y }} aria-hidden="true">
+          {t.key}
+        </span>
+      ))}
+      {keyTips.length > 0 && (
+        <span className="sr-only" role="status">
+          KeyTips: press a letter, or Escape
+        </span>
+      )}
     </div>
   );
 }

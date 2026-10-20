@@ -195,9 +195,9 @@ Agreed with the owner on 15 October 2026, after a review of the app for speed an
 
 | 0.18.0 | Refers like Word, the fourth step: a cross-reference picker listing every label by kind and caption; links (Ctrl+K) and bookmarks; References and Review tabs; comments as balloons beside the page; the changes since a snapshot drawn on the page in each author's colour, kept or undone one by one; moving a section by dragging its heading in the outline |
 
-The rest of that proposal, one version each, in this order (numbers as they fall):
+| 0.19.0 | The bridge to LaTeX, the last step: the page and its LaTeX side by side, linked both ways; blocks of LaTeX the editor cannot draw shown as they print in the PDF; the preamble's packages explained; commands of the user's own as buttons; KeyTips on the ribbon |
 
-- **The bridge to LaTeX:** the page and its LaTeX side by side, linked both ways; blocks of LaTeX drawn from the compile; the preamble explained; commands of the user's own; KeyTips.
+The parts of that proposal not built in these steps are listed in `06-open-items.md` under "The rest of the Word proposal".
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.
 

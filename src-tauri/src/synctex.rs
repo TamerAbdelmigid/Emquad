@@ -284,6 +284,49 @@ impl SyncTex {
         None
     }
 
+    /// Where lines `from` to `to` of `file` were set: the box around every line of text they
+    /// made on the first page they made any, for drawing a block of LaTeX as it prints. None when
+    /// they set nothing.
+    pub fn block(&self, file: &str, from: u32, to: u32) -> Option<PdfRect> {
+        let want = file.replace('\\', "/").to_lowercase();
+        let tags: Vec<u32> = self
+            .inputs
+            .iter()
+            .filter(|(_, p)| p.to_lowercase() == want)
+            .map(|(t, _)| *t)
+            .collect();
+        for (index, page) in self.pages.iter().enumerate() {
+            let mut boxes: Vec<&Rec> = Vec::new();
+            for r in page.iter().filter(|r| {
+                tags.contains(&r.tag) && r.kind != Kind::VBox && (from..=to).contains(&r.line)
+            }) {
+                // A point stands for the line of text it sits in.
+                let mut host = Some(r);
+                while let Some(h) = host.filter(|h| h.kind != Kind::HBox) {
+                    host = h.parent.map(|i| &page[i]);
+                }
+                if let Some(h) = host.filter(|h| h.w > 0.0) {
+                    boxes.push(h);
+                }
+            }
+            if boxes.is_empty() {
+                continue;
+            }
+            let left = boxes.iter().map(|b| b.x).fold(f64::MAX, f64::min);
+            let right = boxes.iter().map(|b| b.x + b.w).fold(f64::MIN, f64::max);
+            let top = boxes.iter().map(|b| b.top()).fold(f64::MAX, f64::min);
+            let bottom = boxes.iter().map(|b| b.bottom()).fold(f64::MIN, f64::max);
+            return Some(PdfRect {
+                page: index as u32 + 1,
+                x: left,
+                y: top,
+                width: right - left,
+                height: (bottom - top).max(8.0),
+            });
+        }
+        None
+    }
+
     /// The source line behind a point on a page: the smallest box under the point, refined by
     /// the nearest recorded position inside it.
     pub fn inverse(&self, page: u32, x: f64, y: f64) -> Option<SourcePos> {
@@ -588,6 +631,20 @@ Count:12
             s.page_starts("main.tex"),
             vec![PageStart { page: 1, line: 5 }]
         );
+    }
+
+    #[test]
+    fn a_block_of_lines_is_the_box_around_what_they_set_on_their_first_page() {
+        let s = sample();
+        let one = s.forward("main.tex", 5).unwrap();
+        let both = s.block("main.tex", 5, 8).unwrap();
+        assert_eq!(both.page, 1);
+        assert!((both.y - one.y).abs() < 0.01, "{both:?}");
+        // Lines 5 and 7 are set on two lines of text: the box holds both.
+        assert!(both.height > one.height + 20.0, "{both:?} {one:?}");
+        // Lines that set nothing, and a file not in the compile, have no box.
+        assert!(s.block("main.tex", 1, 3).is_none());
+        assert!(s.block("missing.tex", 1, 99).is_none());
     }
 
     #[test]

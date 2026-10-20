@@ -13,6 +13,8 @@ import { ensurePackage, packageNotice } from "../features/editor/tableModel";
 import { type Need, preambleFor } from "../features/editor/formatting";
 import { bookmarkProblem, crossReference, headingLine, hyperrefChange, linkFor, linkProblem, moveSection as moveSection_, stepSection as stepSection_ } from "../features/editor/references";
 import { changesOnPage } from "../features/editor/trackChanges";
+import { bodyProblem, commandProblem, compiledLines, defineCommand, myCommands, packagesExplained, replaceable } from "../features/editor/bridge";
+import { openPdf } from "../shared/pdf";
 import { countWords } from "../features/editor/spellModel";
 import type { Diagnostic } from "../ipc/api";
 import type { TreeNode } from "../ipc/bindings/TreeNode";
@@ -713,6 +715,7 @@ async function compileNow(newest: () => boolean) {
   const s = store();
   s.set({ build: out, pdfVersion: out.hasPdf ? s.pdfVersion + 1 : s.pdfVersion });
   // References are numbered by the compile, so visual mode can show their numbers now, and the page view where the pages break.
+  if (out.hasPdf) buffers.newPdf();
   void refreshIndex();
   void refreshPages();
   const first = out.diagnostics.find((d) => d.severity === "error");
@@ -1133,6 +1136,11 @@ export async function insertCrossReference(key: string, as: "named" | "number" |
   if (packages.length) await needFormatting(packages.map((name) => ({ kind: "package" as const, name, why: "which names what a cross-reference points to" })));
 }
 
+/** The selection as it is written, for My commands to make a command of. */
+export function selectedSource(): string {
+  return buffers.selectedText();
+}
+
 /** The selected words as they print, for the Link dialog to show. */
 export function selectedWords(): string {
   return plainText(buffers.selectedText());
@@ -1239,6 +1247,110 @@ export function wordCount() {
   const path = store().active;
   const text = path ? (buffers.text(path) ?? "") : "";
   store().notify(`${countWords(text).toLocaleString()} words in ${path ?? "this file"}, not counting commands, mathematics, comments or the settings at the top.`);
+}
+
+// ---------- the bridge to LaTeX ----------
+
+/** Blocks of LaTeX drawn from the PDF of one compile, by file and the lines the compile read. */
+const blockPictures = new Map<string, Promise<string | null>>();
+/** That compile's PDF, opened once for all its blocks. */
+let blockPdf: { version: number; task: Promise<Awaited<ReturnType<typeof openPdf>>> } | null = null;
+
+/**
+ * A block of LaTeX, `source` beginning on line `line` of the file on screen, as it prints in the
+ * last compile's PDF, cropped out of its page where SyncTeX says it was set, as an image's
+ * address. SyncTeX speaks of the lines the compile read, so the block is found in the text as it
+ * was read. Null before a compile, once the block has changed since, or when the PDF has no
+ * place for it.
+ */
+export function blockPicture(source: string, line: number): Promise<string | null> {
+  const path = store().active;
+  if (!path) return Promise.resolve(null);
+  // A file not compiled in this session is taken to be as the last compile read it while it has no unsaved changes.
+  const known = compiledTexts.get(path);
+  const read = known !== undefined ? known : store().tabs.some((t) => t.path === path && t.dirty) ? null : (buffers.text(path) ?? null);
+  const lines = read === null ? null : compiledLines(read, source, line);
+  if (!lines) return Promise.resolve(null);
+  const version = store().pdfVersion;
+  if (blockPdf?.version !== version) {
+    blockPictures.clear();
+    const old = blockPdf;
+    void old?.task.then((t) => t.destroy(), () => {});
+    blockPdf = { version, task: api.pdfRead().then((bytes) => openPdf(new Uint8Array(bytes))) };
+    // A PDF that cannot be read draws no blocks; each finds that out for itself.
+    blockPdf.task.catch(() => {});
+  }
+  const pdf = blockPdf.task;
+  const key = `${path}:${lines.from}:${lines.to}`;
+  let found = blockPictures.get(key);
+  if (!found) {
+    found = (async () => {
+      try {
+        const rect = await api.synctexBlock(path, lines.from, lines.to);
+        if (!rect) return null;
+        const doc = await (await pdf).promise;
+        const page = await doc.getPage(rect.page);
+        const scale = 2;
+        const pad = 4;
+        const viewport = page.getViewport({ scale });
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil((rect.width + 2 * pad) * scale);
+        canvas.height = Math.ceil((rect.height + 2 * pad) * scale);
+        await page.render({ canvas, viewport, transform: [1, 0, 0, 1, -(rect.x - pad) * scale, -(rect.y - pad) * scale] }).promise;
+        return canvas.toDataURL("image/png");
+      } catch {
+        return null;
+      }
+    })();
+    blockPictures.set(key, found);
+  }
+  return found;
+}
+
+/** The commands the main file defines, for the LaTeX tab's buttons. */
+export async function myCommandsNow() {
+  return myCommands(await mainText());
+}
+
+/**
+ * Make a command of the document's own, `\name`, printing `body`: written once in the main
+ * file's settings, and put in place of the selection when that is what it prints.
+ */
+export async function makeCommand(name: string, body: string) {
+  const main = store().info?.mainFile;
+  if (!main) return;
+  const text = await mainText();
+  const problem = commandProblem(name, text) ?? bodyProblem(body);
+  if (problem) return store().notify(problem, true);
+  const change = defineCommand(text, name, body);
+  if (!change) return store().notify("Commands are written in the settings at the top of the main file, and it has none.", true);
+  // The selection becomes the command only where it is the words it prints, cutting nothing.
+  const path = store().active;
+  const state = path ? buffers.current(path) : undefined;
+  const { from, to } = state?.selection.main ?? { from: 0, to: 0 };
+  const use = state && replaceable(state.doc.toString(), from, to, body) ? { from, to, insert: `\\${name}{}` } : null;
+  // The definition is written first; in the main file, with the use, as one step to undo.
+  if (path === main && buffers.has(main)) buffers.change(main, use ? [change, use] : change);
+  else {
+    if (buffers.has(main)) buffers.change(main, change);
+    else {
+      const wrote = await api.fileWrite(main, text.slice(0, change.from) + change.insert + text.slice(change.to)).then(() => true, () => false);
+      if (!wrote) return store().notify(`Could not write \\${name} in ${main}; nothing was changed.`, true);
+    }
+    if (use && path) buffers.change(path, use);
+  }
+  store().set({ dialog: null });
+  store().notify(`Made \\${name}. It is written once in the settings at the top, and is a button on the LaTeX tab; changing it there changes every use.`);
+}
+
+/** Put a command of the document's own in at the cursor. */
+export function insertMyCommand(name: string) {
+  buffers.insertInline(() => ({ before: `\\${name}{}`, after: "" }));
+}
+
+/** The packages the main file loads, each explained. */
+export async function packagesNow() {
+  return packagesExplained(await mainText());
 }
 
 // ---------- symbols ----------

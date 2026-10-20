@@ -17,13 +17,18 @@ import {
   helpFor,
   insertCrossReference,
   insertLink,
+  makeCommand,
+  myCommandsNow,
   openFile,
+  packagesNow,
+  selectedSource,
   selectedWords,
   setCitationStyle,
 } from "./actions";
 import type { Setup } from "../features/editor/documentSetup";
 import type { Reference } from "../features/editor/bib";
 import { labelGroups } from "../features/editor/references";
+import type { PackageLine } from "../features/editor/bridge";
 import { STYLES } from "../features/editor/citationStyle";
 import { EquationDialog } from "./EquationDialog";
 
@@ -113,6 +118,8 @@ export function Dialogs() {
       {dialog === "equation" && <EquationDialog onClose={close} />}
       {dialog === "crossReference" && <CrossReferenceDialog onClose={close} />}
       {dialog === "link" && <LinkDialog onClose={close} />}
+      {dialog === "packages" && <PackagesDialog onClose={close} />}
+      {dialog === "myCommands" && <MyCommandsDialog onClose={close} />}
       {dialog === "shortcuts" && (
         <Dialog title="Keyboard shortcuts" onClose={close}>
           <dl className="keys">
@@ -482,6 +489,107 @@ function CrossReferenceDialog({ onClose }: { onClose: () => void }) {
           </button>
           <button type="submit" className="btn go" disabled={!key}>
             Insert
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** The settings at the top in plain words: each package, what it is for, and the tool that loads it. */
+function PackagesDialog({ onClose }: { onClose: () => void }) {
+  const [list, setList] = useState<PackageLine[] | null>(null);
+  const set = useStore((s) => s.set);
+  useEffect(() => {
+    void packagesNow().then(setList);
+  }, []);
+  return (
+    <Dialog title="Preamble & packages" intro="The packages the settings at the top of the main file load, in plain words. Each tool that needs one loads it for you; nothing here is hidden from Code." onClose={onClose} wide>
+      {list === null && <p>Reading the settings…</p>}
+      {list?.length === 0 && <p>The document loads no packages.</p>}
+      {list && list.length > 0 && (
+        <table className="pk-list">
+          <thead>
+            <tr>
+              <th scope="col">Package</th>
+              <th scope="col">What it is for</th>
+              <th scope="col">Loaded by</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((p) => (
+              <tr key={`${p.line}:${p.name}`}>
+                <td>
+                  <code>{p.options ? `[${p.options}]{${p.name}}` : p.name}</code>
+                  <small> line {p.line}</small>
+                </td>
+                <td>{p.what || "A package of the document's own choosing."}</td>
+                <td>{p.by || "You"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="end">
+        <button
+          type="button"
+          className="btn"
+          onClick={() => {
+            onClose();
+            set({ visual: false });
+          }}
+        >
+          Open in Code
+        </button>
+        <button type="button" className="btn go" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </Dialog>
+  );
+}
+
+/** A command of the document's own, made from the selection, as Word's AutoText makes a shortcut. */
+function MyCommandsDialog({ onClose }: { onClose: () => void }) {
+  const [name, setName] = useState("");
+  const [body, setBody] = useState(() => selectedSource());
+  const [mine, setMine] = useState<{ name: string; body: string }[]>([]);
+  useEffect(() => {
+    void myCommandsNow().then(setMine);
+  }, []);
+  return (
+    <Dialog title="My commands" intro="A shortcut for words or formatting you use often. It is written once in the settings at the top as \newcommand, used like any other command, and shown as a button on the LaTeX tab." onClose={onClose}>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (name && body) void makeCommand(name, body);
+        }}
+      >
+        <div className="f">
+          <label htmlFor="cmd-name">Name</label>
+          <input id="cmd-name" type="text" autoFocus value={name} placeholder="Letters only, such as gwr" onChange={(e) => setName(e.target.value.replace(/[^A-Za-z]/g, ""))} />
+        </div>
+        <div className="f">
+          <label htmlFor="cmd-body">Prints</label>
+          <input id="cmd-body" type="text" value={body} placeholder="The words, as LaTeX" onChange={(e) => setBody(e.target.value)} />
+        </div>
+        {mine.length > 0 && (
+          <fieldset>
+            <legend>Commands of this document</legend>
+            {mine.map((c) => (
+              <p key={c.name} className="cmd-row">
+                <code>\{c.name}</code> <span>{c.body}</span>
+              </p>
+            ))}
+          </fieldset>
+        )}
+        <div className="end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn go" disabled={!name || !body}>
+            Make command
           </button>
         </div>
       </form>

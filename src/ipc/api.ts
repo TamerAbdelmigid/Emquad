@@ -126,6 +126,7 @@ export const api = {
   synctexInverse: (page: number, x: number, y: number) =>
     invoke<SourcePos | null>("synctex_inverse", { page, x, y }),
   synctexPageStarts: (file: string) => invoke<PageStart[]>("synctex_page_starts", { file }),
+  synctexBlock: (file: string, from: number, to: number) => invoke<PdfRect | null>("synctex_block", { file, from, to }),
 
   historyList: () => invoke<HistoryList>("history_list"),
   historySnapshot: (label: string) => invoke<string>("history_snapshot", { label }),

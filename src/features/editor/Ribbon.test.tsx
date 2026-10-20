@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 const noop = () => {};
 const props = {
-  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop, spacing: noop, layout: noop, headerFooter: noop, bookmark: noop, compile: noop, snapshot: noop, history: noop, exportBundle: noop, sendToWord: noop, pdfWithComments: noop, wordCount: noop, stepComment: noop, balloons: noop, snapshots: () => Promise.resolve([{ id: "v1", label: "Draft 1" }]), showChanges: noop },
+  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop, spacing: noop, layout: noop, headerFooter: noop, bookmark: noop, compile: noop, snapshot: noop, history: noop, exportBundle: noop, sendToWord: noop, pdfWithComments: noop, wordCount: noop, stepComment: noop, balloons: noop, snapshots: () => Promise.resolve([{ id: "v1", label: "Draft 1" }]), showChanges: noop, packages: noop, myCommands: noop, logs: noop, myCommandList: () => Promise.resolve([{ name: "gwr", body: "groundwater recharge" }]), insertMyCommand: noop },
   active: true,
   chapters: false,
   onSymbols: noop,
@@ -27,6 +27,8 @@ const props = {
   marks: false,
   onMarks: noop,
   balloons: true,
+  split: false,
+  onSplit: noop,
 };
 
 describe("Ribbon", () => {
@@ -118,5 +120,63 @@ describe("Ribbon", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Insert" }));
     expect(screen.getByRole("button", { name: "Link" }).dataset.keys).toBe("Ctrl+K");
     expect(screen.getByRole("button", { name: "Bookmark" }).dataset.tex).toBe("\\label{…}");
+  });
+
+  it("builds the bridge to LaTeX: a LaTeX tab with Split, Packages, My commands and a button for each of the document's own commands", async () => {
+    const insertMyCommand = vi.fn();
+    const onSplit = vi.fn();
+    render(<Ribbon {...props} onSplit={onSplit} actions={{ ...props.actions, insertMyCommand }} symbolsOpen={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: "LaTeX" }));
+    for (const name of ["Show LaTeX", "Packages", "My commands", "Recompile", "Logs"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Split with LaTeX" }));
+    expect(onSplit).toHaveBeenLastCalledWith(true);
+    fireEvent.click(await screen.findByRole("button", { name: "\\gwr" }));
+    expect(insertMyCommand).toHaveBeenLastCalledWith("gwr");
+  });
+
+  it("shows KeyTips when Alt is pressed alone, a letter choosing a tab and then a tool, as in Word", () => {
+    render(<Ribbon {...props} symbolsOpen={false} />);
+    fireEvent.keyDown(window, { key: "Alt" });
+    fireEvent.keyUp(window, { key: "Alt" });
+    const tips = () => [...document.querySelectorAll(".rb-kt")].map((t) => t.textContent);
+    expect(tips()).toEqual(expect.arrayContaining(["H", "N", "P", "S", "R", "W", "X"]));
+    fireEvent.keyDown(window, { key: "p" });
+    expect(screen.getByRole("tab", { name: "Layout" }).getAttribute("aria-selected")).toBe("true");
+    expect(tips()).toContain("M");
+    fireEvent.keyDown(window, { key: "m" });
+    expect(screen.getByRole("menuitem", { name: /Narrow/ })).toBeTruthy();
+    expect(tips()).toEqual([]);
+    // Alt held for a shortcut, such as Alt+=, shows none.
+    fireEvent.keyDown(window, { key: "Alt" });
+    fireEvent.keyDown(window, { key: "=", altKey: true });
+    fireEvent.keyUp(window, { key: "Alt" });
+    expect(tips()).toEqual([]);
+  });
+
+  it("shows no KeyTips for Alt let go after a click, after leaving the window, or over a dialog, and leaves no tool holding the keyboard", () => {
+    render(<Ribbon {...props} symbolsOpen={false} />);
+    const tips = () => [...document.querySelectorAll(".rb-kt")].map((t) => t.textContent);
+    fireEvent.keyDown(window, { key: "Alt" });
+    fireEvent.mouseDown(document.body);
+    fireEvent.keyUp(window, { key: "Alt" });
+    expect(tips()).toEqual([]);
+    fireEvent.keyDown(window, { key: "Alt" });
+    fireEvent.blur(window);
+    fireEvent.keyUp(window, { key: "Alt" });
+    expect(tips()).toEqual([]);
+    const dialog = document.body.appendChild(document.createElement("dialog"));
+    dialog.setAttribute("open", "");
+    fireEvent.keyDown(window, { key: "Alt" });
+    fireEvent.keyUp(window, { key: "Alt" });
+    expect(tips()).toEqual([]);
+    dialog.remove();
+    // A tool that is not a menu, used by its letter, gives the keyboard back.
+    fireEvent.keyDown(window, { key: "Alt" });
+    fireEvent.keyUp(window, { key: "Alt" });
+    fireEvent.keyDown(window, { key: "h" });
+    const letter = [...document.querySelectorAll<HTMLElement>(".rb-kt")].find((t) => t.textContent === "B");
+    expect(letter).toBeTruthy();
+    fireEvent.keyDown(window, { key: "b" });
+    expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "Bold" }));
   });
 });

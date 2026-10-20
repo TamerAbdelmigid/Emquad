@@ -30,6 +30,32 @@ describe("visualPieces", () => {
     expect(of(pieces, "style").filter((p) => p.kind === "style" && p.style === "link").map((p) => slice(text, p))).toEqual(["the site", "https://a.b"]);
   });
 
+  it("draws a command of the document's own as what it prints, with or without its empty braces", () => {
+    const text = "\\documentclass{article}\n\\newcommand{\\gwr}{groundwater \\textit{recharge}}\n\\begin{document}\nSee \\gwr{} and \\gwr. Not \\gwrx.\n\\end{document}";
+    const macros = of(visualPieces(text, []), "macro") as Extract<Piece, { kind: "macro" }>[];
+    expect(macros.map((m) => [slice(text, m), m.text])).toEqual([
+      ["\\gwr{}", "groundwater recharge"],
+      ["\\gwr", "groundwater recharge"],
+    ]);
+  });
+
+  it("draws a block of LaTeX the editor cannot draw itself as one block, and nothing inside it", () => {
+    const text = "\\begin{document}\nBefore.\n\\begin{tikzpicture}\n  \\draw (0,0) -- (1,$x$);\n\\end{tikzpicture}\nAfter $y$.\n\\end{document}";
+    const pieces = visualPieces(text, []);
+    const blocks = of(pieces, "latexblock") as Extract<Piece, { kind: "latexblock" }>[];
+    expect(blocks.map((b) => [b.name, slice(text, b)])).toEqual([["tikzpicture", "\\begin{tikzpicture}\n  \\draw (0,0) -- (1,$x$);\n\\end{tikzpicture}"]]);
+    expect(of(pieces, "math").map((m) => slice(text, m))).toEqual(["$y$"]);
+    // With the cursor in it, it is shown as its LaTeX.
+    expect(of(visualPieces(text, [{ from: text.indexOf("draw"), to: text.indexOf("draw") }]), "latexblock")).toEqual([]);
+  });
+
+  it("does not end a block at an \\end in a comment, and draws only commands the document makes, not those it redefines or leaves empty", () => {
+    const text = "\\documentclass{article}\n\\renewcommand{\\arraystretch}{1.5}\n\\newcommand{\\nothing}{}\n\\newcommand{\\gwr}{recharge}\n\\begin{document}\n\\begin{tikzpicture}\n% \\end{tikzpicture} old\n\\draw (0,0);\n\\end{tikzpicture}\n\\renewcommand{\\arraystretch}{2}\\renewcommand{\\gwr}{x} \\nothing \\gwr\n\\end{document}";
+    const pieces = visualPieces(text, []);
+    expect((of(pieces, "latexblock") as Extract<Piece, { kind: "latexblock" }>[]).map((b) => b.source.endsWith("\\draw (0,0);\n\\end{tikzpicture}"))).toEqual([true]);
+    expect(of(pieces, "macro").map((m) => slice(text, m))).toEqual(["\\gwr"]);
+  });
+
   it("leaves a construct as plain source while the cursor is in it", () => {
     const text = "a \\textbf{bold} b $x^2$ c";
     const away = visualPieces(text, [{ from: 0, to: 0 }]);

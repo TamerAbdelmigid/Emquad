@@ -56,6 +56,7 @@ macro_rules! handlers {
             commands::synctex_forward,
             commands::synctex_inverse,
             commands::synctex_page_starts,
+            commands::synctex_block,
             commands::history_list,
             commands::history_snapshot,
             commands::history_keep_while_writing,
