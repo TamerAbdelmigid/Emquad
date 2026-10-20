@@ -11,7 +11,7 @@ use crate::packages::{self, PackagesInfo};
 use crate::project::{DATA_DIR, FileContent, Project, ProjectInfo, TreeNode, atomic_write};
 use crate::review::{self, Decision, Review};
 use crate::settings::Settings;
-use crate::synctex::{PdfRect, SourcePos, SyncTex};
+use crate::synctex::{PageStart, PdfRect, SourcePos, SyncTex};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -1094,6 +1094,21 @@ pub fn synctex_inverse(
 ) -> Result<Option<SourcePos>> {
     let session = state.session(window.label());
     Ok(synctex(&session, &current(&session)?)?.inverse(page, x, y))
+}
+
+/// Where each page of the last compile begins in `file`, for the page view to draw its breaks.
+/// Nothing before the first compile.
+#[tauri::command(async)]
+pub fn synctex_page_starts(
+    window: tauri::Window,
+    state: State<AppState>,
+    file: String,
+) -> Result<Vec<PageStart>> {
+    let session = state.session(window.label());
+    Ok(match synctex(&session, &current(&session)?) {
+        Ok(map) => map.page_starts(&file),
+        Err(_) => Vec::new(),
+    })
 }
 
 // ---------- history ----------

@@ -15,6 +15,7 @@ import { type Alignment, type BlockStyle, alignmentAt, blockStyleAt, environment
 import type { Setup } from "./documentSetup";
 import { COLOURS, formatAt } from "./formatting";
 import { NUMBER_FORMATS, listAt, numberingAt } from "./lists";
+import { type FloatHere, floatAt } from "./floats";
 
 /** What the ribbon asks of the app: the dialogs and actions that live outside the editor. */
 export interface RibbonActions {
@@ -27,6 +28,10 @@ export interface RibbonActions {
   comment: () => void;
   /** Line spacing for the whole document, set as Document setup sets it. */
   spacing: (spacing: Setup["spacing"]) => void;
+  /** A setting of the Layout tab, for the whole document, set as Document setup sets it. */
+  layout: (patch: Partial<Setup>) => void;
+  /** Type the header's or the footer's text. */
+  headerFooter: (which: "header" | "footer") => void;
 }
 
 interface Props {
@@ -45,13 +50,13 @@ interface Props {
   onZoom: (zoom: number) => void;
   /** The document class has an abstract environment. */
   abstract: boolean;
-  /** The document's line spacing, or null when its settings cannot be read. */
-  spacing: Setup["spacing"] | null;
+  /** How the document is set, or null when its settings cannot be read. */
+  setup: Setup | null;
   marks: boolean;
   onMarks: (on: boolean) => void;
 }
 
-type TabName = "home" | "insert" | "view";
+type TabName = "home" | "insert" | "layout" | "view" | "picture";
 
 /** A tool: a real button named for assistive technology, with what its tooltip says kept on it. */
 function Tool(p: {
@@ -161,6 +166,8 @@ interface Here {
   list: string | null;
   numbering: string | null;
   alignment: Alignment;
+  /** The figure or table the cursor is in. */
+  float: FloatHere | null;
 }
 
 /**
@@ -183,6 +190,7 @@ function useHere(): Here | null {
         list: listAt(text, at),
         numbering: numberingAt(text, at),
         alignment: alignmentAt(text, at, envs),
+        float: floatAt(text, at),
       });
     }, 120);
     return () => window.clearTimeout(timer);
@@ -232,6 +240,69 @@ const ALIGN: { id: Alignment; name: string; icon: IconName; keys?: string; tex?:
   { id: "justify", name: "Justify", icon: "al-j", why: "LaTeX's own setting: nothing is written, and alignment written before is taken away." },
 ];
 
+/** A tall tool that opens a menu, its word under its icon. */
+function BigMenu(p: { name: string; icon: IconName; tex?: string; why?: string; disabled?: boolean; items: (MenuItem | "separator")[] }) {
+  return (
+    <Menu
+      className="rb-big"
+      ariaLabel={p.name}
+      label={
+        <>
+          <Icon name={p.icon} size={22} />
+          <span>
+            {p.name} <Icon name="chev" size={10} />
+          </span>
+        </>
+      }
+      disabled={p.disabled}
+      buttonProps={{ "data-tip": p.name, "data-tex": p.tex, "data-why": p.why }}
+      items={p.items}
+    />
+  );
+}
+
+/** Word's margins, written as geometry's margin on every side. */
+const MARGINS: { label: string; value: string }[] = [
+  { label: "Normal · 2.5 cm", value: "2.5cm" },
+  { label: "Narrow · 1.27 cm", value: "1.27cm" },
+  { label: "Moderate · 1.9 cm", value: "1.9cm" },
+  { label: "Wide · 3.5 cm", value: "3.5cm" },
+  { label: "LaTeX's own", value: "" },
+];
+
+const PAPERS: { label: string; value: string }[] = [
+  { label: "A4 · 21 × 29.7 cm", value: "a4paper" },
+  { label: "Letter · 8.5 × 11 in", value: "letterpaper" },
+  { label: "A5 · 14.8 × 21 cm", value: "a5paper" },
+  { label: "B5 · 17.6 × 25 cm", value: "b5paper" },
+  { label: "Legal · 8.5 × 14 in", value: "legalpaper" },
+  { label: "Executive · 7.25 × 10.5 in", value: "executivepaper" },
+  { label: "The class's own (Letter)", value: "" },
+];
+
+/** Why LaTeX moves pictures and tables, in one sentence, as the Position tool says it. */
+export const WHY_FLOATS =
+  "LaTeX places pictures and tables where they fit best, so that no page is left half empty, and the text refers to them by number; here you can ask for a place.";
+
+/** Where a figure or table may go, and what each choice writes. */
+export const PLACES: { label: string; value: string }[] = [
+  { label: "Where it fits best", value: "htbp" },
+  { label: "Here, if it fits", value: "h" },
+  { label: "Top of a page", value: "t" },
+  { label: "A page of its own", value: "p" },
+  { label: "Exactly here", value: "H" },
+];
+
+/** The Position menu, for the figure or table the cursor is in. */
+const placeItems = (here: FloatHere | null): MenuItem[] =>
+  PLACES.map((pl) => ({
+    label: pl.label,
+    hint: `[${pl.value}]${pl.value === "H" ? " float" : ""}`,
+    checked: here !== null && (here.placement || "tbp") === pl.value,
+    disabled: !here,
+    run: () => buffers.placement(pl.value),
+  }));
+
 /** A style from the gallery: a heading level, a block style, or Normal, which takes either off. */
 function setStyle(s: (typeof STYLES)[number], current: string | null) {
   if (s.block) return buffers.blockStyle(s.block);
@@ -260,17 +331,36 @@ export function Ribbon(p: Props) {
   const heads = here?.heads ?? [];
   const painting = useStore((s) => s.painting);
   const off = !p.active;
+  const setup = p.setup;
+  const unset = off || setup === null;
+  // A figure's own tab, shown while the cursor is in one, as Word shows Picture Format.
+  const figure = here?.float?.kind === "figure" ? here.float : null;
+  // Out of the figure, its tab goes, back to Home, and is not chosen again by the next figure.
+  if (tab === "picture" && !figure) setTab("home");
+  const shown: TabName = tab === "picture" && !figure ? "home" : tab;
   const tabs: [TabName, string][] = [
     ["home", "Home"],
     ["insert", "Insert"],
+    ["layout", "Layout"],
     ["view", "View"],
+    ...(figure ? [["picture", "Picture"] as [TabName, string]] : []),
   ];
   return (
     <div className="ribbon" ref={root}>
       <div className="rb-tabs">
         <div role="tablist" aria-label="Ribbon" className="rb-tablist">
           {tabs.map(([id, name]) => (
-            <button key={id} type="button" role="tab" id={`rb-tab-${id}`} aria-selected={tab === id} aria-controls="rb-panel" className="rb-tab" onClick={() => setTab(id)}>
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`rb-tab-${id}`}
+              aria-selected={shown === id}
+              aria-controls="rb-panel"
+              className={id === "picture" ? "rb-tab rb-ctx" : "rb-tab"}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setTab(id)}
+            >
               {name}
             </button>
           ))}
@@ -289,8 +379,8 @@ export function Ribbon(p: Props) {
           </button>
         </div>
       </div>
-      <div className="rb-panel" id="rb-panel" role="tabpanel" aria-labelledby={`rb-tab-${tab}`}>
-        {tab === "home" && (
+      <div className="rb-panel" id="rb-panel" role="tabpanel" aria-labelledby={`rb-tab-${shown}`}>
+        {shown === "home" && (
           <>
             <Group label="Undo">
               <Tool name="Undo" keys="Ctrl+Z" icon="undo" run={() => buffers.run(undo)} />
@@ -462,9 +552,9 @@ export function Ribbon(p: Props) {
                         <Icon name="chev" size={10} />
                       </>
                     }
-                    disabled={off || p.spacing === null}
+                    disabled={unset}
                     buttonProps={{ "data-tip": "Line spacing", "data-tex": "\\usepackage{setspace}\n\\onehalfspacing", "data-why": "For the whole document, in its settings at the top, as Document setup sets it." }}
-                    items={SPACINGS.map((s) => ({ label: s.name, hint: s.tex || undefined, checked: p.spacing === s.id, run: () => p.actions.spacing(s.id) }))}
+                    items={SPACINGS.map((s) => ({ label: s.name, hint: s.tex || undefined, checked: setup?.spacing === s.id, run: () => p.actions.spacing(s.id) }))}
                   />
                 </div>
               </div>
@@ -506,7 +596,7 @@ export function Ribbon(p: Props) {
             </Group>
           </>
         )}
-        {tab === "insert" && (
+        {shown === "insert" && (
           <>
             <Group label="Pages">
               {insertTool(INSERT.pageBreak, "brk", true, off)}
@@ -517,6 +607,37 @@ export function Ribbon(p: Props) {
             </Group>
             <Group label="Illustrations">{insertTool(INSERT.figure, "picture", true, off)}</Group>
             <Group label="Links">{insertTool(INSERT.crossReference, "xref", true, off)}</Group>
+            <Group label="Header & Footer">
+              <div className="rb-col">
+                <Tool
+                  name="Header"
+                  tex={"\\usepackage{fancyhdr}\n\\pagestyle{fancy}\n\\fancyhead[R]{…}"}
+                  why="Printed at the top of every page, written once in the settings at the top. The page view shows it in each page's top margin."
+                  icon="header"
+                  label="Header"
+                  disabled={unset}
+                  run={() => p.actions.headerFooter("header")}
+                />
+                <Tool name="Footer" tex="\fancyfoot[C]{…}" why="Printed at the foot of every page, with the page number beside it." icon="footer" label="Footer" disabled={unset} run={() => p.actions.headerFooter("footer")} />
+                <Menu
+                  className="rb-tool"
+                  ariaLabel="Page number"
+                  label={
+                    <>
+                      <Icon name="pagenum" />
+                      <span>Page number</span>
+                      <Icon name="chev" size={10} />
+                    </>
+                  }
+                  disabled={unset}
+                  buttonProps={{ "data-tip": "Page number", "data-tex": "\\pagestyle{empty}", "data-why": "LaTeX numbers the pages by itself, at the foot; none leaves the numbers out." }}
+                  items={[
+                    { label: "At the foot", checked: setup?.pageNumbers === true, run: () => p.actions.layout({ pageNumbers: true }) },
+                    { label: "None", hint: "\\pagestyle{empty}", checked: setup?.pageNumbers === false, run: () => p.actions.layout({ pageNumbers: false }) },
+                  ]}
+                />
+              </div>
+            </Group>
             <Group label="Text">
               {insertTool(INSERT.footnote, "footnote", true, off)}
               <SymbolPicker open={p.symbolsOpen} disabled={off} recent={p.recentSymbols} onOpen={p.onSymbols} onUsed={p.onSymbolUsed} />
@@ -533,7 +654,153 @@ export function Ribbon(p: Props) {
             </Group>
           </>
         )}
-        {tab === "view" && (
+        {shown === "layout" && (
+          <>
+            <Group label="Page setup">
+              <BigMenu
+                name="Margins"
+                icon="margins"
+                tex="\usepackage[margin=2.5cm]{geometry}"
+                why="The same on every side. Other margins are set in Document setup."
+                disabled={unset}
+                items={[
+                  ...MARGINS.map((m) => ({ label: m.label, hint: m.value ? `margin=${m.value}` : undefined, checked: setup?.margins === m.value, run: () => p.actions.layout({ margins: m.value }) })),
+                  "separator" as const,
+                  { label: "Custom margins…", run: p.actions.setup },
+                ]}
+              />
+              <BigMenu
+                name="Orientation"
+                icon="orient"
+                tex="\usepackage[landscape]{geometry}"
+                why="For the whole document. One wide table on a landscape page of its own is written with pdflscape, in its LaTeX."
+                disabled={unset}
+                items={[
+                  { label: "Portrait", checked: setup?.landscape === false, run: () => p.actions.layout({ landscape: false }) },
+                  { label: "Landscape", hint: "landscape", checked: setup?.landscape === true, run: () => p.actions.layout({ landscape: true }) },
+                ]}
+              />
+              <BigMenu
+                name="Size"
+                icon="size"
+                tex="\documentclass[a4paper]{article}"
+                disabled={unset}
+                items={PAPERS.map((s) => ({ label: s.label, hint: s.value || undefined, checked: setup?.paper === s.value, run: () => p.actions.layout({ paper: s.value }) }))}
+              />
+              <BigMenu
+                name="Columns"
+                icon="cols"
+                tex="\documentclass[twocolumn]{article}"
+                why="Two columns for the whole document, as the compile sets them; the page view keeps the text in one."
+                disabled={unset}
+                items={[
+                  { label: "One", checked: setup?.columns === 1, run: () => p.actions.layout({ columns: 1 }) },
+                  { label: "Two", hint: "twocolumn", checked: setup?.columns === 2, run: () => p.actions.layout({ columns: 2 }) },
+                ]}
+              />
+              <div className="rb-col">
+                <Menu
+                  className="rb-tool"
+                  ariaLabel="Breaks"
+                  label={
+                    <>
+                      <Icon name="brk" />
+                      <span>Breaks</span>
+                      <Icon name="chev" size={10} />
+                    </>
+                  }
+                  disabled={off}
+                  buttonProps={{ "data-tip": "Breaks", "data-tex": "\\newpage   \\clearpage", "data-why": "LaTeX breaks pages by itself; a break you put in starts the next page, or column, here." }}
+                  items={[
+                    { label: "Page", hint: setup?.columns === 2 ? "\\clearpage" : "\\newpage", run: () => buffers.insert(setup?.columns === 2 ? "\\clearpage\n" : "\\newpage\n") },
+                    { label: "Page, the pictures first", hint: "\\clearpage", run: () => buffers.insert("\\clearpage\n") },
+                    { label: "Column", hint: "\\newpage", disabled: setup?.columns !== 2, run: () => buffers.insert("\\newpage\n") },
+                  ]}
+                />
+                <Tool
+                  name="Line numbers"
+                  tex={"\\usepackage{lineno}\n\\linenumbers"}
+                  why="What journals ask for when you send a draft for review."
+                  icon="lnum"
+                  label="Line numbers"
+                  pressed={setup?.lineNumbers ?? false}
+                  disabled={unset}
+                  run={() => p.actions.layout({ lineNumbers: !setup?.lineNumbers })}
+                />
+              </div>
+            </Group>
+            <Group label="Paragraph · whole document">
+              <div className="rb-col">
+                <Menu
+                  className="rb-tool"
+                  ariaLabel="First line"
+                  label={
+                    <>
+                      <span>First line: {setup?.paragraphs === "space" ? "space between" : "indented"}</span>
+                      <Icon name="chev" size={10} />
+                    </>
+                  }
+                  disabled={unset}
+                  buttonProps={{ "data-tip": "First line", "data-tex": "\\usepackage{parskip}", "data-why": "LaTeX indents the first line of each paragraph; parskip puts a space between paragraphs instead." }}
+                  items={[
+                    { label: "Indented", checked: setup?.paragraphs === "indent", run: () => p.actions.layout({ paragraphs: "indent" }) },
+                    { label: "Space between", hint: "parskip", checked: setup?.paragraphs === "space", run: () => p.actions.layout({ paragraphs: "space" }) },
+                  ]}
+                />
+                <Menu
+                  className="rb-tool"
+                  ariaLabel="Text size"
+                  label={
+                    <>
+                      <span>Text size: {setup?.size ? setup.size.replace("pt", " pt") : "10 pt"}</span>
+                      <Icon name="chev" size={10} />
+                    </>
+                  }
+                  disabled={unset}
+                  buttonProps={{ "data-tip": "Text size", "data-tex": "\\documentclass[11pt]{article}", "data-why": "The size of the body text; headings and footnotes follow it." }}
+                  items={["10pt", "11pt", "12pt"].map((size) => ({ label: size.replace("pt", " pt"), checked: (setup?.size || "10pt") === size, run: () => p.actions.layout({ size: size === "10pt" && !setup?.size ? "" : size }) }))}
+                />
+              </div>
+            </Group>
+            <Group label="Arrange">
+              <BigMenu name="Position" icon="picture" tex="\begin{figure}[htbp]" why={WHY_FLOATS} disabled={off} items={placeItems(here?.float ?? null)} />
+            </Group>
+            <Group label="Document">
+              <Tool name="Document setup" icon="gear" big label="Document setup" why="Paper, margins, type size, line spacing, typeface, page numbers, paragraph style." disabled={off} run={p.actions.setup} />
+            </Group>
+          </>
+        )}
+        {shown === "picture" && figure && (
+          <>
+            <Group label="Size · of the line">
+              {[
+                { share: 0.5, glyph: "½", label: "Half width" },
+                { share: 0.8, glyph: "⅘", label: "Most of it" },
+                { share: 1, glyph: "1", label: "Full width" },
+              ].map((w) => (
+                <Tool
+                  key={w.share}
+                  name={w.label}
+                  tex={`\\includegraphics[width=${w.share === 1 ? "" : w.share}\\linewidth]`}
+                  why="A share of the line, so the picture stays right when the margins change."
+                  big
+                  glyph={<span className="rb-share">{w.glyph}</span>}
+                  label={w.label}
+                  pressed={figure.width === w.share}
+                  disabled={figure.pictures !== 1}
+                  run={() => buffers.pictureWidth(w.share)}
+                />
+              ))}
+            </Group>
+            <Group label="Arrange">
+              <BigMenu name="Position" icon="picture" tex="\begin{figure}[htbp]" why={WHY_FLOATS} items={placeItems(figure)} />
+            </Group>
+            <Group label="Picture">
+              <Tool name="Show LaTeX" keys="Ctrl+/" icon="code" big label="Source" why="Shows the figure as the LaTeX it is written in, to change it there." run={() => buffers.run(toggleReveal)} />
+            </Group>
+          </>
+        )}
+        {shown === "view" && (
           <>
             <Group label="Views">
               <Tool

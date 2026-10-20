@@ -228,6 +228,18 @@ await key("Enter");
 await check(await focusIs(".menu-item"), "Enter on Font colour opens the palette with the keyboard on its first colour");
 await key("Escape");
 await check((await focusName()) === "Font colour", "Escape closes the palette and gives the keyboard back to Font colour");
+// The Layout tab, chosen with Enter; its Margins menu opened and closed from the keyboard.
+await evaluate("document.querySelector('#rb-tab-layout').focus(); true");
+await key("Enter");
+await check(await evaluate("document.querySelector('#rb-tab-layout').getAttribute('aria-selected') === 'true'"), "Enter on the Layout tab shows its tools");
+for (let i = 0; i < 8 && (await focusName()) !== "Margins"; i++) await key("Tab");
+await check((await focusName()) === "Margins", "Tab from the Layout tab reaches Margins");
+await key("Enter");
+await check(await focusIs(".menu-item"), "Enter on Margins opens its menu with the keyboard on the first choice");
+await key("Escape");
+await check((await focusName()) === "Margins", "Escape closes it and gives the keyboard back to Margins");
+await evaluate("document.querySelector('#rb-tab-home').focus(); true");
+await key("Enter");
 // The word is selected by the script; the format comes from the key press.
 await evaluate(`(async () => { const { buffers } = await import("/src/features/editor/buffers.ts"); const path = window.emquad.store().active; const at = buffers.text(path).indexOf("Start writing"); buffers.run((v) => (v.dispatch({ selection: { anchor: at, head: at + 5 } }), true)); return true; })()`);
 await sleep(200);

@@ -26,7 +26,7 @@ import { type Piece, type Range, type Row, describeCitation, visualPieces } from
 import { formulaAt } from "./equation";
 import { latexPath } from "./latexPath";
 import { type ListEdit, enterInEmptyItem, indentItem, outdentItem, toggleList } from "./lists";
-import { alignmentAt, setAlignment } from "./blocks";
+import { alignmentAt, environments, setAlignment, uncommented } from "./blocks";
 
 
 /** What a double-click on a formula does: the app opens the equation editor on it. */
@@ -880,6 +880,163 @@ const pastSettings = EditorState.transactionFilter.of((tr) => {
   const anchor = tr.isUserEvent("select") || tr.docChanged ? tr.changes.mapPos(end, 1) : Math.min(1, tr.newDoc.length);
   return [tr, { selection: { anchor }, sequential: true }];
 });
+
+// --- Pages: where the last compile broke them, and their header and footer ------------------
+
+/** Where the last compile began each page of a file, and what is printed at the top and foot of each. */
+export interface PageLayout {
+  /**
+   * Each page with the file's text on it and the line it begins with, the first being the page
+   * the file starts on; null to keep the breaks there are, followed through the edits since.
+   */
+  breaks: { page: number; line: number }[] | null;
+  /** The header's and the footer's text, as LaTeX; "" for none. */
+  header: string;
+  footer: string;
+  /** Page numbers at the foot. */
+  numbers: boolean;
+}
+
+/** Give a file the pages of the last compile. */
+export const setPageBreaks = StateEffect.define<PageLayout>();
+
+interface Pages {
+  /** The page the file starts on. */
+  first: number;
+  /** Each break at the start of the line its page begins with, followed through edits since. */
+  marks: { page: number; at: number }[];
+  header: string;
+  footer: string;
+  numbers: boolean;
+}
+
+/** Environments never split by a drawn break: it goes before them, where they begin. */
+const UNSPLIT = /^(?:figure|table|equation|align|gather|multline|flalign|alignat|eqnarray|displaymath|math|tabular|tabularx|longtable|verbatim|lstlisting|minted)\*?$/;
+
+/** A header or footer's LaTeX as it prints, for the page view. */
+function printed(latex: string): string {
+  return latex
+    .replace(/\\(?:[&%$#_{}])/g, (e) => e.slice(1))
+    .replace(/\\textasciitilde\{\}/g, "~")
+    .replace(/\\textasciicircum\{\}/g, "^")
+    .replace(/\\textbackslash\{\}/g, "\\")
+    .replace(/\\(?:thepage|today)(?![a-zA-Z])\s*/g, "")
+    .replace(/\\[a-zA-Z]+\*?(?:\[[^\]]*\])?|[{}]/g, "")
+    .trim();
+}
+
+/**
+ * The gap between two pages, where the last compile ended one and began the next: the foot of
+ * the one, with its footer and page number, the gap, and the top of the next, with its header.
+ * At the top of the first page only the header is drawn, and at the foot of the last only the
+ * footer.
+ */
+class PageBreakWidget extends WidgetType {
+  constructor(
+    /** The page that begins after it. */
+    readonly page: number,
+    /** The page whose foot is drawn above it. */
+    readonly foot: number,
+    readonly header: string,
+    readonly footer: string,
+    readonly numbers: boolean,
+    readonly where: "between" | "top" | "end",
+  ) {
+    super();
+  }
+  eq(other: PageBreakWidget) {
+    return other.page === this.page && other.foot === this.foot && other.header === this.header && other.footer === this.footer && other.numbers === this.numbers && other.where === this.where;
+  }
+  toDOM() {
+    const el = document.createElement("div");
+    el.className = this.where === "between" ? "cm-v-pagebreak" : this.where === "top" ? "cm-v-pagetop" : "cm-v-pageend";
+    el.contentEditable = "false";
+    const part = (className: string, ...texts: string[]) => {
+      const div = el.appendChild(document.createElement("div"));
+      div.className = className;
+      for (const t of texts.filter(Boolean)) div.appendChild(document.createElement("span")).textContent = t;
+      return div;
+    };
+    // The footer's text in the middle and the page number on its right, or the number alone in the middle, as fancyhdr sets them.
+    const foot = () => {
+      const div = part("cm-v-pb-foot", printed(this.footer), this.numbers ? String(this.foot) : "");
+      if (div.children.length === 2) div.lastElementChild!.className = "cm-v-pb-right";
+    };
+    if (this.where !== "top") foot();
+    if (this.where === "between") {
+      el.setAttribute("role", "separator");
+      el.setAttribute("aria-label", `Page ${this.page}`);
+      part("cm-v-pb-gap", `Page ${this.page}`, "where the last compile began it");
+    }
+    if (this.where !== "end") part("cm-v-pb-head", printed(this.header));
+    return el;
+  }
+  get estimatedHeight() {
+    return this.where === "between" ? 90 : 24;
+  }
+}
+
+const pagesField = StateField.define<Pages>({
+  create: () => ({ first: 1, marks: [], header: "", footer: "", numbers: false }),
+  update(value, tr) {
+    for (const e of tr.effects) {
+      if (!e.is(setPageBreaks)) continue;
+      const furniture = { header: e.value.header, footer: e.value.footer, numbers: e.value.numbers };
+      if (!e.value.breaks) return { ...mapPages(value, tr), ...furniture };
+      const { doc } = tr.state;
+      const text = doc.toString();
+      const envs = environments(text);
+      // Formulas set with \[ \] and $$ $$ are not environments, but are not split either.
+      // Not the \[ of a line break with spacing, \\[2pt], nor one in a comment.
+      const displays = [...uncommented(text).matchAll(/(?<!\\)\\\[[\s\S]*?(?<!\\)\\\]|(?<!\\)\$\$[\s\S]*?(?<!\\)\$\$/g)].map((m) => ({ name: "math", begin: m.index, tail: m.index + m[0].length }));
+      const marks: Pages["marks"] = [];
+      for (const b of e.value.breaks.slice(1)) {
+        if (b.line < 2 || b.line > doc.lines) continue;
+        let at = doc.line(b.line).from;
+        // Inside a figure, a table or a formula, the break goes before it.
+        for (const env of [...envs, ...displays]) if (UNSPLIT.test(env.name) && env.begin < at && at < env.tail) at = Math.min(at, doc.lineAt(env.begin).from);
+        if (at > 0 && !marks.some((m) => m.at >= at)) marks.push({ page: b.page, at });
+      }
+      return { first: e.value.breaks[0]?.page ?? 1, marks, ...furniture };
+    }
+    return mapPages(value, tr);
+  },
+});
+
+/** The breaks followed through an edit, each kept at the start of a line: a break is between lines. */
+function mapPages(value: Pages, tr: Transaction): Pages {
+  if (!tr.docChanged || !value.marks.length) return value;
+  const marks: Pages["marks"] = [];
+  for (const m of value.marks) {
+    const at = tr.state.doc.lineAt(tr.changes.mapPos(m.at, -1)).from;
+    if (at > 0 && !marks.some((n) => n.at >= at)) marks.push({ page: m.page, at });
+  }
+  return { ...value, marks };
+}
+
+/** The pages a file has, for tests: where each break is drawn. */
+export const pagesState = pagesField;
+
+/** What the pages draw, in the page view only; drawn again with every change, since the last page's foot is at the end of the text. */
+const pagesDrawn = EditorView.decorations.compute([pagesField, pageLook, "doc"], (state) => {
+  if (!state.facet(pageLook)) return Decoration.none;
+  const { first, marks, header, footer, numbers } = state.field(pagesField);
+  const out: CmRange<Decoration>[] = [];
+  if (header) out.push(Decoration.widget({ widget: new PageBreakWidget(first, first, header, footer, numbers, "top"), block: true, side: -1 }).range(0));
+  marks.forEach((m, i) => {
+    const foot = i === 0 ? first : marks[i - 1].page;
+    out.push(Decoration.widget({ widget: new PageBreakWidget(m.page, foot, header, footer, numbers, "between"), block: true, side: -1 }).range(m.at));
+  });
+  const last = marks.length ? marks[marks.length - 1].page : first;
+  if (footer || numbers) out.push(Decoration.widget({ widget: new PageBreakWidget(last, last, header, footer, numbers, "end"), block: true, side: 1 }).range(state.doc.length));
+  return Decoration.set(out, true);
+});
+
+/**
+ * The pages of the last compile, kept in every file's state whichever way it is shown, so that
+ * the breaks follow the edits made in the draft view or the source too. Drawn in the page view.
+ */
+export const pageFurniture: Extension = [pagesField, pagesDrawn];
 
 /** The page view: visual mode that stays drawn under the cursor, and is edited as a word processor is. */
 export const visualPage: Extension = [

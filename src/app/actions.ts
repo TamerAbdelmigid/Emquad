@@ -7,7 +7,7 @@ import { citeCommand, readStyle, styleChanges } from "../features/editor/citatio
 import { PICTURE, figureFor, pictureFolder } from "../features/editor/pictures";
 import { type Formula, type Placement, formulaAt, writeFormula } from "../features/editor/equation";
 import { packagesFor } from "../features/editor/equationRibbon";
-import { type Setup, readSetup, setupChange } from "../features/editor/documentSetup";
+import { type Setup, fieldLatex, fieldText, readSetup, setupChange } from "../features/editor/documentSetup";
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
 import { ensurePackage, packageNotice } from "../features/editor/tableModel";
 import { type Need, preambleFor } from "../features/editor/formatting";
@@ -46,6 +46,7 @@ async function enter(opened: OpenedProject) {
   // Each project keeps versions while writing on its own clock.
   lastKeptAsked = 0;
   buffers.closeAll();
+  compiledTexts.clear();
   buffers.picturesChanged();
   setComments([]);
   // The language server is set up before any file opens, so each file's editor connects to it.
@@ -532,6 +533,8 @@ export async function save(path: string | null = store().active): Promise<boolea
   const done = await guard(async () => {
     await api.fileWrite(path, text);
     buffers.markSaved(path, text);
+    // A file the last compile did not read from the editor, saved now, may differ from what it read.
+    if (!compiledTexts.has(path)) compiledTexts.set(path, null);
     const s = store();
     s.set({ tabs: s.tabs.map((t) => (t.path === path ? { ...t, dirty: false } : t)) });
     // Comments remember the words they are on; record where the edits have taken them.
@@ -659,12 +662,45 @@ export async function reloadOpenFiles() {
 
 // ---------- compile and source/PDF lookup ----------
 
+/** The last compile asked for: it ends once the one before it has ended and it has run, or given way. */
+let lastCompile: Promise<void> = Promise.resolve();
+/** Each file's text as the last compile that succeeded read it; null for one saved since without a compile. */
+const compiledTexts = new Map<string, string | null>();
+
 export async function compile() {
-  if (!(await saveAll())) return;
+  // One at a time, the newest asked for winning: a compile running is stopped, and waited for,
+  // since on Windows the files it has open cannot be saved over until it has ended, and any
+  // asked for in between gives way to this one.
+  const before = lastCompile;
+  let done = () => {};
+  const mine = new Promise<void>((resolve) => (done = resolve));
+  lastCompile = mine;
+  void api.compileCancel().catch(() => {});
+  await before;
+  try {
+    if (lastCompile !== mine) return;
+    await compileNow(() => lastCompile === mine);
+  } finally {
+    done();
+  }
+}
+
+async function compileNow(newest: () => boolean) {
+  if (!(await saveAll())) {
+    // A compile this one stopped left the status saying so; nothing compiles now.
+    if (newest()) store().set({ compiling: false });
+    return;
+  }
   store().set({ compiling: true, log: [] });
+  // What each open file says as this compile reads it, to tell later whether its pages still fit it.
+  const read = new Map(store().tabs.map((t) => [t.path, buffers.text(t.path) ?? ""]));
   const out = await guard(() => api.compileRun());
-  store().set({ compiling: false });
+  if (newest()) store().set({ compiling: false });
   if (!out || out.cancelled) return;
+  if (out.ok) {
+    compiledTexts.clear();
+    for (const [path, text] of read) compiledTexts.set(path, text);
+  }
   // An error the compiler gave no line for is placed where something begun was never ended.
   for (const d of out.diagnostics) {
     const found = locate(d, (path) => buffers.text(path));
@@ -673,8 +709,9 @@ export async function compile() {
   buffers.setDiagnostics(out.diagnostics, helpFor, (fix) => void applyFix(fix));
   const s = store();
   s.set({ build: out, pdfVersion: out.hasPdf ? s.pdfVersion + 1 : s.pdfVersion });
-  // References are numbered by the compile, so visual mode can show their numbers now.
+  // References are numbered by the compile, so visual mode can show their numbers now, and the page view where the pages break.
   void refreshIndex();
+  void refreshPages();
   const first = out.diagnostics.find((d) => d.severity === "error");
   if (first && first.line > 0) await openFile(first.file, first.line, true);
 }
@@ -710,8 +747,54 @@ export async function applySetup(setup: Setup) {
     if (change && "error" in change) return store().notify(change.error, true);
     if (change) buffers.change(main, change);
     store().set({ dialog: null });
+    // The header and footer show at once; the pages break anew after the compile.
+    void refreshPages();
     if (change) await compile();
   });
+}
+
+/** A setting from the Layout tab (margins, size, orientation, columns, line numbers…): for the whole document, as Document setup sets it. */
+export async function applyLayout(patch: Partial<Setup>) {
+  const setup = await currentSetup();
+  if (!setup) return store().notify("The page is set in the settings at the top of the main file, and they could not be read.", true);
+  if (Object.entries(patch).some(([k, v]) => setup[k as keyof Setup] !== v)) await applySetup({ ...setup, ...patch });
+}
+
+/** Type the header's or the footer's text, written with fancyhdr in the settings at the top. */
+export async function editHeaderFooter(which: "header" | "footer") {
+  const setup = await currentSetup();
+  if (!setup) return store().notify("The header and footer are set in the settings at the top of the main file, and they could not be read.", true);
+  const now = fieldText(setup[which]);
+  if (now === null) return store().notify(`This ${which} is written with LaTeX commands of its own; change it in the settings at the top (Code).`, true);
+  const name = which === "header" ? "Header" : "Footer";
+  const typed = await prompt(name, now, "Set", which === "header" ? "Printed at the top right of every page. Leave it empty for none." : "Printed in the middle of the foot of every page, with the page number beside it. Leave it empty for none.");
+  if (typed === null) return;
+  await applyLayout({ [which]: fieldLatex(typed.trim()) });
+}
+
+/**
+ * Draw the page breaks of the last compile in the file on screen, with the header and footer
+ * its settings print. Nothing is drawn before the first compile.
+ */
+export async function refreshPages() {
+  const path = store().active;
+  if (!path || !store().root) return;
+  const main = store().info?.mainFile;
+  const setup = readSetup(buffers.text(path) ?? "") ?? readSetup((main && buffers.text(main)) || "");
+  let breaks: { page: number; line: number }[] | null = [];
+  try {
+    breaks = await api.synctexPageStarts(path);
+  } catch {
+    // No project, or nothing compiled: no breaks to draw.
+  }
+  if (!buffers.has(path)) return;
+  // The compile's lines fit the text only as the compile read it; once it has been changed, the
+  // breaks drawn already, which followed the changes, are kept. A file not compiled in this
+  // session is taken to be as the last compile read it while it has no unsaved changes.
+  const read = compiledTexts.get(path);
+  const fits = read !== undefined ? read !== null && read === buffers.text(path) : !store().tabs.some((t) => t.path === path && t.dirty);
+  if (!fits) breaks = null;
+  buffers.setPages(path, { breaks, header: setup?.header ?? "", footer: setup?.footer ?? "", numbers: setup?.pageNumbers ?? true });
 }
 
 /** Line spacing from the ribbon: for the whole document, as Document setup sets it. */

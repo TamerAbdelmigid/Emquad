@@ -1,15 +1,16 @@
 // @vitest-environment jsdom
 // The ribbon shows what is asked for from elsewhere: Insert ▸ Symbol… opens the Symbol panel,
 // which lives on the Insert tab, whichever tab was showing.
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Ribbon } from "./Ribbon";
+import type { Setup } from "./documentSetup";
 
 afterEach(cleanup);
 
 const noop = () => {};
 const props = {
-  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop, spacing: noop },
+  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop, spacing: noop, layout: noop, headerFooter: noop },
   active: true,
   chapters: false,
   onSymbols: noop,
@@ -22,7 +23,7 @@ const props = {
   zoom: 1,
   onZoom: noop,
   abstract: true,
-  spacing: "single" as const,
+  setup: { paper: "a4paper", size: "", margins: "2.5cm", spacing: "single", font: "default", pageNumbers: true, paragraphs: "indent", landscape: false, columns: 1, lineNumbers: false, header: "", footer: "" } satisfies Setup as Setup,
   marks: false,
   onMarks: noop,
 };
@@ -53,5 +54,37 @@ describe("Ribbon", () => {
     rerender(<Ribbon {...props} symbolsOpen={true} />);
     expect(screen.getByRole("tab", { name: "Insert" }).getAttribute("aria-selected")).toBe("true");
     expect(document.querySelector(".sym-search")).not.toBeNull();
+  });
+
+  it("lays out like Word: the Layout tab sets the page for the whole document, each tool saying what it writes", () => {
+    const layout = vi.fn();
+    render(<Ribbon {...props} actions={{ ...props.actions, layout }} symbolsOpen={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Layout" }));
+    expect(screen.getByRole("button", { name: "Margins" }).dataset.tex).toContain("geometry");
+    expect(screen.getByRole("button", { name: "Orientation" }).dataset.tex).toContain("landscape");
+    expect(screen.getByRole("button", { name: "Columns" }).dataset.tex).toContain("twocolumn");
+    expect(screen.getByRole("button", { name: "Breaks" })).toBeTruthy();
+    const numbers = screen.getByRole("button", { name: "Line numbers" });
+    expect(numbers.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(numbers);
+    expect(layout).toHaveBeenLastCalledWith({ lineNumbers: true });
+    fireEvent.click(screen.getByRole("button", { name: "Margins" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Narrow/ }));
+    expect(layout).toHaveBeenLastCalledWith({ margins: "1.27cm" });
+    fireEvent.click(screen.getByRole("button", { name: "Orientation" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Landscape/ }));
+    expect(layout).toHaveBeenLastCalledWith({ landscape: true });
+    fireEvent.click(screen.getByRole("button", { name: "Size" }));
+    expect(screen.getByRole("menuitem", { name: /A4/ }).textContent).toContain("✓");
+  });
+
+  it("puts the header and footer on the Insert tab, as Word does", () => {
+    const headerFooter = vi.fn();
+    render(<Ribbon {...props} actions={{ ...props.actions, headerFooter }} symbolsOpen={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Insert" }));
+    expect(screen.getByRole("button", { name: "Header" }).dataset.tex).toContain("fancyhdr");
+    fireEvent.click(screen.getByRole("button", { name: "Footer" }));
+    expect(headerFooter).toHaveBeenLastCalledWith("footer");
+    expect(screen.getByRole("button", { name: "Page number" })).toBeTruthy();
   });
 });

@@ -47,6 +47,13 @@ pub fn e2e_log(line: String) {
     }
 }
 
+/// Bring the window to the front: the page gets focus events only while its window has the focus.
+#[cfg(any(debug_assertions, feature = "e2e"))]
+#[tauri::command]
+pub fn e2e_focus(window: tauri::Window) {
+    let _ = window.set_focus();
+}
+
 #[cfg(any(debug_assertions, feature = "e2e"))]
 #[tauri::command]
 pub fn e2e_exit(app: tauri::AppHandle, code: i32) {

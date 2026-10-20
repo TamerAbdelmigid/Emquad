@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { pageGeometry } from "./pageGeometry";
 
-const setup = (over: object) => ({ paper: "", size: "", margins: "", spacing: "single", font: "default", pageNumbers: true, paragraphs: "indent", ...over }) as const;
+const setup = (over: object) => ({ paper: "", size: "", margins: "", spacing: "single", font: "default", pageNumbers: true, paragraphs: "indent", landscape: false, columns: 1, lineNumbers: false, header: "", footer: "", ...over }) as const;
 
 describe("pageGeometry", () => {
   it("uses the class's own page when the document sets none: A4, 10 pt, the text width LaTeX gives it", () => {
@@ -25,5 +25,15 @@ describe("pageGeometry", () => {
     expect(pageGeometry(setup({ margins: "25mm" })).margin).toBeCloseTo(2.5);
     expect(pageGeometry(setup({ margins: "72pt" })).margin).toBeCloseTo(2.54, 1);
     expect(pageGeometry(setup({ margins: "\\mymargin" })).margin).toBeCloseTo(pageGeometry(null).margin);
+  });
+
+  it("turns the page on its side, and the margins with it when the document sets none", () => {
+    const g = pageGeometry(setup({ landscape: true, margins: "2cm" }));
+    expect(g.width).toBeCloseTo(29.7);
+    expect(g.height).toBeCloseTo(21);
+    expect(g.margin).toBeCloseTo(2);
+    expect(pageGeometry(null).height).toBeCloseTo(29.7);
+    // geometry's own margins are a share of the paper.
+    expect(pageGeometry(setup({ landscape: true })).margin).toBeCloseTo(29.7 * 0.15, 1);
   });
 });

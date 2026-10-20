@@ -111,7 +111,7 @@ export function EditorPane(p: Props) {
           zoom={p.zoom}
           onZoom={p.onZoom}
           abstract={p.abstract}
-          spacing={setup?.spacing ?? null}
+          setup={setup}
           marks={marks}
           onMarks={(latexMarks) => store().set({ latexMarks })}
         />
@@ -218,6 +218,7 @@ function pageStyle(g: Geometry, zoom: number): CSSProperties {
   const pt = (g.pt * 96) / 72;
   return {
     ["--page-w" as string]: `${(g.width * zoom).toFixed(2)}cm`,
+    ["--page-h" as string]: `${(g.height * zoom).toFixed(2)}cm`,
     ["--page-m" as string]: `${(g.margin * zoom).toFixed(2)}cm`,
     ["--page-size" as string]: `${(pt * zoom).toFixed(2)}px`,
     ["--page-lh" as string]: String(g.lineHeight),
