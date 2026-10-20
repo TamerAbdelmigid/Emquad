@@ -1,5 +1,6 @@
 // What Insert puts in, shared by the Insert menu and the ribbon: each with the LaTeX it writes, so
 // the ribbon's tooltip can say so.
+import { store } from "../../state/store";
 import { buffers } from "./buffers";
 
 export interface Insertion {
@@ -23,7 +24,8 @@ export const INSERT = {
   bullets: snippet("Bulleted list", "\\begin{itemize}\n  \\item ", "\n\\end{itemize}\n"),
   numbers: snippet("Numbered list", "\\begin{enumerate}\n  \\item ", "\n\\end{enumerate}\n"),
   footnote: { label: "Footnote", tex: "\\footnote{…}", run: () => buffers.insertInline(() => ({ before: "\\footnote{", after: "}" })) },
-  crossReference: { label: "Cross-reference", tex: "\\ref{…}", run: () => buffers.insertInline(() => ({ before: "\\ref{", after: "}" })) },
+  crossReference: { label: "Cross-reference…", tex: "\\Cref{…}", run: () => store().set({ dialog: "crossReference" }) },
+  link: { label: "Link…", tex: "\\href{https://…}{…}", run: () => store().set({ dialog: "link" }) },
   contents: snippet("Table of contents", "\\tableofcontents\n"),
   pageBreak: snippet("Page break", "\\newpage\n"),
   inlineFormula: {

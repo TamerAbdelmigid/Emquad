@@ -1,7 +1,7 @@
 // What the app can do, as plain functions over the store, the editor buffers and the backend.
 // Components call these; they never talk to the backend for a multi-step action themselves.
 import { relativeTo, resolveFrom } from "../shared/paths";
-import { documentStart } from "../features/editor/visualModel";
+import { documentStart, plainText } from "../features/editor/visualModel";
 import { type Reference, appendEntries, entries, formatEntry, makeKey, namedBib, namedBibs, unclosedEntry } from "../features/editor/bib";
 import { citeCommand, readStyle, styleChanges } from "../features/editor/citationStyle";
 import { PICTURE, figureFor, pictureFolder } from "../features/editor/pictures";
@@ -11,6 +11,9 @@ import { type Setup, fieldLatex, fieldText, readSetup, setupChange } from "../fe
 import { type Fix, type Help, explain, locate } from "../features/editor/errorHelp";
 import { ensurePackage, packageNotice } from "../features/editor/tableModel";
 import { type Need, preambleFor } from "../features/editor/formatting";
+import { bookmarkProblem, crossReference, headingLine, hyperrefChange, linkFor, linkProblem, moveSection as moveSection_, stepSection as stepSection_ } from "../features/editor/references";
+import { changesOnPage } from "../features/editor/trackChanges";
+import { countWords } from "../features/editor/spellModel";
 import type { Diagnostic } from "../ipc/api";
 import type { TreeNode } from "../ipc/bindings/TreeNode";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -1087,6 +1090,155 @@ export async function pickComment(comment: Comment) {
   requestAnimationFrame(() => {
     if (!buffers.showComment(comment.id)) store().notify("The text this comment was on is no longer in the file");
   });
+}
+
+/**
+ * Pick out the next comment in the file on screen (`by` 1), or the one before (-1): after the one
+ * picked out already, or else after the cursor.
+ */
+export function stepComment(by: 1 | -1) {
+  const path = store().active;
+  if (!path) return;
+  const placed = buffers.commentAnchors(path);
+  const all = store().comments.filter((c) => c.path === path && !c.resolved);
+  const state = buffers.current(path);
+  const lineOf = (line: number) => (state ? state.doc.line(Math.max(1, Math.min(line, state.doc.lines))).from : 0);
+  const places = all
+    .map((c) => ({ c, from: lineOf(placed.find((p) => p.id === c.id)?.line ?? c.line) }))
+    .sort((a, b) => a.from - b.from || a.c.createdAt.localeCompare(b.c.createdAt));
+  if (!places.length) return store().notify("This file has no comments.");
+  const picked = places.findIndex((p) => p.c.id === store().comment);
+  let next;
+  if (picked >= 0) next = places[(picked + by + places.length) % places.length];
+  else {
+    const at = buffers.cursorAt() ?? 0;
+    next = by > 0 ? (places.find((p) => p.from > at) ?? places[0]) : ([...places].reverse().find((p) => p.from < at) ?? places[places.length - 1]);
+  }
+  store().set({ comment: next.c.id });
+  buffers.showComment(next.c.id);
+}
+
+/** Show the comments as balloons beside the page, or not. */
+export function setBalloons(on: boolean) {
+  store().set({ balloons: on });
+  buffers.setBalloons(on);
+}
+
+// ---------- references, links and sections ----------
+
+/** Put a cross-reference to `key` at the cursor, written as `as` says, with what it needs loaded. */
+export async function insertCrossReference(key: string, as: "named" | "number" | "page") {
+  const { tex, packages } = crossReference(key, as);
+  buffers.insertInline(() => ({ before: tex, after: "" }));
+  if (packages.length) await needFormatting(packages.map((name) => ({ kind: "package" as const, name, why: "which names what a cross-reference points to" })));
+}
+
+/** The selected words as they print, for the Link dialog to show. */
+export function selectedWords(): string {
+  return plainText(buffers.selectedText());
+}
+
+/**
+ * Put a link at the cursor: around the selected words when the words to show are those, else in
+ * place of the selection. Only around words a command can hold, in the document's text.
+ * hyperref, which links need, is loaded before cleveref, in the main file, which stays where it is.
+ */
+export async function insertLink(address: string, words: string) {
+  const path = store().active;
+  const state = path ? buffers.current(path) : undefined;
+  if (!path || !state) return;
+  const { from, to } = state.selection.main;
+  const problem = linkProblem(state.doc.toString(), from, to);
+  if (problem) return store().notify(problem, true);
+  const selected = state.sliceDoc(from, to);
+  const tex = linkFor(address, words);
+  if (!tex) return store().notify("Give the address the link goes to.", true);
+  const url = linkFor(address, "x")!.replace(/\{x\}$/, "");
+  if (selected && words === plainText(selected)) buffers.insert(`${url}{`, "}");
+  else buffers.replaceSelection(tex);
+  const main = store().info?.mainFile;
+  if (!main) return;
+  const text = await mainText();
+  const change = hyperrefChange(text);
+  if (!change) return;
+  if (buffers.has(main)) buffers.change(main, change);
+  else await api.fileWrite(main, text.slice(0, change.from) + change.insert + text.slice(change.to));
+  store().notify(`Added \\usepackage{hyperref} to the settings at the top of ${main}, which makes links.`);
+}
+
+/** Name the place at the cursor, so a cross-reference can point at it: \label. */
+export async function addBookmark() {
+  const name = await prompt("Bookmark", "", "Add", "A name for this place, such as sec:results, so a cross-reference can point at it.");
+  if (name === null) return;
+  // The labels the index knows, and those written in the file on screen since it was read.
+  const path = store().active;
+  const here = path ? [...(buffers.text(path) ?? "").matchAll(/\\label\s*\{([^}]+)\}/g)].map((m) => m[1].trim()) : [];
+  const problem = bookmarkProblem(name.trim(), [...store().index.labels, ...here]);
+  if (problem) return store().notify(problem, true);
+  buffers.insertInline(() => ({ before: `\\label{${name.trim()}}`, after: "" }));
+}
+
+/**
+ * Move the section headed on line `from` of the file on screen before the heading on line
+ * `before`, or to the end. The headings are found again by their titles, since the outline they
+ * were read from may be a moment old.
+ */
+export function moveSection(from: number, before: number | null, fromTitle?: string, beforeTitle?: string) {
+  const path = store().active;
+  const text = path ? buffers.text(path) : undefined;
+  if (!path || text === undefined) return;
+  const start = fromTitle === undefined ? from : headingLine(text, from, fromTitle);
+  const target = before === null || beforeTitle === undefined ? before : headingLine(text, before, beforeTitle);
+  const changes = start === null || target === null && before !== null ? null : moveSection_(text, start, target);
+  if (!changes) return store().notify("This section cannot go there: not into itself or where it is, nor apart from an environment it begins and the next section ends.");
+  buffers.change(path, changes);
+}
+
+/** Move the section headed on `line` one step up or down among the headings of its level, from the keyboard. */
+export function stepSection(line: number, by: -1 | 1, title?: string) {
+  const path = store().active;
+  const text = path ? buffers.text(path) : undefined;
+  if (!path || text === undefined) return;
+  const at = title === undefined ? line : headingLine(text, line, title);
+  const changes = at === null ? null : stepSection_(text, at, by);
+  if (!changes) return store().notify(`This section cannot go ${by < 0 ? "up" : "down"}: it is the ${by < 0 ? "first" : "last"} of its level here, or the appendix, the bibliography or an environment it begins stands in the way.`);
+  buffers.change(path, changes);
+}
+
+/** The snapshots the page view can show the changes since, newest first. */
+export async function snapshotsToCompare(): Promise<{ id: string; label: string }[]> {
+  const list = await api.historyList();
+  return list.versions.filter((v) => v.kind === "snapshot" && v.onMain).map((v) => ({ id: v.id, label: v.label }));
+}
+
+/**
+ * Draw on the page the changes made to the file on screen since a snapshot, each in its author's
+ * colour, or stop drawing them (null). The file is saved first: History compares what is on disk.
+ */
+export async function showChangesSince(version: { id: string; label: string } | null) {
+  const path = store().active;
+  if (!path) return;
+  if (!version) return buffers.showChanges(path, null);
+  await guard(async () => {
+    if (!(await save(path))) return;
+    const diff = await api.historyFileDiff(WORKING, version.id, path);
+    // The other author's latest version since the snapshot, to tell whose each change is.
+    const list = await api.historyList();
+    const me = store().settings?.authorId ?? "";
+    const since = list.versions.find((v) => v.id === version.id)?.time ?? 0;
+    const theirs = list.versions.filter((v) => v.authorId !== me && v.time >= since).sort((a, b) => b.time - a.time)[0];
+    const theirBlocks = theirs ? (await api.historyFileDiff(theirs.id, version.id, path)).blocks : null;
+    const changes = changesOnPage(diff.blocks, buffers.text(path) ?? "", theirBlocks);
+    buffers.showChanges(path, { since: version.label, changes });
+    store().notify(changes.length ? `${changes.length} ${changes.length === 1 ? "change" : "changes"} since “${version.label}”.` : `No changes since “${version.label}”.`);
+  });
+}
+
+/** How many words the file on screen has, as Word's Word count says. */
+export function wordCount() {
+  const path = store().active;
+  const text = path ? (buffers.text(path) ?? "") : "";
+  store().notify(`${countWords(text).toLocaleString()} words in ${path ?? "this file"}, not counting commands, mathematics, comments or the settings at the top.`);
 }
 
 // ---------- symbols ----------

@@ -21,6 +21,15 @@ describe("visualPieces", () => {
     expect(of(pieces, "line")).toEqual([{ kind: "line", from: 0, style: "h1" }]);
   });
 
+  it("draws a link's words as a link, its command and address hidden as one, and a bare address as a link", () => {
+    const text = "See \\href{https://example.org}{the site} and \\url{https://a.b}.";
+    const pieces = visualPieces(text, []);
+    expect(of(pieces, "hide").map((p) => slice(text, p))).toEqual(["\\href{https://example.org}{", "}", "\\url{", "}"]);
+    const hidden = of(pieces, "hide") as Extract<Piece, { kind: "hide" }>[];
+    expect(hidden[0].group).toBe(hidden[1].group);
+    expect(of(pieces, "style").filter((p) => p.kind === "style" && p.style === "link").map((p) => slice(text, p))).toEqual(["the site", "https://a.b"]);
+  });
+
   it("leaves a construct as plain source while the cursor is in it", () => {
     const text = "a \\textbf{bold} b $x^2$ c";
     const away = visualPieces(text, [{ from: 0, to: 0 }]);

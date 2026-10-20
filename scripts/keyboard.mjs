@@ -238,6 +238,22 @@ await key("Enter");
 await check(await focusIs(".menu-item"), "Enter on Margins opens its menu with the keyboard on the first choice");
 await key("Escape");
 await check((await focusName()) === "Margins", "Escape closes it and gives the keyboard back to Margins");
+// The Review tab's Show changes menu, and Ctrl+K for a link, from the keyboard.
+await evaluate("document.querySelector('#rb-tab-review').focus(); true");
+await key("Enter");
+await check(await evaluate("document.querySelector('#rb-tab-review').getAttribute('aria-selected') === 'true'"), "Enter on the Review tab shows its tools");
+for (let i = 0; i < 16 && (await focusName()) !== "Show changes"; i++) await key("Tab");
+await key("Enter");
+await check(await focusIs(".menu-item"), "Enter on Show changes opens its list of snapshots with the keyboard in it");
+await key("Escape");
+await check((await focusName()) === "Show changes", "Escape closes it and gives the keyboard back to Show changes");
+await evaluate("document.querySelector('.cm-content').focus(); true");
+await key("K", { ctrl: true });
+await sleep(300);
+await check(await focusIs("#link-address"), "Ctrl+K in the text opens the Link dialog with the keyboard in its address");
+await key("Escape");
+await sleep(300);
+await check(!(await evaluate("!!document.querySelector('dialog[open]')")), "Escape closes it");
 await evaluate("document.querySelector('#rb-tab-home').focus(); true");
 await key("Enter");
 // The word is selected by the script; the format comes from the key press.

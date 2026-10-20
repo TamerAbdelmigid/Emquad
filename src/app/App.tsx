@@ -59,6 +59,7 @@ export function App() {
       compile: () => void act.compile(),
       comment: act.startComment,
       equation: () => store().set({ dialog: "equation" }),
+      link: () => store().set({ dialog: "link" }),
     });
     // A picture pasted on its own, such as a screenshot, becomes a figure.
     onPastedPicture((file) => void act.addPictures([{ file }]));
@@ -308,6 +309,8 @@ export function App() {
                   { label: "Citation…", run: () => set({ dialog: "cite" }) },
                   { label: "Citation from Zotero…", run: () => void act.citeFromZotero() },
                   INSERT.crossReference,
+                  INSERT.link,
+                  { label: "Bookmark…", run: () => void act.addBookmark() },
                   "separator",
                   INSERT.contents,
                   INSERT.pageBreak,
@@ -460,6 +463,8 @@ export function App() {
               outline={sections}
               onOpen={(path) => void act.openFile(path)}
               onGoToLine={(line) => buffers.goToLine(line)}
+              onMoveSection={act.moveSection}
+              onStepSection={act.stepSection}
               onNew={(isDir, parent) => void act.newEntry(isDir, parent)}
               onRename={(path) => void act.renameEntry(path)}
               onDelete={(path) => void act.deleteEntry(path)}
@@ -523,6 +528,18 @@ export function App() {
                 spacing: (spacing) => void act.setLineSpacing(spacing),
                 layout: (patch) => void act.applyLayout(patch),
                 headerFooter: (which) => void act.editHeaderFooter(which),
+                bookmark: () => void act.addBookmark(),
+                compile: () => void act.compile(),
+                snapshot: () => act.saveSnapshot(),
+                history: () => openHistory(s.active),
+                exportBundle: () => set({ dialog: "export" }),
+                sendToWord: () => void act.sendToWord(),
+                pdfWithComments: () => void act.savePdfWithComments(),
+                wordCount: act.wordCount,
+                stepComment: act.stepComment,
+                balloons: act.setBalloons,
+                snapshots: act.snapshotsToCompare,
+                showChanges: (since) => void act.showChangesSince(since),
               }}
             />
           )}

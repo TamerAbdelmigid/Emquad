@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, Menu } from "../../design/ui";
 import type { TreeNode } from "../../ipc/api";
 
@@ -17,6 +17,10 @@ interface Props {
   outline: OutlineEntry[];
   onOpen: (path: string) => void;
   onGoToLine: (line: number) => void;
+  /** Move the section headed on line `from` before the heading on line `before`, or to the end. */
+  onMoveSection: (from: number, before: number | null, fromTitle?: string, beforeTitle?: string) => void;
+  /** Move the section headed on `line` one step up or down among its siblings. */
+  onStepSection: (line: number, by: -1 | 1, title?: string) => void;
   onNew: (isDir: boolean, parent?: string) => void;
   onRename: (path: string) => void;
   onDelete: (path: string) => void;
@@ -28,6 +32,27 @@ interface Props {
 export function Files(p: Props) {
   const [closed, setClosed] = useState<Set<string>>(new Set());
   const minLevel = useMemo(() => Math.min(...p.outline.map((o) => o.level), 9), [p.outline]);
+  /** A heading being dragged to move its section: from where, and what it is over. */
+  const [drag, setDragShown] = useState<{ from: number; y: number; over: number | "end" | null; moved: boolean } | null>(null);
+  // Kept beside what is drawn, so that each pointer event sees the one before it at once.
+  const dragNow = useRef<typeof drag>(null);
+  const setDrag = (next: typeof drag) => {
+    dragNow.current = next;
+    setDragShown(next);
+  };
+  const dragged = useRef(false);
+  /** The heading moved from the keyboard, to give the keyboard back to once the outline is read again. */
+  const moved = useRef<string | null>(null);
+  const outlineList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!moved.current) return;
+    const title = moved.current;
+    const found = [...(outlineList.current?.querySelectorAll<HTMLButtonElement>(".out") ?? [])].find((b) => b.textContent === title);
+    if (found) {
+      moved.current = null;
+      found.focus();
+    }
+  }, [p.outline]);
 
   const rows = (nodes: TreeNode[], depth: number): React.ReactNode =>
     nodes.map((node) => {
@@ -97,13 +122,58 @@ export function Files(p: Props) {
       <div className="fh">
         <span className="lab">File outline</span>
       </div>
-      <div className="flist outline">
+      <div className="flist outline" ref={outlineList}>
         {p.outline.length === 0 && <p className="empty">Sections of the open file appear here.</p>}
         {p.outline.map((o) => (
-          <button key={`${o.line}:${o.title}`} className="out" style={{ paddingLeft: 8 + (o.level - minLevel) * 14 }} onClick={() => p.onGoToLine(o.line)}>
+          <button
+            key={`${o.line}:${o.title}`}
+            className={`out${drag?.moved && drag.from === o.line ? " dragging" : ""}${drag?.moved && drag.over === o.line && drag.from !== o.line ? " drop-before" : ""}`}
+            style={{ paddingLeft: 8 + (o.level - minLevel) * 14 }}
+            data-line={o.line}
+            title="Drag to move this section, everything under it included; Alt+Shift+Up or Down moves it from the keyboard"
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId);
+              } catch {
+                // A pointer the browser no longer tracks: the drag still works while over the outline.
+              }
+              setDrag({ from: o.line, y: e.clientY, over: null, moved: false });
+            }}
+            onPointerMove={(e) => {
+              const drag = dragNow.current;
+              if (!drag) return;
+              if (!drag.moved && Math.abs(e.clientY - drag.y) < 5) return;
+              const under = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-line], .out-end");
+              const over = under?.classList.contains("out-end") ? "end" : under?.dataset.line ? Number(under.dataset.line) : null;
+              setDrag({ ...drag, moved: true, over });
+            }}
+            onPointerUp={() => {
+              const drag = dragNow.current;
+              if (drag?.moved) {
+                dragged.current = true;
+                const title = (line: number) => p.outline.find((x) => x.line === line)?.title;
+                if (drag.over !== null && drag.over !== drag.from) p.onMoveSection(drag.from, drag.over === "end" ? null : drag.over, title(drag.from), drag.over === "end" ? undefined : title(drag.over));
+              }
+              setDrag(null);
+            }}
+            onPointerCancel={() => setDrag(null)}
+            onKeyDown={(e) => {
+              if (!e.altKey || !e.shiftKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+              e.preventDefault();
+              moved.current = o.title;
+              p.onStepSection(o.line, e.key === "ArrowUp" ? -1 : 1, o.title);
+            }}
+            onClick={() => {
+              // The click that ends a drag does not also go to the heading.
+              if (dragged.current) return void (dragged.current = false);
+              p.onGoToLine(o.line);
+            }}
+          >
             {o.title}
           </button>
         ))}
+        {drag?.moved && <div className={`out-end${drag.over === "end" ? " drop-before" : ""}`}>Move to the end</div>}
       </div>
     </aside>
   );

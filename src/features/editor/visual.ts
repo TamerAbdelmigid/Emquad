@@ -24,6 +24,7 @@ import { EditableTable } from "./tableEditor";
 import { parseTable } from "./tableModel";
 import { type Piece, type Range, type Row, describeCitation, visualPieces } from "./visualModel";
 import { formulaAt } from "./equation";
+import type { PageChange } from "./trackChanges";
 import { latexPath } from "./latexPath";
 import { type ListEdit, enterInEmptyItem, indentItem, outdentItem, toggleList } from "./lists";
 import { alignmentAt, environments, setAlignment, uncommented } from "./blocks";
@@ -122,17 +123,42 @@ class FoldWidget extends WidgetType {
   }
 }
 
-/** What a reference prints, as the last compile numbered it; "?" before the first compile. */
-export function describeReference(command: string, keys: string[], numbers: ProjectIndex["labelNumbers"]): { text: string; detail: string } {
+/** What cleveref calls each kind of thing: as \cref writes it, and as \Cref does. */
+const NAMES: Record<string, [string, string]> = {
+  figure: ["fig.", "Figure"],
+  table: ["table", "Table"],
+  equation: ["eq.", "Equation"],
+  section: ["section", "Section"],
+  subsection: ["section", "Section"],
+  subsubsection: ["section", "Section"],
+  paragraph: ["section", "Section"],
+  appendix: ["appendix", "Appendix"],
+  chapter: ["chapter", "Chapter"],
+  part: ["part", "Part"],
+  item: ["item", "Item"],
+};
+
+/**
+ * What a reference prints, as the last compile numbered it; "?" before the first compile. What a
+ * label is on, for the references that name it, comes from the compile when it says (with
+ * hyperref) and else from where the label is written (`kinds`).
+ */
+export function describeReference(command: string, keys: string[], numbers: ProjectIndex["labelNumbers"], kinds: Record<string, string> = {}): { text: string; detail: string } {
   const one = (key: string) => {
     const found = numbers[key];
     if (!found) return "?";
     if (command === "pageref") return found.page;
     if (command === "nameref") return found.title || found.number;
+    // The compile's kind where cleveref has a name for it, else what the label is written on.
+    const kind = (found.kind && NAMES[found.kind.toLowerCase()] ? found.kind : kinds[key] || found.kind || "").toLowerCase();
+    const number = kind === "equation" && command !== "autoref" ? `(${found.number})` : found.number;
     if (command === "eqref") return `(${found.number})`;
-    const named = command === "autoref" || command === "cref" || command === "Cref" || command === "vref";
-    const kind = found.kind && named ? `${found.kind[0].toUpperCase()}${found.kind.slice(1)} ` : "";
-    return `${kind}${found.number}`;
+    if (command === "cref" || command === "Cref" || command === "vref") {
+      const name = NAMES[kind]?.[command === "Cref" ? 1 : 0];
+      return name ? `${name} ${number}` : found.number;
+    }
+    if (command === "autoref" && kind) return `${kind[0].toUpperCase()}${kind.slice(1)} ${found.number}`;
+    return found.number;
   };
   const text = keys.map(one).join(", ");
   const unknown = keys.filter((k) => !numbers[k]);
@@ -388,6 +414,8 @@ function build(state: EditorState): Drawn {
   if (text.length > 400_000) return { deco: Decoration.none, covers: Decoration.none, touched: false, stale: false };
   const out: CmRange<Decoration>[] = [];
   const index = store().index;
+  /** What each label is on, read once a drawing, when a reference needs it. */
+  let kinds: Record<string, string> | undefined;
   const report = { touched: false };
   const page = state.facet(pageLook);
   const marks = page && marksOn;
@@ -411,7 +439,8 @@ function build(state: EditorState): Drawn {
     }
     else if (p.kind === "bullet") out.push((p.label === undefined ? bullet : Decoration.replace({ widget: new BulletWidget(p.label) })).range(p.from, p.to));
     else if (p.kind === "ref") {
-      const { text, detail } = describeReference(p.command, p.keys, index.labelNumbers);
+      kinds ??= Object.fromEntries(index.labelPlaces.map((l) => [l.key, l.kind]));
+      const { text, detail } = describeReference(p.command, p.keys, index.labelNumbers, kinds);
       out.push(Decoration.replace({ widget: new LabelWidget(text, detail, "cm-v-ref") }).range(p.from, p.to));
     } else if (p.kind === "footnote") {
       out.push(Decoration.replace({ widget: new LabelWidget(String(p.number), `Footnote: ${p.text}`, "cm-v-footnote") }).range(p.from, p.to));
@@ -1032,11 +1061,127 @@ const pagesDrawn = EditorView.decorations.compute([pagesField, pageLook, "doc"],
   return Decoration.set(out, true);
 });
 
+// --- Changes since a snapshot, drawn on the page --------------------------------------------
+
+/** Show the changes since a snapshot (`since` names it), or stop showing them (null). */
+export const showChanges = StateEffect.define<{ since: string; changes: PageChange[] } | null>();
+/** Take one change, by its place in the list, off the page. */
+const dropChange = StateEffect.define<number>();
+
+interface Shown {
+  since: string;
+  changes: PageChange[];
+}
+
+/** Something taken out, struck through where it stood. */
+class DeletedWidget extends WidgetType {
+  constructor(
+    readonly text: string,
+    readonly who: string,
+  ) {
+    super();
+  }
+  eq(other: DeletedWidget) {
+    return other.text === this.text && other.who === this.who;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = `cm-v-del cm-v-${this.who}`;
+    el.textContent = this.text.replace(/\n(?=.)/g, " ↵ ").replace(/\n$/, " ↵");
+    el.title = "Taken out since the snapshot";
+    return el;
+  }
+}
+
+const changesField = StateField.define<Shown | null>({
+  create: () => null,
+  update(value, tr) {
+    for (const e of tr.effects) if (e.is(showChanges)) value = e.value && { ...e.value, changes: e.value.changes.filter((c) => c.to <= tr.state.doc.length) };
+    if (value && tr.docChanged) {
+      const map = (at: number, side: -1 | 1) => tr.changes.mapPos(at, side);
+      value = {
+        ...value,
+        changes: value.changes.map((c) => ({
+          ...c,
+          // Text typed at either edge stays outside the change, so undoing it never takes that text.
+          from: map(c.from, c.from === c.to ? -1 : 1),
+          to: map(c.to, -1),
+          inserted: c.inserted.map((r) => ({ from: map(r.from, 1), to: map(r.to, -1) })).filter((r) => r.to > r.from),
+          deleted: c.deleted.map((d) => ({ ...d, at: map(d.at, -1) })),
+        })),
+      };
+    }
+    for (const e of tr.effects) if (e.is(dropChange) && value) value = { ...value, changes: value.changes.filter((_c, i) => i !== e.value) };
+    return value;
+  },
+});
+
+/** The changes, drawn in the page view only. */
+const changesDrawn = EditorView.decorations.compute([changesField, pageLook], (state) => {
+  const shown = state.field(changesField);
+  if (!shown || !state.facet(pageLook)) return Decoration.none;
+  const out: CmRange<Decoration>[] = [];
+  for (const c of shown.changes) {
+    // A bar beside each line changed, as Word draws one in the margin.
+    for (let at = state.doc.lineAt(c.from).from; at <= Math.min(c.to, state.doc.length); ) {
+      const line = state.doc.lineAt(at);
+      if (line.from < c.to || line.from === c.from) out.push(Decoration.line({ class: `cm-v-changed cm-v-${c.who}` }).range(line.from));
+      at = line.to + 1;
+      if (line.to >= c.to) break;
+    }
+    for (const r of c.inserted) out.push(Decoration.mark({ class: `cm-v-ins cm-v-${c.who}` }).range(r.from, r.to));
+    for (const d of c.deleted) out.push(Decoration.widget({ widget: new DeletedWidget(d.text, c.who), side: -1 }).range(d.at));
+  }
+  return Decoration.set(out, true);
+});
+
+/** The change the cursor is in, or the first after it; its place in the list, or -1. */
+function changeHere(state: EditorState): number {
+  const shown = state.field(changesField, false);
+  if (!shown) return -1;
+  const head = state.selection.main.head;
+  const inside = shown.changes.findIndex((c) => c.from <= head && head <= c.to);
+  return inside >= 0 ? inside : shown.changes.findIndex((c) => c.from > head);
+}
+
+/** Keep the change at the cursor: its marks go, the text stays as it is. */
+export function keepChange(view: EditorView): boolean {
+  const i = changeHere(view.state);
+  if (i < 0) return false;
+  view.dispatch({ effects: dropChange.of(i) });
+  return true;
+}
+
+/** Undo the change at the cursor: its lines go back to what the snapshot had. */
+export function undoChange(view: EditorView): boolean {
+  const i = changeHere(view.state);
+  if (i < 0) return false;
+  const c = view.state.field(changesField)!.changes[i];
+  view.dispatch({ changes: { from: c.from, to: c.to, insert: c.old }, effects: dropChange.of(i), selection: { anchor: c.from }, userEvent: "input", scrollIntoView: true });
+  return true;
+}
+
+/** Go to the next change after the cursor, or the first. */
+export function nextChange(view: EditorView): boolean {
+  const shown = view.state.field(changesField, false);
+  if (!shown?.changes.length) return false;
+  const head = view.state.selection.main.head;
+  const next = shown.changes.find((c) => c.from > head) ?? shown.changes[0];
+  view.dispatch({ selection: { anchor: next.from }, scrollIntoView: true });
+  return true;
+}
+
+/** The snapshot whose changes are shown, and how many are left; null when none are shown. */
+export function changesShown(state: EditorState): { since: string; count: number } | null {
+  const shown = state.field(changesField, false);
+  return shown ? { since: shown.since, count: shown.changes.length } : null;
+}
+
 /**
  * The pages of the last compile, kept in every file's state whichever way it is shown, so that
  * the breaks follow the edits made in the draft view or the source too. Drawn in the page view.
  */
-export const pageFurniture: Extension = [pagesField, pagesDrawn];
+export const pageFurniture: Extension = [pagesField, pagesDrawn, changesField, changesDrawn];
 
 /** The page view: visual mode that stays drawn under the cursor, and is edited as a word processor is. */
 export const visualPage: Extension = [

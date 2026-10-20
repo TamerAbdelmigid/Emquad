@@ -73,12 +73,15 @@ export function EditorPane(p: Props) {
   const setup = useSetup(paged ? p.active : null, p.mainFile);
   const geometry = useMemo(() => pageGeometry(setup), [setup]);
   const marks = useStore((s) => s.latexMarks);
+  const balloons = useStore((s) => s.balloons);
+  // Room beside the page for comment balloons, when the file on screen has comments to show.
+  const commented = useStore((s) => s.balloons && s.comments.some((c) => c.path === p.active && (!c.resolved || c.id === s.comment) && !c.deleted));
   useEffect(() => {
     buffers.setMarks(marks);
   }, [marks]);
   const width = useWidth(host, paged);
   // A page wider than the pane is shown whole, made smaller to fit, as a word processor does; zoom is on top of that.
-  const fit = width ? Math.max(0.2, Math.min(1, (width - 60) / (geometry.width * CM))) : 1;
+  const fit = width ? Math.max(0.2, Math.min(1, (width - 60 - (commented ? BALLOONS : 0)) / (geometry.width * CM))) : 1;
 
   return (
     <main className={paged ? "screen paged" : "screen"} style={{ ["--editor-size" as string]: `${p.fontSize}px`, ...(paged ? pageStyle(geometry, p.zoom * fit) : {}) }}>
@@ -114,6 +117,7 @@ export function EditorPane(p: Props) {
           setup={setup}
           marks={marks}
           onMarks={(latexMarks) => store().set({ latexMarks })}
+          balloons={balloons}
         />
       ) : (
       <div className="tools">
@@ -196,6 +200,8 @@ export function EditorPane(p: Props) {
   );
 }
 
+/** How wide the column of comment balloons beside the page is, in CSS pixels, with its gap. */
+const BALLOONS = 250;
 /** CSS pixels in a centimetre. */
 const CM = 96 / 2.54;
 

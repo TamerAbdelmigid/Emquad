@@ -31,7 +31,7 @@ Drag the gaps between the file panel, the source and the PDF to resize them. **L
 
 ### The page view
 
-Visual mode sets your document on a white page, as Word does, with the paper, margins, size of type and line spacing that **Document setup** gives it. (It is a likeness: where lines break in the PDF is up to the compiler.) After each compile the page is broken into pages where the PDF breaks them, with a gap between the sheets. Above it is a ribbon with Word's tabs: **Home** (undo, the clipboard and format painter, the font and paragraph tools, the styles gallery, find, comment), **Insert** (page break, contents, table, figure, cross-reference, header and footer, footnote, symbol, equation, citation and bibliography), **Layout** (margins, orientation, size, columns, breaks, line numbers, the first line of paragraphs, text size, position) and **View** (Page or Draft, zoom, Show LaTeX, LaTeX marks, page setup). Point at any tool to see its shortcut and the LaTeX it writes.
+Visual mode sets your document on a white page, as Word does, with the paper, margins, size of type and line spacing that **Document setup** gives it. (It is a likeness: where lines break in the PDF is up to the compiler.) After each compile the page is broken into pages where the PDF breaks them, with a gap between the sheets. Above it is a ribbon with Word's tabs: **Home** (undo, the clipboard and format painter, the font and paragraph tools, the styles gallery, find, comment), **Insert** (page break, contents, table, figure, link, bookmark, cross-reference, header and footer, footnote, symbol, equation, citation and bibliography), **Layout** (margins, orientation, size, columns, breaks, line numbers, the first line of paragraphs, text size, position), **References** (contents, footnotes, citations, cross-references, lists of figures and tables), **Review** (word count, comments, the changes since a snapshot, versions, sharing) and **View** (Page or Draft, zoom, Show LaTeX, LaTeX marks, page setup). Point at any tool to see its shortcut and the LaTeX it writes.
 
 What is drawn stays drawn while you work in it. Click into bold text and type: it is still bold. The arrow keys move over a formula or a citation in one step, and Backspace and Delete take the letter you see, never a hidden brace; taking the last letter of a bold word takes the bold with it. Text you copy keeps its formatting whole, and selecting everything and typing keeps the document's settings. Enter starts a new paragraph (in LaTeX, a blank line), the next item in a list, or a new line below a heading.
 
@@ -62,6 +62,16 @@ Where the PDF breaks a page, the page view shows a gap between two sheets, named
 #### Pictures
 
 Put the cursor in a figure and a **Picture** tab appears. **Half width**, **Most of it** and **Full width** make the picture that share of the line, so it stays right if the margins change. **Position** asks LaTeX where to put the figure: where it fits best, here if it fits, at the top of a page, on a page of its own, or exactly here. LaTeX moves pictures and tables to where they fit best, so that no page is left half empty, which is why the text refers to them by number ("see Figure 2") rather than "below"; *Exactly here* keeps it where it is written, even if that leaves a gap, and loads the `float` package for you. The same **Position** menu is on the Layout tab, for a table too.
+
+#### References, links and review
+
+**Insert ▸ Cross-reference** (also on the References tab) lists everything in the project that has a label: headings, figures, tables, equations, by kind, with their numbers and captions. Pick one, choose whether to show its kind and number ("Figure 2"), the number alone or its page, and press **Insert**. LaTeX keeps the number right if the figure moves. **Bookmark** gives the place where the cursor is a name, so a cross-reference can point at it. **Link** (Ctrl+K) puts in a web link, around the words you selected.
+
+The **Review** tab has the word count, comments, and **Show changes**: pick a snapshot, and the page shows what changed since then, what you added underlined and what you took out struck through, in your colour, and in the other author's colour for what came from their bundle. **Keep** takes a change's marks away, **Undo change** puts back what the snapshot had, **Next** goes to the next change. There is nothing to switch on before you write: any snapshot will do.
+
+In the page view, comments show as **balloons** beside the page; click one to open it in the Comments panel. **Review ▸ Show comments** hides them.
+
+To move a section with everything under it, **drag its heading** in the File outline onto the heading it should come before, or to "Move to the end". From the keyboard, **Alt+Shift+Up** and **Alt+Shift+Down** on a heading in the outline move its section up or down.
 
 To see or change the LaTeX of a paragraph, press **Ctrl+/** (or View ▸ Show LaTeX). Press it again, or Esc, or move to another paragraph, and it is drawn again. Going to a line, an error or a search result that is inside something drawn shows it as LaTeX too.
 
@@ -283,6 +293,8 @@ The compiler is **Automatic** unless you change it: Emquad's built-in Tectonic, 
 | Bold, italic, underline | Ctrl+B, Ctrl+I, Ctrl+U |
 | Search the project | Ctrl+Shift+F |
 | Comment on the selected text | Ctrl+Alt+M |
+| A link | Ctrl+K |
+| In the File outline: move a section up or down | Alt+Shift+Up, Alt+Shift+Down |
 | In the page view: show the paragraph as LaTeX, or draw it again | Ctrl+/ |
 | Subscript, superscript | Ctrl+=, Ctrl+Shift+= |
 | Format painter: copy the formatting at the cursor | Ctrl+Shift+C |

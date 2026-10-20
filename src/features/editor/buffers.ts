@@ -28,7 +28,7 @@ import { tags as t } from "@lezer/highlight";
 import type { Comment, Diagnostic } from "../../ipc/api";
 import { store } from "../../state/store";
 import { type Anchor, describe, locate, relocate } from "./commentAnchor";
-import { commenting, focusComment, placeComments, placedComments } from "./comments";
+import { commenting, focusComment, placeComments, placedComments, setSaid, showBalloons } from "./comments";
 import type { Fix, Help } from "./errorHelp";
 import { COMMANDS, ENVIRONMENTS, completionAt, setHeading, toggleCommand } from "./latex";
 import { lspActive, lspFor } from "./lsp";
@@ -36,8 +36,9 @@ import { recheckSpelling, spelling } from "./spell";
 import { type Insertion, type Sym, insertion, mathAt, placeInsertion } from "./symbols";
 import { tableInput, tablePaste } from "./tableEditor";
 import { ensurePackage, packageNotice } from "./tableModel";
-import { type PageLayout, applyListEdit, drawingStale, forgetPictures, pageFurniture, redrawVisual, setLatexMarks, setPageBreaks, visualMode, visualPage } from "./visual";
+import { type PageLayout, applyListEdit, changesShown, showChanges, drawingStale, forgetPictures, pageFurniture, redrawVisual, setLatexMarks, setPageBreaks, visualMode, visualPage } from "./visual";
 import { setPictureWidth, setPlacement } from "./floats";
+import type { PageChange } from "./trackChanges";
 import { documentStart } from "./visualModel";
 import { type Alignment, type BlockStyle, alignmentAt, setAlignment, setBlockStyle } from "./blocks";
 import { type Need, type Restyled, type TextChange, clearFormatting, formatAt, headOf, needsOf, paintFormat, plainWrapSafe, setColour, toggleFormat, wordAt } from "./formatting";
@@ -48,7 +49,7 @@ const states = new Map<string, EditorState>();
 const saved = new Map<string, string>();
 let view: EditorView | null = null;
 let shownPath: string | null = null;
-let handlers = { save: () => {}, compile: () => {}, comment: () => {}, equation: () => {} };
+let handlers = { save: () => {}, compile: () => {}, comment: () => {}, equation: () => {}, link: () => {} };
 /** Holds visual mode's extensions, or nothing, in every file's state. */
 const visual = new Compartment();
 let visualOn = false;
@@ -252,6 +253,8 @@ function extensions(path: string): Extension[] {
       { key: "Mod-Alt-m", run: () => (handlers.comment(), true) },
       // As in Word: Alt+= opens the equation editor.
       { key: "Alt-=", run: () => (handlers.equation(), true) },
+      // As in Word: Ctrl+K puts in a link.
+      { key: "Mod-k", run: () => (handlers.link(), true) },
       // As in a word processor. Before the default keys, where Ctrl+I selects the enclosing syntax.
       { key: "Mod-b", run: () => (buffers.format("textbf"), true) },
       { key: "Mod-i", run: () => (buffers.format("textit"), true) },
@@ -322,6 +325,11 @@ export const buffers = {
   /** Show these comments on their passages in every open file. */
   setComments(all: Comment[]) {
     comments = all;
+    const byId = new Map(all.map((c) => [c.id, c]));
+    setSaid((id) => {
+      const c = byId.get(id);
+      return c && { id, author: c.authorName, text: c.text, replies: c.replies.length };
+    });
     for (const path of states.keys()) place(path, false);
   },
 
@@ -366,6 +374,7 @@ export const buffers = {
     const body = documentStart(text);
     const start = body < 0 ? 0 : text.indexOf("\n", body) + 1 || text.length;
     states.set(path, EditorState.create({ doc: text, selection: { anchor: start }, extensions: extensions(path) }));
+    if (!store().balloons) apply(path, { effects: showBalloons.of(false) });
     place(path, true);
   },
 
@@ -546,6 +555,36 @@ export const buffers = {
       scrollIntoView: true,
     });
     view.focus();
+  },
+
+  /** Show the comments as balloons beside the page in every open file, or not. */
+  setBalloons(on: boolean) {
+    for (const path of states.keys()) apply(path, { effects: showBalloons.of(on) });
+  },
+
+  /** Draw the changes since a snapshot on a file's page, or stop (null). */
+  showChanges(path: string, shown: { since: string; changes: PageChange[] } | null) {
+    apply(path, { effects: showChanges.of(shown) });
+  },
+
+  /** The snapshot whose changes the file on screen shows, and how many are left. */
+  changesShown(): { since: string; count: number } | null {
+    return view && shownPath ? changesShown(view.state) : null;
+  },
+
+  /** Put `text` in place of the selection, or at the cursor, as one step of undo. */
+  replaceSelection(text: string) {
+    if (!view || !shownPath) return;
+    const { from, to } = view.state.selection.main;
+    view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, userEvent: "input", annotations: isolateHistory.of("full"), scrollIntoView: true });
+    view.focus();
+  },
+
+  /** The words selected in the file on screen, as written. */
+  selectedText(): string {
+    if (!view || !shownPath) return "";
+    const { from, to } = view.state.selection.main;
+    return view.state.sliceDoc(from, to);
   },
 
   /** Where the last compile broke a file's pages, and what its header and footer print. */
