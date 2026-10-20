@@ -4,6 +4,17 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.19.1 - 2026-10-20
+
+The page view's rough edges, smoothed.
+
+- What you type at the end of a bold, italic or coloured word now goes on in that formatting, as in Word, wherever the cursor stopped; after a plain word just before a bold one, it stays plain. At the start of a line, a heading or a list item, it takes the formatting of what follows. Typing at the end of a link no longer makes the link longer.
+- Enter on an empty item in the middle of a numbered list, or Backspace at the start of one, now numbers the items after the new paragraph on from where the list was, as Word does, instead of starting again at 1. Emquad loads the enumitem package for it.
+- Centre, Align left and right, Justify, Quote and Normal now act on the paragraph you are in, not every paragraph of the environment it shares with others: centring one of three right-aligned paragraphs leaves the other two right-aligned.
+- With Split on, a tool used by its KeyTip letter gives the keyboard back to the LaTeX side when that is where you were typing.
+- Fixed: Justify or Normal on a centred paragraph or a quotation written on the line next to other text joined the two into one paragraph.
+- Fixed: **My commands…** accepted words ending in `\\%` (a line break, then a comment), which could have left the new command without its closing brace.
+
 ## 0.19.0 - 2026-10-20
 
 The page view's bridge to LaTeX.
