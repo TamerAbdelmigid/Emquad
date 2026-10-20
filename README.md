@@ -4,7 +4,7 @@ An offline desktop LaTeX editor in the spirit of Overleaf: source on the left, t
 
 The name comes from the em quad, the square blank a typesetter sets between words (`\quad` in LaTeX). The logo sheet is `mockup/emquad-logo.html`.
 
-Current version: `0.18.0`. What each version changed is in [CHANGELOG.md](CHANGELOG.md).
+Current version: `0.19.0`. What each version changed is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 

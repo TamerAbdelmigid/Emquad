@@ -4,6 +4,16 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.19.0 - 2026-10-20
+
+The page view's bridge to LaTeX.
+
+- A new **LaTeX** tab. **Split with LaTeX** (also on the View tab) shows your file's LaTeX beside the page: edit either side, and the paragraph you are in is lit on the other.
+- Drawings written in LaTeX that the editor cannot draw itself, such as TikZ pictures and algorithms, are shown as they print in the PDF after a compile, with **Show LaTeX** on their bar to change them.
+- **Packages…** explains each package your document loads and which tool loaded it.
+- **My commands…** makes a shortcut from the selected words, written once at the top as `\newcommand`; it becomes a button on the LaTeX tab, and the page shows it as the words it prints.
+- **KeyTips:** press and let go Alt to see a letter on each tab of the ribbon, as in Word; press one, then the letter of a tool.
+
 ## 0.18.0 - 2026-10-20
 
 The page view refers like Word.
