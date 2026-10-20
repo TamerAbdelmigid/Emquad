@@ -72,6 +72,7 @@ const INLINE: Record<string, string> = {
   hl: "highlight",
   textsf: "sans",
   caption: "caption",
+  url: "link",
 };
 /**
  * Colours drawn as they print: the ribbon's palette and the most common of xcolor's own names.
@@ -353,13 +354,15 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
     if (name === "footnote") footnotes++;
     if (name === "chapter" && chapters) footnotes = 0;
 
-    if (name === "textcolor") {
-      // \textcolor{name}{text}: drawn in its colour, the command and its colour's name hidden as one.
+    if (name === "textcolor" || name === "href") {
+      // \textcolor{name}{text}: drawn in its colour, the command and its colour's name hidden as
+      // one; \href{address}{words} the same, its words drawn as a link.
       if (text[end] !== "{") continue;
       const close = closingBrace(text, end);
       if (close < 0) continue;
       const colour = text.slice(open + 1, end - 1).trim();
-      if (close - 1 > end + 1) pieces.push({ kind: "style", from: end + 1, to: close - 1, style: DRAWN_COLOURS.has(colour) ? `color-${colour}` : "color" });
+      const style = name === "href" ? "link" : DRAWN_COLOURS.has(colour) ? `color-${colour}` : "color";
+      if (close - 1 > end + 1) pieces.push({ kind: "style", from: end + 1, to: close - 1, style });
       if (!touched(from, close)) {
         pieces.push({ kind: "hide", from, to: end + 1, group: from });
         pieces.push({ kind: "hide", from: close - 1, to: close, group: from });

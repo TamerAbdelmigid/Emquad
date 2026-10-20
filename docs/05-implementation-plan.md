@@ -193,9 +193,10 @@ Agreed with the owner on 15 October 2026, after a review of the app for speed an
 
 | 0.17.0 | Lays out like Word, the third step: a Layout tab (margins, size, orientation, columns, breaks, line numbers, the first line of paragraphs, the size of text, position); the page view broken into pages where the last compile broke them, with the header and footer drawn; a header and footer on the Insert tab, written with fancyhdr; a Picture tab for a figure's width as a share of the line and where LaTeX places it |
 
+| 0.18.0 | Refers like Word, the fourth step: a cross-reference picker listing every label by kind and caption; links (Ctrl+K) and bookmarks; References and Review tabs; comments as balloons beside the page; the changes since a snapshot drawn on the page in each author's colour, kept or undone one by one; moving a section by dragging its heading in the outline |
+
 The rest of that proposal, one version each, in this order (numbers as they fall):
 
-- **Refers like Word:** a cross-reference picker; links and bookmarks; References and Review tabs; comments as balloons beside the page; changes since a snapshot drawn on the page; moving a section by dragging its heading.
 - **The bridge to LaTeX:** the page and its LaTeX side by side, linked both ways; blocks of LaTeX drawn from the compile; the preamble explained; commands of the user's own; KeyTips.
 
 Still ahead, in rough priority order; each is its own piece of work with its own spec.

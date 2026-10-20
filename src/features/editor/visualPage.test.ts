@@ -7,7 +7,8 @@ import { cursorCharRight } from "@codemirror/commands";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
-import { pageBackspace, pageDelete, pageEnter, pageFurniture, pageShiftTab, pageTab, pagesState, setLatexMarks, setPageBreaks, toggleReveal, visualMode, visualPage } from "./visual";
+import type { PageChange } from "./trackChanges";
+import { describeReference, keepChange, nextChange, showChanges, undoChange, pageBackspace, pageDelete, pageEnter, pageFurniture, pageShiftTab, pageTab, pagesState, setLatexMarks, setPageBreaks, toggleReveal, visualMode, visualPage } from "./visual";
 
 /** The stretches of source that are not shown as they are written: hidden or drawn. */
 function notShown(view: EditorView): string[] {
@@ -473,5 +474,82 @@ describe("page view: lays out like Word", () => {
     view.dispatch({ changes: { from: 0, insert: "A " } });
     expect(view.contentDOM.querySelector(".cm-v-pageend .cm-v-pb-foot")?.textContent).toBe("1");
     expect(text(view)).toBe("A Short.");
+  });
+});
+
+describe("page view: refers like Word", () => {
+  it("names what a reference points to as cleveref prints it, the kind read from where the label is when the compile does not say", () => {
+    const numbers = { "fig:a": { number: "2", page: "3", title: "", kind: "" }, "eq:e": { number: "1", page: "1", title: "", kind: "" } };
+    const kinds = { "fig:a": "figure", "eq:e": "equation" };
+    expect(describeReference("Cref", ["fig:a"], numbers, kinds).text).toBe("Figure 2");
+    expect(describeReference("cref", ["fig:a"], numbers, kinds).text).toBe("fig. 2");
+    expect(describeReference("Cref", ["eq:e"], numbers, kinds).text).toBe("Equation (1)");
+    expect(describeReference("ref", ["fig:a"], numbers, kinds).text).toBe("2");
+    expect(describeReference("pageref", ["fig:a"], numbers, kinds).text).toBe("3");
+    expect(describeReference("Cref", ["missing"], numbers, kinds).text).toBe("?");
+    // hyperref names sub-levels and the appendix; cleveref calls them sections and the appendix.
+    const deeper = { "sec:b": { number: "2.1", page: "1", title: "", kind: "subsection" }, app: { number: "A", page: "9", title: "", kind: "appendix" }, thm: { number: "3", page: "2", title: "", kind: "theorem" } };
+    expect(describeReference("Cref", ["sec:b"], deeper, {}).text).toBe("Section 2.1");
+    expect(describeReference("Cref", ["app"], deeper, {}).text).toBe("Appendix A");
+    expect(describeReference("Cref", ["thm"], deeper, { thm: "figure" }).text).toBe("Figure 3");
+  });
+});
+
+describe("page view: changes since a snapshot", () => {
+  const NOW = "\\begin{document}\nThe quick red fox.\nLast line.\n\\end{document}\n";
+  const at = (s: string) => NOW.indexOf(s);
+  const CHANGES: PageChange[] = [
+    { from: at("The"), to: at("Last"), old: "The quick brown fox.\nGone.\n", inserted: [{ from: at("red"), to: at("red") + 3 }], deleted: [{ at: at("red"), text: "brown" }, { at: at("Last"), text: "Gone.\n" }], who: "theirs" },
+  ];
+  function shown() {
+    const view = new EditorView({ state: EditorState.create({ doc: NOW, selection: { anchor: at("quick") }, extensions: [visualPage, pageFurniture] }) });
+    views.push(view);
+    view.dispatch({ effects: showChanges.of({ since: "Draft 1", changes: CHANGES }) });
+    return view;
+  }
+
+  it("draws what was put in underlined and what was taken out struck through, in the author's colour, with a bar beside the lines", () => {
+    const view = shown();
+    expect([...view.contentDOM.querySelectorAll(".cm-v-ins.cm-v-theirs")].map((e) => e.textContent)).toEqual(["red"]);
+    expect([...view.contentDOM.querySelectorAll(".cm-v-del")].map((e) => e.textContent)).toEqual(["brown", "Gone. ↵"]);
+    expect(view.contentDOM.querySelectorAll(".cm-v-changed").length).toBeGreaterThan(0);
+    expect(view.state.doc.toString()).toBe(NOW);
+  });
+
+  it("keeps a change, taking its marks away and leaving the text, or undoes it, putting back what the snapshot had", () => {
+    const kept = shown();
+    expect(keepChange(kept)).toBe(true);
+    expect(kept.contentDOM.querySelector(".cm-v-ins, .cm-v-del")).toBeNull();
+    expect(kept.state.doc.toString()).toBe(NOW);
+    const undone = shown();
+    expect(undoChange(undone)).toBe(true);
+    expect(undone.state.doc.toString()).toBe("\\begin{document}\nThe quick brown fox.\nGone.\nLast line.\n\\end{document}\n");
+    expect(undone.contentDOM.querySelector(".cm-v-ins, .cm-v-del")).toBeNull();
+  });
+
+  it("never takes text typed at a change's edges when the change is undone", () => {
+    const view = shown();
+    view.dispatch({ changes: { from: at("Last"), insert: "NEW " } });
+    view.dispatch({ selection: { anchor: at("quick") } });
+    expect(undoChange(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("\\begin{document}\nThe quick brown fox.\nGone.\nNEW Last line.\n\\end{document}\n");
+    // A change that only took something out: what is typed where it was stays.
+    const only = new EditorView({ state: EditorState.create({ doc: NOW, selection: { anchor: at("Last") }, extensions: [visualPage, pageFurniture] }) });
+    views.push(only);
+    only.dispatch({ effects: showChanges.of({ since: "s", changes: [{ from: at("Last"), to: at("Last"), old: "Gone.\n", inserted: [], deleted: [{ at: at("Last"), text: "Gone.\n" }], who: "mine" }] }) });
+    only.dispatch({ changes: { from: at("Last"), insert: "Typed " }, selection: { anchor: at("Last") } });
+    expect(undoChange(only)).toBe(true);
+    expect(only.state.doc.toString()).toBe(NOW.replace("Last line.", "Gone.\nTyped Last line."));
+  });
+
+  it("goes to the next change, and follows the text as it is edited", () => {
+    const view = shown();
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(nextChange(view)).toBe(true);
+    expect(view.state.selection.main.head).toBe(at("The"));
+    view.dispatch({ changes: { from: at("quick"), insert: "very " } });
+    expect([...view.contentDOM.querySelectorAll(".cm-v-ins")].map((e) => e.textContent)).toEqual(["red"]);
+    expect(undoChange(view)).toBe(true);
+    expect(view.state.doc.toString()).toContain("The quick brown fox.\nGone.\nLast line.");
   });
 });

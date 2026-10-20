@@ -54,9 +54,18 @@ impl Engine for Tectonic {
     }
     fn command(&self, main_name: &str, build_dir: &Path) -> Command {
         let mut c = Command::new(&self.0);
-        c.args(["-X", "compile", "--synctex", "--keep-logs", "--outdir"])
-            .arg(build_dir)
-            .arg(main_name);
+        // The .aux it writes is kept, in the app's own build folder: the page view shows
+        // references by the numbers it records.
+        c.args([
+            "-X",
+            "compile",
+            "--synctex",
+            "--keep-logs",
+            "--keep-intermediates",
+            "--outdir",
+        ])
+        .arg(build_dir)
+        .arg(main_name);
         c
     }
 }

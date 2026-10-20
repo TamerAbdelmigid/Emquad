@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 const noop = () => {};
 const props = {
-  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop, spacing: noop, layout: noop, headerFooter: noop },
+  actions: { equation: noop, cite: noop, zotero: noop, bibliography: noop, citationStyle: noop, setup: noop, comment: noop, spacing: noop, layout: noop, headerFooter: noop, bookmark: noop, compile: noop, snapshot: noop, history: noop, exportBundle: noop, sendToWord: noop, pdfWithComments: noop, wordCount: noop, stepComment: noop, balloons: noop, snapshots: () => Promise.resolve([{ id: "v1", label: "Draft 1" }]), showChanges: noop },
   active: true,
   chapters: false,
   onSymbols: noop,
@@ -26,6 +26,7 @@ const props = {
   setup: { paper: "a4paper", size: "", margins: "2.5cm", spacing: "single", font: "default", pageNumbers: true, paragraphs: "indent", landscape: false, columns: 1, lineNumbers: false, header: "", footer: "" } satisfies Setup as Setup,
   marks: false,
   onMarks: noop,
+  balloons: true,
 };
 
 describe("Ribbon", () => {
@@ -86,5 +87,36 @@ describe("Ribbon", () => {
     fireEvent.click(screen.getByRole("button", { name: "Footer" }));
     expect(headerFooter).toHaveBeenLastCalledWith("footer");
     expect(screen.getByRole("button", { name: "Page number" })).toBeTruthy();
+  });
+
+  it("refers like Word: the References tab gathers contents, footnotes, citations and captions", () => {
+    render(<Ribbon {...props} symbolsOpen={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: "References" }));
+    for (const name of ["Table of contents", "Update", "Footnote", "Citation", "From Zotero", "Citation style", "Bibliography", "Cross-reference", "Table of figures", "List of tables"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    expect(screen.getByRole("button", { name: "Cross-reference" }).dataset.tex).toBe("\\Cref{…}");
+  });
+
+  it("refers like Word: the Review tab shows changes since a snapshot, comments, versions and sharing", async () => {
+    const showChanges = vi.fn();
+    const balloons = vi.fn();
+    render(<Ribbon {...props} actions={{ ...props.actions, showChanges, balloons }} symbolsOpen={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Review" }));
+    for (const name of ["Word count", "New comment", "Previous comment", "Next comment", "Save snapshot", "Compare versions", "Send as bundle", "Send to Word", "PDF with comments"]) {
+      expect(screen.getByRole("button", { name })).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Show comments" }));
+    expect(balloons).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Show changes" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Since “Draft 1”/ }));
+    expect(showChanges).toHaveBeenLastCalledWith({ id: "v1", label: "Draft 1" });
+  });
+
+  it("puts Link, Bookmark and Cross-reference in the Insert tab's Links group", () => {
+    render(<Ribbon {...props} symbolsOpen={false} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Insert" }));
+    expect(screen.getByRole("button", { name: "Link" }).dataset.keys).toBe("Ctrl+K");
+    expect(screen.getByRole("button", { name: "Bookmark" }).dataset.tex).toBe("\\label{…}");
   });
 });

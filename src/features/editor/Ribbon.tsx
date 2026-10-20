@@ -10,7 +10,7 @@ import { TablePicker } from "./TablePicker";
 import { buffers } from "./buffers";
 import { INSERT, type Insertion } from "./insertions";
 import { headingAt } from "./latex";
-import { toggleReveal } from "./visual";
+import { keepChange, nextChange, toggleReveal, undoChange } from "./visual";
 import { type Alignment, type BlockStyle, alignmentAt, blockStyleAt, environments } from "./blocks";
 import type { Setup } from "./documentSetup";
 import { COLOURS, formatAt } from "./formatting";
@@ -32,6 +32,23 @@ export interface RibbonActions {
   layout: (patch: Partial<Setup>) => void;
   /** Type the header's or the footer's text. */
   headerFooter: (which: "header" | "footer") => void;
+  bookmark: () => void;
+  compile: () => void;
+  /** Save a snapshot; done when it is saved. */
+  snapshot: () => Promise<unknown> | void;
+  history: () => void;
+  exportBundle: () => void;
+  sendToWord: () => void;
+  pdfWithComments: () => void;
+  wordCount: () => void;
+  /** Pick out the next comment, or the one before. */
+  stepComment: (by: 1 | -1) => void;
+  /** Show comments as balloons beside the page, or not. */
+  balloons: (on: boolean) => void;
+  /** The snapshots the changes can be shown since, newest first. */
+  snapshots: () => Promise<{ id: string; label: string }[]>;
+  /** Draw the changes since a snapshot on the page, or stop (null). */
+  showChanges: (since: { id: string; label: string } | null) => void;
 }
 
 interface Props {
@@ -54,9 +71,11 @@ interface Props {
   setup: Setup | null;
   marks: boolean;
   onMarks: (on: boolean) => void;
+  /** Comments are shown as balloons beside the page. */
+  balloons: boolean;
 }
 
-type TabName = "home" | "insert" | "layout" | "view" | "picture";
+type TabName = "home" | "insert" | "layout" | "references" | "review" | "view" | "picture";
 
 /** A tool: a real button named for assistive technology, with what its tooltip says kept on it. */
 function Tool(p: {
@@ -303,6 +322,86 @@ const placeItems = (here: FloatHere | null): MenuItem[] =>
     run: () => buffers.placement(pl.value),
   }));
 
+/** Word's Review tab: proofing, comments, the changes since a snapshot, versions and sharing. */
+function ReviewTab(p: Props & { off: boolean }) {
+  const off = p.off;
+  const [snapshots, setSnapshots] = useState<{ id: string; label: string }[]>([]);
+  const actions = p.actions;
+  // Read once as the tab opens, not at every render: the app's actions are new each time.
+  const read = useRef(actions.snapshots);
+  read.current = actions.snapshots;
+  const live = useRef(true);
+  const refetch = () =>
+    void read
+      .current()
+      .then((list) => live.current && setSnapshots(list))
+      .catch(() => {});
+  useEffect(() => {
+    live.current = true;
+    if (!off) refetch();
+    return () => {
+      live.current = false;
+    };
+  }, [off]);
+  const [shown, setShown] = useState<{ since: string; count: number } | null>(null);
+  // Read again now and then: changes are shown, kept and undone from here and from the page.
+  useEffect(() => {
+    const read = () =>
+      setShown((was) => {
+        const now = buffers.changesShown();
+        return was?.since === now?.since && was?.count === now?.count ? was : now;
+      });
+    read();
+    const timer = window.setInterval(read, 400);
+    return () => window.clearInterval(timer);
+  }, []);
+  const showing = shown !== null;
+  return (
+    <>
+      <Group label="Proofing">
+        <Tool name="Word count" icon="abc" big label="Word count" why="Words as they print: commands, mathematics and the settings at the top are left out." disabled={off} run={actions.wordCount} />
+      </Group>
+      <Group label="Comments">
+        <Tool name="New comment" keys="Ctrl+Alt+M" icon="comment" big label="New comment" why="Kept beside the project, never written into the file. Travels in bundles." disabled={off} run={actions.comment} />
+        <div className="rb-col">
+          <Tool name="Previous comment" icon="up" label="Previous" disabled={off} run={() => actions.stepComment(-1)} />
+          <Tool name="Next comment" icon="down" label="Next" disabled={off} run={() => actions.stepComment(1)} />
+          <Tool name="Show comments" icon="eye" label="Show comments" why="As balloons beside the page." pressed={p.balloons} run={() => actions.balloons(!p.balloons)} />
+        </div>
+      </Group>
+      <Group label="Changes">
+        <BigMenu
+          name="Show changes"
+          icon="history"
+          why="Instead of Track Changes: the page shows what changed since a snapshot, in each author's colour, so there is nothing to forget to switch on."
+          disabled={off}
+          items={[
+            ...(snapshots.length ? snapshots.map((s) => ({ label: `Since “${s.label}”`, checked: shown?.since === s.label, run: () => actions.showChanges(s) })) : [{ label: "No snapshots yet: save one now", hint: "Ctrl+Shift+S", run: () => void Promise.resolve(actions.snapshot()).then(refetch) }]),
+            "separator" as const,
+            { label: "Stop showing changes", disabled: !showing, run: () => actions.showChanges(null) },
+          ]}
+        />
+        <div className="rb-col">
+          <Tool name="Keep change" icon="check" label="Keep" why="The change stays; its marks go." disabled={off || !shown?.count} run={() => (buffers.run(keepChange), setShown(buffers.changesShown()))} />
+          <Tool name="Undo change" icon="x" label="Undo change" why="Puts back what the snapshot had." disabled={off || !shown?.count} run={() => (buffers.run(undoChange), setShown(buffers.changesShown()))} />
+          <Tool name="Next change" icon="down" label="Next" disabled={off || !shown?.count} run={() => buffers.run(nextChange)} />
+        </div>
+      </Group>
+      <Group label="Versions">
+        <Tool name="Save snapshot" keys="Ctrl+Shift+S" icon="snap" big label="Snapshot" disabled={off} run={() => void Promise.resolve(actions.snapshot()).then(refetch)} />
+        <Tool name="Compare versions" keys="Ctrl+Shift+H" icon="history" big label="Compare" why="History: every version, and what changed between them." disabled={off} run={actions.history} />
+      </Group>
+      <Group label="Share">
+        <div className="rb-col">
+          <Tool name="Send as bundle" keys="Ctrl+Shift+E" icon="send" label="Send as bundle" disabled={off} run={actions.exportBundle} />
+          <Tool name="Send to Word" icon="word" label="Send to Word" why="Through Pandoc, for a reader who uses Word." disabled={off} run={actions.sendToWord} />
+          <Tool name="PDF with comments" icon="page" label="PDF with comments" disabled={off} run={actions.pdfWithComments} />
+        </div>
+      </Group>
+    </>
+  );
+}
+
 /** A style from the gallery: a heading level, a block style, or Normal, which takes either off. */
 function setStyle(s: (typeof STYLES)[number], current: string | null) {
   if (s.block) return buffers.blockStyle(s.block);
@@ -342,6 +441,8 @@ export function Ribbon(p: Props) {
     ["home", "Home"],
     ["insert", "Insert"],
     ["layout", "Layout"],
+    ["references", "References"],
+    ["review", "Review"],
     ["view", "View"],
     ...(figure ? [["picture", "Picture"] as [TabName, string]] : []),
   ];
@@ -606,7 +707,21 @@ export function Ribbon(p: Props) {
               <TablePicker disabled={off} />
             </Group>
             <Group label="Illustrations">{insertTool(INSERT.figure, "picture", true, off)}</Group>
-            <Group label="Links">{insertTool(INSERT.crossReference, "xref", true, off)}</Group>
+            <Group label="Links">
+              <div className="rb-col">
+                <Tool name="Link" keys="Ctrl+K" tex="\href{https://…}{…}" why="The words show in the document, and the reader follows them to the address. Loads hyperref." icon="link" label="Link" disabled={off} run={INSERT.link.run} />
+                <Tool name="Bookmark" tex="\label{…}" why="A name for this place, so a cross-reference can point at it." icon="bookmark" label="Bookmark" disabled={off} run={p.actions.bookmark} />
+                <Tool
+                  name="Cross-reference"
+                  tex="\Cref{fig:map}  →  “Figure 1”"
+                  why="Pick a heading, figure, table or equation. The number follows it if it moves."
+                  icon="xref"
+                  label="Cross-reference"
+                  disabled={off}
+                  run={INSERT.crossReference.run}
+                />
+              </div>
+            </Group>
             <Group label="Header & Footer">
               <div className="rb-col">
                 <Tool
@@ -800,6 +915,31 @@ export function Ribbon(p: Props) {
             </Group>
           </>
         )}
+        {shown === "references" && (
+          <>
+            <Group label="Table of contents">
+              {insertTool(INSERT.contents, "toc", true, off)}
+              <Tool name="Update" icon="play" big label="Update" why="Contents, numbers and references are filled in by the compiler: updating them is a recompile." disabled={off} run={p.actions.compile} />
+            </Group>
+            <Group label="Footnotes">{insertTool(INSERT.footnote, "footnote", true, off)}</Group>
+            <Group label="Citations">
+              <Tool name="Citation" tex="\cite{…}" icon="quote" big label="Citation" why="Find a reference in the project's .bib files, or add a new one." disabled={off} run={p.actions.cite} />
+              <div className="rb-col">
+                <Tool name="From Zotero" icon="quote" label="Zotero" disabled={off} run={p.actions.zotero} />
+                <Tool name="Citation style" icon="gear" label="Style" why="Numbered, IEEE, Harvard, APA, abbreviated." disabled={off} run={p.actions.citationStyle} />
+                <Tool name="Bibliography" tex="\bibliography{…}" icon="toc" label="Bibliography" disabled={off} run={p.actions.bibliography} />
+              </div>
+            </Group>
+            <Group label="Captions">
+              <Tool name="Cross-reference" tex="\Cref{…}" why="Pick a heading, figure, table or equation. The number follows it if it moves." icon="xref" big label="Cross-reference" disabled={off} run={INSERT.crossReference.run} />
+              <div className="rb-col">
+                <Tool name="Table of figures" tex="\listoffigures" icon="toc" label="Table of figures" disabled={off} run={() => buffers.insert("\\listoffigures\n")} />
+                <Tool name="List of tables" tex="\listoftables" icon="toc" label="List of tables" disabled={off} run={() => buffers.insert("\\listoftables\n")} />
+              </div>
+            </Group>
+          </>
+        )}
+        {shown === "review" && <ReviewTab {...p} off={off} />}
         {shown === "view" && (
           <>
             <Group label="Views">

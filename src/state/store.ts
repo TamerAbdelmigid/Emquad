@@ -45,6 +45,8 @@ export interface State {
   pageZoom: number;
   /** The page view shows LaTeX marks: the commands faintly around formatted text. */
   latexMarks: boolean;
+  /** The page view shows comments as balloons beside the page. */
+  balloons: boolean;
   /** The format painter holds formatting to put on the next text selected. */
   painting: boolean;
   /** The Symbol panel is open. */
@@ -78,7 +80,7 @@ export interface State {
   pendingReviews: number;
   /** Bundle to select when History opens. */
   focusBundle: string | null;
-  dialog: null | "export" | "logs" | "settings" | "newProject" | "shortcuts" | "setup" | "cite" | "reference" | "citationStyle" | "equation";
+  dialog: null | "export" | "logs" | "settings" | "newProject" | "shortcuts" | "setup" | "cite" | "reference" | "citationStyle" | "equation" | "crossReference" | "link";
   ask: Ask | null;
   toast: { text: string; error: boolean } | null;
   set: (patch: Partial<State>) => void;
@@ -96,6 +98,7 @@ export const useStore = create<State>((set) => ({
   pageView: true,
   pageZoom: 1,
   latexMarks: false,
+  balloons: true,
   painting: false,
   symbols: false,
   sidePanel: "files",
@@ -106,7 +109,7 @@ export const useStore = create<State>((set) => ({
   root: null,
   info: null,
   tree: [],
-  index: { labels: [], citeKeys: [], citations: [], stylePackages: {}, labelNumbers: {}, documentClass: "" },
+  index: { labels: [], labelPlaces: [], citeKeys: [], citations: [], stylePackages: {}, labelNumbers: {}, documentClass: "" },
   tabs: [],
   active: null,
   cursor: { line: 1, column: 1 },

@@ -11,7 +11,8 @@
 // visual mode, the page view's formatting (character formats, colour, clear, the format painter,
 // the selection toolbar and right-click menu, lists, alignment, quote, LaTeX marks), its layout
 // (line numbers, margins, orientation, columns, a header, page breaks from the compile, the
-// Picture tab), comments,
+// Picture tab), how it refers (a cross-reference picked from a list, a link, a bookmark, the
+// changes since a snapshot on the page, comment balloons, a section moved from the outline), comments,
 // references and citation styles, pictures dropped and pasted, text pasted
 // with its formatting, the equation editor (typing, its ribbon, several lines, a double-click), PDFs with comments and changes on them, Send to Word
 // (or, with no Pandoc, its refusal), and a bundle that carries its LaTeX packages.
@@ -422,6 +423,103 @@
       await until("the Picture tab gone", () => !$("#rb-tab-picture") && $("#rb-tab-home").getAttribute("aria-selected") === "true");
       await ok(true, "the Picture tab goes when the cursor leaves the figure, back on Home");
       // Saved first: a file changed on disk does not replace unsaved edits.
+      await act.save();
+      await writeOutside({ path: "main.tex", text: rich });
+      await until("the document as it was", () => doc() === rich);
+    }
+    // Refers like Word: a cross-reference picked from a list, a link, a bookmark, the changes
+    // since a snapshot drawn on the page, comments as balloons, and a section moved by its heading.
+    {
+      const B = String.fromCharCode(92);
+      const doc = () => buffers.text("main.tex");
+      const menuItem = (start) => until(`the menu item ${start}`, () => $$(".menu-item").find((i) => i.textContent.trim().startsWith(start)));
+      const select = (word, length = word.length) => {
+        const at = doc().indexOf(word);
+        buffers.run((v) => (v.dispatch({ selection: { anchor: at, head: at + length } }), true));
+      };
+      const cursor = (word, plus = 0) => buffers.run((v) => (v.dispatch({ selection: { anchor: doc().indexOf(word) + plus } }), true));
+      const two = rich.replace("Start ", `${B}section{Methods}${B}label{sec:methods}\nHow it was done.\n\n${B}section{Results}\nWhat was found. Start `);
+      await act.save();
+      await writeOutside({ path: "main.tex", text: two });
+      await until("two sections", () => doc() === two);
+      await act.refreshIndex();
+      await until("the label in the index", () => store().index.labelPlaces.some((l) => l.key === "sec:methods" && l.kind === "section" && l.caption === "Methods"));
+      // A cross-reference, picked from the list of every label by kind.
+      cursor("What was found.");
+      $("#rb-tab-insert").click();
+      await click("Cross-reference");
+      const pick = await until("the cross-reference list", () => $$("dialog[open] label.ck").find((l) => l.textContent.includes("Methods")));
+      await ok($$("dialog[open] legend").some((l) => l.textContent === "Headings"), "Insert ▸ Cross-reference lists the labels by kind: the Methods heading under Headings");
+      pick.querySelector("input").click();
+      $$("dialog[open] button").find((b) => b.textContent.trim() === "Insert").click();
+      await until("the reference", () => doc().includes(`${B}Cref{sec:methods}What was found.`) && doc().includes(`${B}usepackage{cleveref}`));
+      await ok(true, "and writes \\Cref to the label chosen, loading cleveref");
+      // A link around the selected words, and a bookmark.
+      select("What was found", 4);
+      await click("Link");
+      type(await until("the address", () => $("#link-address")), "https://example.org/a#b");
+      await ok($("#link-words").value === "What", "Link takes the selected words as the text to show");
+      $$("dialog[open] button").find((b) => b.textContent.trim() === "Insert link").click();
+      await until("the link", () => doc().includes(`${B}href{https://example.org/a${B}#b}{What}`) && doc().includes(`${B}usepackage{hyperref}`));
+      await ok(doc().indexOf(`${B}usepackage{hyperref}`) < doc().indexOf(`${B}usepackage{cleveref}`), "and writes \\href around them, loading hyperref before cleveref, as cleveref needs");
+      await until("drawn as a link", () => $$(".cm-v-link").some((l) => l.textContent === "What"));
+      cursor("How it was done.");
+      await click("Bookmark");
+      type(await until("the bookmark prompt", () => $("#ask-value")), "here");
+      await click("Add");
+      await until("the bookmark", () => doc().includes(`${B}label{here}How it was done.`));
+      await ok(true, "a link is drawn as a link, and Bookmark names the place with \\label");
+      await act.compile();
+      await until("the status after the compile", () => text(".proj .st") !== "Compiling…");
+      await ok(text(".proj .st") === "Compiled", `the document with a cross-reference, a link and a bookmark compiles (${text(".proj .st")})`);
+      await until("the reference named", () => $$(".cm-v-ref").some((r) => r.textContent === "Section 2")).catch((e) => {
+        throw new Error(`${e.message}: refs ${JSON.stringify($$(".cm-v-ref").map((r) => r.textContent))}, number ${JSON.stringify(store().index.labelNumbers["sec:methods"])}`);
+      });
+      await ok(true, "and the page shows the cross-reference as it prints: Section 2");
+      // The changes since a snapshot, drawn on the page, kept or undone one by one.
+      await invoke("history_snapshot", { label: "Before the review" });
+      buffers.change("main.tex", { from: doc().indexOf("How it was done."), to: doc().indexOf("How it was done.") + 3, insert: "This is how" });
+      await act.save();
+      $("#rb-tab-review").click();
+      await click("Show changes");
+      (await menuItem("Since “Before the review”")).click();
+      await until("the change drawn", () => $$(".cm-v-ins.cm-v-mine").some((e) => e.textContent.includes("This")) && $$(".cm-v-del").some((e) => e.textContent.includes("How")));
+      await ok(true, "Review ▸ Show changes draws what changed since a snapshot on the page: what went in underlined, what went out struck through, in your colour");
+      cursor("This is how");
+      await until("Undo change ready", () => button("Undo change") && !button("Undo change").disabled);
+      await click("Undo change");
+      await until("the change undone", () => doc().includes("How it was done.") && !doc().includes("This is how") && !$(".cm-v-ins"));
+      await ok(true, "Undo change puts back what the snapshot had");
+      await click("Show changes");
+      (await menuItem("Stop showing changes")).click();
+      // A comment, shown as a balloon beside the page.
+      select("was found");
+      await act.addComment("Is this the main result?");
+      const balloon = await until("the balloon", () => $$(".cm-balloon").find((b) => b.textContent.includes("Is this the main result?")));
+      await ok(balloon.getBoundingClientRect().left > $(".cm-content").getBoundingClientRect().right, "a comment is shown as a balloon beside the page, to the right of it");
+      await shot("02-review");
+      await click("Show comments");
+      await until("the balloons hidden", () => !$(".cm-balloon"));
+      await click("Show comments");
+      const id = store().comments.find((c) => c.text === "Is this the main result?").id;
+      await invoke("comment_delete", { id });
+      await act.refreshComments();
+      // A section moved by dragging its heading in the outline, and back from the keyboard.
+      const item = (title) => $$(".flist.outline .out").find((o) => o.textContent === title);
+      await until("the outline", () => item("Methods") && item("Results"));
+      const press = (el, type, x, y) => el.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 7, clientX: x, clientY: y }));
+      const from = item("Results").getBoundingClientRect();
+      const to = item("Methods").getBoundingClientRect();
+      press(item("Results"), "pointerdown", from.left + 5, from.top + 4);
+      press(item("Results"), "pointermove", to.left + 5, to.top + 4);
+      press(item("Results"), "pointerup", to.left + 5, to.top + 4);
+      await until("the section moved", () => doc().indexOf(`${B}section{Results}`) < doc().indexOf(`${B}section{Methods}`));
+      await ok(/\\section\{Results\}\n[^]*was found\.[^]*\\section\{Methods\}[^]*How it was done\./.test(doc()), "dragging the Results heading above Methods in the outline moves its section, everything under it included");
+      await until("the outline read again", () => item("Results") && item("Results").getBoundingClientRect().top < item("Methods").getBoundingClientRect().top);
+      item("Results").focus();
+      item("Results").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, shiftKey: true, bubbles: true }));
+      await until("moved back", () => doc().indexOf(`${B}section{Methods}`) < doc().indexOf(`${B}section{Results}`));
+      await ok(true, "Alt+Shift+Down on a heading in the outline moves its section down past the next one");
       await act.save();
       await writeOutside({ path: "main.tex", text: rich });
       await until("the document as it was", () => doc() === rich);

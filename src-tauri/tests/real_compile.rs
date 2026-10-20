@@ -14,7 +14,7 @@ The first paragraph of the main file sits on page one.
 \input{sections/proof}
 
 \newpage
-\section{Second}
+\section{Second}\label{sec:second}
 A paragraph on the second page.
 \end{document}
 ";
@@ -89,6 +89,22 @@ fn compiles_reports_errors_and_maps_between_source_and_pdf() {
         .unwrap();
     assert_eq!(back.file, "main.tex");
     assert!(back.line.abs_diff(10) <= 1, "{back:?}");
+
+    // The compile leaves the label numbers behind, for the page view to show references by.
+    let index = emquad_lib::index::build(&project).unwrap();
+    assert_eq!(
+        index
+            .label_numbers
+            .get("sec:second")
+            .map(|n| n.number.as_str()),
+        Some("3"),
+        "{:?}",
+        index.label_numbers
+    );
+    // And SyncTeX says where each page of the main file begins: the second at its \newpage.
+    let starts = sync.page_starts("main.tex");
+    assert_eq!(starts.iter().map(|s| s.page).collect::<Vec<_>>(), [1, 2]);
+    assert!(starts[1].line.abs_diff(9) <= 1, "{starts:?}");
 
     // An error in the included file is reported against that file and line, and the last good
     // PDF stays in place.

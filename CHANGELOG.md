@@ -4,6 +4,18 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.18.0 - 2026-10-20
+
+The page view refers like Word.
+
+- **Insert ▸ Cross-reference** now opens a list of everything in the project with a label (headings, figures, tables, equations), by kind, with each one's number and caption. Choose one and how it should read ("Figure 2", "2", or its page). It used to put in an empty `\ref{}` to fill in by hand.
+- **Link** (Ctrl+K) puts a web link around the selected words, and **Bookmark** names a place so a cross-reference can point at it. Links are drawn as links on the page.
+- New **References** and **Review** tabs gather what was spread over the menus: contents, footnotes, citations and captions; word count, comments, snapshots, History, Send as bundle, Send to Word and the PDF with comments.
+- Comments now show as **balloons** beside the page, as in Word. Click one to open it; **Review ▸ Show comments** hides them.
+- **Review ▸ Show changes** draws on the page what changed since a snapshot you choose: added text underlined and removed text struck through, in your colour or the other author's. **Keep** or **Undo change** each one, and **Next** to go through them.
+- **Drag a heading** in the File outline to move its section, everything under it included; Alt+Shift+Up and Down do the same from the keyboard.
+- Fixed: with the built-in compiler, references in visual mode showed "?" instead of their numbers.
+
 ## 0.17.0 - 2026-10-20
 
 The page view lays out like Word.

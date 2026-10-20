@@ -505,6 +505,27 @@ body[data-dropping] .cm-editor{outline:2px dashed var(--acc);outline-offset:-6px
 .paged .cm-page .cm-v-pb-head{min-height:1.3em;padding:calc(var(--page-m) * .35) var(--page-m) calc(var(--page-m) * .3);text-align:right}
 .paged .cm-page .cm-v-pb-gap{display:flex;align-items:center;justify-content:center;gap:8px;height:30px;background:var(--well);box-shadow:inset 0 8px 10px -8px rgba(40,38,30,.35),inset 0 -8px 10px -8px rgba(40,38,30,.35);font:500 10px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mu)}
 .paged .cm-page .cm-v-pb-gap span+span::before{content:"· "}
+.cm-v-link{color:var(--k);text-decoration:underline;text-underline-offset:3px}
+.paged .cm-page .cm-v-link{color:var(--ink-royalblue)}
+.cm-v-ins.cm-v-mine{color:var(--mine);text-decoration:underline;text-underline-offset:3px}
+.cm-v-ins.cm-v-theirs{color:var(--theirs);text-decoration:underline;text-underline-offset:3px}
+.cm-v-del{text-decoration:line-through}
+.cm-v-del.cm-v-mine{color:var(--mine)}
+.cm-v-del.cm-v-theirs{color:var(--theirs)}
+.paged .cm-page .cm-v-changed{box-shadow:inset 2px 0 0 var(--mine)}
+.paged .cm-page .cm-v-changed.cm-v-theirs{box-shadow:inset 2px 0 0 var(--theirs)}
+.paged .cm-page .cm-scroller{position:relative}
+.paged .cm-page.cm-has-balloons .cm-scroller{padding-right:250px}
+.cm-balloons{position:absolute;top:0;left:0;width:0;height:0}
+.paged .cm-page:not(.cm-has-balloons) .cm-balloons{display:none}
+.cm-balloon{position:absolute;display:flex;flex-direction:column;gap:3px;width:220px;padding:7px 9px;border-radius:8px;background:var(--card);box-shadow:inset 3px 0 0 var(--acc),0 1px 3px rgba(0,0,0,.18);font:400 12px/1.4 var(--ui);color:var(--tx);text-align:left;cursor:pointer}
+.cm-balloon b{font-weight:600}
+.cm-balloon i{font-style:normal;color:var(--mu);font-size:11px}
+.cm-balloon.on{box-shadow:inset 3px 0 0 var(--acc),0 0 0 2px var(--acc)}
+.out.dragging{opacity:.45}
+.out.drop-before{box-shadow:inset 0 2px 0 var(--acc)}
+.out-end{padding:6px 8px;font-size:11.5px;color:var(--mu);border-top:1px dashed var(--line)}
+.out-end.drop-before{box-shadow:inset 0 2px 0 var(--acc);color:var(--tx)}
 .rb-tab.rb-ctx{color:var(--acc-tx)}
 .rb-share{font:600 15px/22px var(--mono);height:22px}
 

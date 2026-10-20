@@ -15,11 +15,15 @@ import {
   exportBundle,
   guard,
   helpFor,
+  insertCrossReference,
+  insertLink,
   openFile,
+  selectedWords,
   setCitationStyle,
 } from "./actions";
 import type { Setup } from "../features/editor/documentSetup";
 import type { Reference } from "../features/editor/bib";
+import { labelGroups } from "../features/editor/references";
 import { STYLES } from "../features/editor/citationStyle";
 import { EquationDialog } from "./EquationDialog";
 
@@ -107,6 +111,8 @@ export function Dialogs() {
       {dialog === "reference" && <ReferenceDialog onClose={close} />}
       {dialog === "citationStyle" && <CitationStyleDialog onClose={close} />}
       {dialog === "equation" && <EquationDialog onClose={close} />}
+      {dialog === "crossReference" && <CrossReferenceDialog onClose={close} />}
+      {dialog === "link" && <LinkDialog onClose={close} />}
       {dialog === "shortcuts" && (
         <Dialog title="Keyboard shortcuts" onClose={close}>
           <dl className="keys">
@@ -404,6 +410,114 @@ function CiteDialog({ onClose }: { onClose: () => void }) {
           </button>
           <button type="submit" className="btn go" disabled={!keys.length}>
             Cite{keys.length > 1 ? ` ${keys.length}` : ""}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Word's Cross-reference dialog: every place with a label, by kind, and how the reference reads. */
+function CrossReferenceDialog({ onClose }: { onClose: () => void }) {
+  const places = useStore((s) => s.index.labelPlaces);
+  const numbers = useStore((s) => s.index.labelNumbers);
+  const [query, setQuery] = useState("");
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [as, setAs] = useState<"named" | "number" | "page">("named");
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const groups = labelGroups(places, numbers)
+    .map((g) => ({ ...g, items: g.items.filter((i) => words.every((w) => `${i.text} ${i.key}`.toLowerCase().includes(w))) }))
+    .filter((g) => g.items.length);
+  const all = groups.flatMap((g) => g.items);
+  // A choice the search has since hidden is not the one inserted.
+  const key = chosen && all.some((i) => i.key === chosen) ? chosen : all.length === 1 ? all[0].key : null;
+  return (
+    <Dialog title="Cross-reference" intro="Choose what to refer to. The number is the compiler's: it follows the heading, figure or table if it moves." onClose={onClose} wide>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!key) return;
+          onClose();
+          void insertCrossReference(key, as);
+        }}
+      >
+        <div className="f">
+          <label htmlFor="xref-search">Find</label>
+          <input id="xref-search" type="text" autoFocus value={query} placeholder="A heading, a caption, a label" onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {places.length === 0 && <p>Nothing in the project has a label yet. A caption gets one, and so does a bookmark (Insert ▸ Bookmark).</p>}
+        {places.length > 0 && all.length === 0 && <p>Nothing matches “{query}”.</p>}
+        {groups.map((g) => (
+          <fieldset className="refs" key={g.name}>
+            <legend>{g.name}</legend>
+            {g.items.slice(0, 200).map((i) => (
+              <label className="ck" key={`${i.file}:${i.line}:${i.key}`}>
+                <input type="radio" name="xref" checked={key === i.key} onChange={() => setChosen(i.key)} />
+                <span>{i.text}</span>
+                <small>{i.key}</small>
+              </label>
+            ))}
+          </fieldset>
+        ))}
+        <fieldset>
+          <legend>Insert as</legend>
+          {(
+            [
+              ["named", "Its kind and number: “Figure 2”", "\\Cref"],
+              ["number", "Its number alone: “2”", "\\ref"],
+              ["page", "Its page: “5”", "\\pageref"],
+            ] as const
+          ).map(([id, label, tex]) => (
+            <label className="ck" key={id}>
+              <input type="radio" name="xref-as" checked={as === id} onChange={() => setAs(id)} />
+              <span>{label}</span>
+              <small>{tex}</small>
+            </label>
+          ))}
+        </fieldset>
+        <div className="end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn go" disabled={!key}>
+            Insert
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** A link, as Word's Insert Link asks for it: where it goes, and the words that show. */
+function LinkDialog({ onClose }: { onClose: () => void }) {
+  const [address, setAddress] = useState("https://");
+  const [words, setWords] = useState(selectedWords);
+  return (
+    <Dialog title="Link" intro="The words show in the document, and the reader follows them to the address. Loads hyperref, which makes links." onClose={onClose}>
+      <form
+        className="dlg"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!address.trim() || address.trim() === "https://") return;
+          onClose();
+          void insertLink(address.trim(), words);
+        }}
+      >
+        <div className="f">
+          <label htmlFor="link-address">Address</label>
+          <input id="link-address" type="text" autoFocus value={address} onChange={(e) => setAddress(e.target.value)} />
+        </div>
+        <div className="f">
+          <label htmlFor="link-words">Text to show</label>
+          <input id="link-words" type="text" value={words} placeholder="Leave empty to show the address" onChange={(e) => setWords(e.target.value)} />
+        </div>
+        <div className="end">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn go" disabled={!address.trim() || address.trim() === "https://"}>
+            Insert link
           </button>
         </div>
       </form>
