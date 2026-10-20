@@ -191,13 +191,22 @@ function wrapLines(text: string, lines: { from: number; to: number }, name: stri
 
 /** Take an environment away, keeping what is in it: its \begin and \end go with their lines when they are alone on them. */
 export function unwrapEnv(text: string, env: Env): TextChange[] {
-  const open = lineAlone(text, env.begin, env.head) ?? { from: env.begin, to: env.head };
-  const close = lineAlone(text, env.end, env.tail) ?? { from: env.end, to: env.tail };
+  const alone = { open: lineAlone(text, env.begin, env.head), close: lineAlone(text, env.end, env.tail) };
+  const open = alone.open ?? { from: env.begin, to: env.head };
+  const close = alone.close ?? { from: env.end, to: env.tail };
+  // What it held stays a paragraph of its own, not joined to text written just outside it.
   return [
-    { from: open.from, to: open.to, insert: "" },
-    { from: close.from, to: close.to, insert: "" },
+    { from: open.from, to: open.to, insert: alone.open && apart(lineBefore(text, open.from), lineAfter(text, open.to)) ? "\n" : "" },
+    { from: close.from, to: close.to, insert: alone.close && apart(lineBefore(text, close.from), lineAfter(text, close.to)) ? "\n" : "" },
   ];
 }
+
+/** The line that ends just before `at`, a line's start; "" at the top. */
+const lineBefore = (text: string, at: number) => (at > 0 ? text.slice(lineStart(text, at - 1), at - 1) : "");
+/** The line that starts at `at`, a line's start; "" at the end. */
+const lineAfter = (text: string, at: number) => (at < text.length ? text.slice(at, lineEnd(text, at)) : "");
+/** Whether two lines of text that become neighbours need a blank line between them to stay two paragraphs. */
+const apart = (above: string, below: string) => !isBlank(above) && !STRUCTURE.test(above) && !isBlank(below) && !STRUCTURE.test(below);
 
 /** Give an environment another name, keeping what is in it; `options` replaces what is in its square brackets. */
 export function renameEnv(text: string, env: Env, name: string, options?: string): TextChange[] {
@@ -206,6 +215,34 @@ export function renameEnv(text: string, env: Env, name: string, options?: string
     { from: env.begin, to: env.head, insert: head },
     { from: env.end, to: env.tail, insert: `\\end{${name}}` },
   ];
+}
+
+/**
+ * The environment `env` cut round the paragraphs `lines` written directly in it, as a word
+ * processor sets some paragraphs apart from the others: those before and after stay in `env`,
+ * and these go in an environment `name`, or in none (null). Null when `lines` are all of its
+ * paragraphs, or its \begin or \end shares a line with text.
+ */
+function cutRound(text: string, env: Env, lines: { from: number; to: number }, name: string | null, envs: Env[]): TextChange[] | null {
+  const open = lineAlone(text, env.begin, env.head);
+  const close = lineAlone(text, env.end, env.tail);
+  if (!open || !close || envAround(envs, lines.from, lines.to, (e) => !LISTS.test(e.name)) !== env) return null;
+  const before = text.slice(open.to, lines.from);
+  // From the end of the last line, its line break first, to the \end line.
+  const after = text.slice(lines.to + 1, close.from);
+  if (!before.trim() && !after.trim()) return null;
+  const head = text.slice(open.from, open.to);
+  const foot = `${text.slice(close.from, env.end)}\\end{${env.name}}`;
+  // Blank lines at the cut go between the environments, not inside them.
+  const gapBefore = /\n((?:[ \t]*\n)*)$/.exec(before)?.[1] ?? "";
+  const gapAfter = /^(?:[ \t]*\n)*/.exec(after)![0];
+  const indent = /^[ \t]*/.exec(head)![0];
+  const words = text.slice(lines.from, lines.to);
+  const middle = name ? `${indent}\\begin{${name}}\n${words}\n${indent}\\end{${name}}` : words;
+  // Words taken out to its edge stay a paragraph of their own beside text written just outside it.
+  const first = before.trim() ? `${head}${before.slice(0, before.length - gapBefore.length)}${foot}\n${gapBefore}` : !name && !before && apart(lineBefore(text, open.from), words) ? "\n" : before;
+  const last = after.trim() ? `\n${gapAfter}${head}${after.slice(gapAfter.length)}${foot}` : !name && apart(words.slice(words.lastIndexOf("\n") + 1), lineAfter(text, close.to)) ? "\n" : "";
+  return [{ from: open.from, to: env.tail, insert: `${first}${middle}${last}` }];
 }
 
 /** How the paragraph at `at` is aligned. */
@@ -224,9 +261,13 @@ export function setAlignment(text: string, from: number, to: number, alignment: 
   const envs = environments(text);
   const env = envAround(envs, from, to, (e) => e.name in ALIGNMENTS);
   if (env && ALIGNMENTS[env.name] === alignment) return null;
-  if (env) return alignment === "justify" ? unwrapEnv(text, env) : renameEnv(text, env, ALIGN_ENV[alignment], "");
-  if (alignment === "justify") return null;
   const lines = paragraphLines(text, from, to, envs);
+  if (env) {
+    // Some of its paragraphs: the environment is cut round them. All of them: it changes.
+    const cut = lines && cutRound(text, env, lines, alignment === "justify" ? null : ALIGN_ENV[alignment], envs);
+    return cut ?? (alignment === "justify" ? unwrapEnv(text, env) : renameEnv(text, env, ALIGN_ENV[alignment], ""));
+  }
+  if (alignment === "justify") return null;
   return lines ? wrapLines(text, lines, ALIGN_ENV[alignment]) : null;
 }
 
@@ -240,12 +281,13 @@ export function blockStyleAt(text: string, at: number, envs = environments(text)
 export function setBlockStyle(text: string, from: number, to: number, style: BlockStyle | null): TextChange[] | null {
   const envs = environments(text);
   const env = envAround(envs, from, to, (e) => STYLE_ENVS.test(e.name));
+  const lines = paragraphLines(text, from, to, envs);
   if (env) {
     const now = env.name === "abstract" ? "abstract" : "quote";
     if (style === now) return null;
-    return style ? renameEnv(text, env, style) : unwrapEnv(text, env);
+    const cut = lines && cutRound(text, env, lines, style, envs);
+    return cut ?? (style ? renameEnv(text, env, style) : unwrapEnv(text, env));
   }
   if (!style) return null;
-  const lines = paragraphLines(text, from, to, envs);
   return lines ? wrapLines(text, lines, style) : null;
 }

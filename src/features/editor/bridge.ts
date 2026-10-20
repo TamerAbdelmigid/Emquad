@@ -71,8 +71,16 @@ export function commandProblem(name: string, text: string): string | null {
 export function bodyProblem(body: string): string | null {
   if (!body.trim()) return "Say what the command prints.";
   if (/\n/.test(body)) return "What a command prints is written on one line; select words on one line.";
-  if (/(?<!\\)%/.test(body)) return "A % would make the rest of the line a comment: write \\% for a percent sign.";
-  if (/(?<!\\)#/.test(body)) return "A # stands for an argument in a command: write \\# for the sign itself.";
+  // A backslash takes the character after it, so \% is the sign and \\% a line break and a comment.
+  const bare = (sign: string) => {
+    for (let i = 0; i < body.length; i++) {
+      if (body[i] === "\\") i++;
+      else if (body[i] === sign) return true;
+    }
+    return false;
+  };
+  if (bare("%")) return "A % would make the rest of the line a comment: write \\% for a percent sign.";
+  if (bare("#")) return "A # stands for an argument in a command: write \\# for the sign itself.";
   if (/\\(?:begin|end|item|par)(?![a-zA-Z])/.test(body)) return "A command made here prints words, not an environment, a list or a paragraph break.";
   let depth = 0;
   for (let i = 0; i < body.length; i++) {

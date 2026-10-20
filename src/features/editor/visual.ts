@@ -29,6 +29,7 @@ import { latexPath } from "./latexPath";
 import { type ListEdit, enterInEmptyItem, indentItem, outdentItem, toggleList } from "./lists";
 import { alignmentAt, environments, setAlignment, uncommented } from "./blocks";
 import { fromOtherSide } from "./split";
+import type { Need } from "./formatting";
 
 
 /** What a double-click on a formula does: the app opens the equation editor on it. */
@@ -794,7 +795,13 @@ export function pageEnter(view: EditorView): boolean {
   return true;
 }
 
-/** Make a list tool's change, the cursor where the tool puts it or kept in its words. True when there was one. */
+/** What the app does with the packages a list's change needs, such as enumitem for a list that numbers on. */
+let listNeeds: (needs: Need[]) => void = () => {};
+export function onListNeeds(load: (needs: Need[]) => void) {
+  listNeeds = load;
+}
+
+/** Make a list tool's change, the cursor where the tool puts it or kept in its words, and load what it needs. True when there was one. */
 export function applyListEdit(view: EditorView, edit: ListEdit | null): boolean {
   if (!edit) return false;
   if (edit.changes.length) {
@@ -805,6 +812,7 @@ export function applyListEdit(view: EditorView, edit: ListEdit | null): boolean 
       scrollIntoView: true,
     });
   }
+  if (edit.needs?.length) listNeeds(edit.needs);
   return true;
 }
 
@@ -938,6 +946,91 @@ const keepConstructs = EditorState.transactionFilter.of((tr) => {
     effects: tr.effects,
     userEvent: tr.annotation(Transaction.userEvent),
     scrollIntoView: true,
+  };
+});
+
+/**
+ * Where a letter typed at `at` goes, as Word decides it: in the formatting of the letter before
+ * it, so at the end of a bold word inside the bold, whichever side of its hidden `}` the cursor
+ * is, and after a plain word before the bold; at the start of a line, a heading or an item, in
+ * the formatting of what follows. An empty group a tool left for typing keeps what is typed, and
+ * a link is not run on at either end, as Word's is not. What would break a command put before
+ * its `}` (a %, a backslash, a brace) goes where the cursor is, and so does everything with
+ * LaTeX marks shown, where the `}` is seen.
+ */
+function typingPlace(state: EditorState, at: number, typed: string): number {
+  if (marksOn || /[\\%{}]/.test(typed)) return at;
+  const line = state.doc.lineAt(at);
+  // A command's hidden text on this line; a whole hidden line, such as a list's \begin, is a wall.
+  const parts = hiddenParts(state, line.from, line.to).filter((h) => !state.sliceDoc(h.from, h.to).includes("\n"));
+  if (!parts.length) return at;
+  if (parts.some((h) => h.from < at && at < h.to)) return at;
+  // A construct is numbered by where it begins, so its opening is the part that starts there,
+  // on this line or an earlier one.
+  const opening = (h: Hidden) => h.from === h.group;
+  if (parts.some((o) => o.to === at && opening(o) && parts.some((c) => c.group === o.group && c.from === at))) return at;
+  // The hidden parts next to one another around the cursor, in order: the same place on the page.
+  const run: Hidden[] = [];
+  for (let p = at, h = parts.find((x) => x.to === p); h; p = h.from, h = parts.find((x) => x.to === p)) run.unshift(h);
+  for (let p = at, h = parts.find((x) => x.from === p); h; p = h.to, h = parts.find((x) => x.from === p)) run.push(h);
+  if (!run.length) return at;
+  const link = (h: Hidden) => state.sliceDoc(h.group, h.group + 6) === "\\href{";
+  const from = run[0].from;
+  const before = state.sliceDoc(line.from, from);
+  if (!before.trim() || widgetBeside(state, from, -1)?.bullet) {
+    let i = run.length;
+    while (i > 0 && opening(run[i - 1]) && link(run[i - 1])) i--;
+    return i ? run[i - 1].to : from;
+  }
+  let i = 0;
+  while (i < run.length && !opening(run[i]) && link(run[i])) i++;
+  return i ? run[i - 1].to : from;
+}
+
+/**
+ * A key typed at a cursor beside a command's hidden text: the cursor goes where `typingPlace`
+ * puts the letter first, and the key is then handled there as anywhere, so that a bracket that
+ * closes itself (closeBrackets) is put in and closed there.
+ */
+const moveForTyping = (view: EditorView, from: number, to: number, text: string): boolean => {
+  const { state } = view;
+  if (from !== to || view.composing || state.selection.ranges.length > 1 || state.selection.main.head !== from || !state.field(drawing, false)) return false;
+  const place = typingPlace(state, from, text);
+  if (place === from) return false;
+  view.dispatch({ selection: { anchor: place } });
+  const insert = () => view.state.update({ changes: { from: place, insert: text }, selection: { anchor: place + text.length }, userEvent: "input.type", scrollIntoView: true });
+  const others = view.state.facet(EditorView.inputHandler).filter((h) => h !== moveForTyping);
+  if (!others.some((h) => h(view, place, place, text, insert))) view.dispatch(insert());
+  return true;
+};
+
+/**
+ * Letters typed by other means than a key, such as at several cursors at once, go where
+ * `typingPlace` puts them too. A transaction that carries more than its changes (a bracket
+ * closed by closeBrackets says where it is) is left as it is: what it carries would point to
+ * the wrong place.
+ */
+const typeAtEdge = EditorState.transactionFilter.of((tr) => {
+  const start = tr.startState;
+  if (!tr.docChanged || tr.effects.length || !start.field(drawing, false) || tr.annotation(fromOtherSide) || !tr.isUserEvent("input.type") || tr.isUserEvent("input.type.compose")) return tr;
+  const inserts: { from: number; insert: string; fromB: number; toB: number }[] = [];
+  let typed = true;
+  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    if (fromA !== toA) typed = false;
+    inserts.push({ from: fromA, insert: inserted.toString(), fromB, toB });
+  });
+  const ranges = tr.newSelection.ranges;
+  if (!typed || ranges.length !== inserts.length || ranges.some((r, i) => !r.empty || r.head < inserts[i].fromB || r.head > inserts[i].toB)) return tr;
+  const places = inserts.map((c) => typingPlace(start, c.from, c.insert));
+  if (places.every((p, i) => p === inserts[i].from)) return tr;
+  const set = start.changes(inserts.map((c, i) => ({ from: places[i], insert: c.insert })));
+  // Each cursor where it was in what it typed, as typing brackets leaves it between them.
+  const cursor = (i: number) => EditorSelection.cursor(set.mapPos(places[i], -1) + ranges[i].head - inserts[i].fromB);
+  return {
+    changes: set,
+    selection: EditorSelection.create(ranges.map((_r, i) => cursor(i)), tr.newSelection.mainIndex),
+    userEvent: tr.annotation(Transaction.userEvent),
+    scrollIntoView: tr.scrollIntoView,
   };
 });
 
@@ -1264,6 +1357,8 @@ export const visualPage: Extension = [
   pageLook.of(true),
   visualMode,
   keepConstructs,
+  typeAtEdge,
+  Prec.highest(EditorView.inputHandler.of(moveForTyping)),
   pastSettings,
   wholeOnCopy,
   EditorView.atomicRanges.of((view) => view.state.field(drawing).covers),

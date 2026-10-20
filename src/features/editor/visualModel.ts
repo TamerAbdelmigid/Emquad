@@ -464,6 +464,8 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
   // hidden without the other could be deleted, or kept, without its partner.
   const lists: { kind: string; count: number; line: Range | null; options: string; inner: number }[] = [];
   const listLines: Piece[] = [];
+  /** Where the last numbered list at each depth (0 at the top) ended its numbers. */
+  const numberedTo = new Map<number, number>();
   const marks = [...text.matchAll(BLOCKS_HIDDEN), ...text.matchAll(/\\item\b[ \t]?/g)].sort((a, b) => a.index - b.index);
   for (const m of marks) {
     const [from, to] = [m.index, m.index + m[0].length];
@@ -476,9 +478,12 @@ export function visualPieces(text: string, selection: Range[], report?: { touche
       const line = alone && lineEnd >= 0 && !touched(lineFrom, lineTo) ? { from: lineFrom, to: lineTo + 1 } : null;
       if (m[1] === "begin") {
         const options = m[2] === "enumerate" ? (/^\[([^\]\n]*)\]/.exec(text.slice(to, lineTo))?.[1] ?? "") : "";
-        lists.push({ kind: m[2], count: 0, line, options, inner: lineEnd < 0 ? text.length : lineEnd + 1 });
+        // enumitem's resume numbers on from the last numbered list at this level.
+        const count = /(?:^|,)\s*resume\*?\s*(?:,|$)/.test(options) ? (numberedTo.get(lists.filter((l) => l.kind === "enumerate").length) ?? 0) : 0;
+        lists.push({ kind: m[2], count, line, options, inner: lineEnd < 0 ? text.length : lineEnd + 1 });
       } else if (lists[lists.length - 1]?.kind === m[2]) {
         const open = lists.pop()!;
+        if (open.kind === "enumerate") numberedTo.set(lists.filter((l) => l.kind === "enumerate").length, open.count);
         const begin = open.line;
         const hidden = Boolean(begin && line);
         if (begin && line) listLines.push({ kind: "hide", ...begin, group: begin.from }, { kind: "hide", ...line, group: begin.from });

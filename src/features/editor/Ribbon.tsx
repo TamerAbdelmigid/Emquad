@@ -346,6 +346,8 @@ function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown:
   const modeNow = useRef(mode);
   const tipsNow = useRef(tips);
   tipsNow.current = tips;
+  /** What had the keyboard when the tips came on, to give it back to. */
+  const cameFrom = useRef<Element | null>(null);
   const setMode = (next: "off" | "tabs" | "tools" | ((was: "off" | "tabs" | "tools") => "off" | "tabs" | "tools")) => {
     modeNow.current = typeof next === "function" ? next(modeNow.current) : next;
     setModeShown(modeNow.current);
@@ -381,13 +383,17 @@ function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown:
         // A menu keeps the keyboard; any other tool gives it back to the writing.
         if (!tool.el.hasAttribute("aria-haspopup")) {
           tool.el.blur();
-          buffers.run(() => true);
+          // To the LaTeX side of Split when the typing was there, else to the page.
+          const side = buffers.sourceView();
+          if (side && cameFrom.current && side.dom.contains(cameFrom.current)) side.focus();
+          else buffers.run(() => true);
         }
       }
     };
     const up = (e: KeyboardEvent) => {
       if (e.key === "Alt" && alone && !dialogOpen()) {
         e.preventDefault();
+        if (modeNow.current === "off") cameFrom.current = document.activeElement;
         setMode((m) => (m === "off" ? "tabs" : "off"));
       }
       alone = false;

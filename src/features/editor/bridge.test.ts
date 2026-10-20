@@ -37,6 +37,14 @@ describe("My commands", () => {
     expect(bodyProblem("")).toMatch(/print/);
   });
 
+  it("reads \\\\ before a % or a # as a line break, so the sign after it is still refused, and \\% or \\# as the sign", () => {
+    expect(bodyProblem("one\\\\% two")).toMatch(/%/);
+    expect(bodyProblem("one\\\\# two")).toMatch(/#/);
+    expect(bodyProblem("50\\% more")).toBeNull();
+    expect(bodyProblem("one\\\\\\% two")).toBeNull();
+    expect(bodyProblem("no \\#1 here")).toBeNull();
+  });
+
   it("puts the command in place of the selection only where that is the words it prints, in the document's text, inside no name or address", () => {
     const text = doc("", "Groundwater recharge, see \\ref{fig:recharge} and \\textbf{recharge} rates.");
     const at = (words: string, nth = 0) => {

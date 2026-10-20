@@ -3,12 +3,14 @@
 // Source shows only where the cursor is put inside what is not drawn (by going to a line, say) or
 // where it is asked for with Ctrl+/. Deleting and typing never take a command's hidden parts
 // apart.
+import { closeBrackets } from "@codemirror/autocomplete";
 import { cursorCharRight } from "@codemirror/commands";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PageChange } from "./trackChanges";
-import { describeReference, keepChange, nextChange, showChanges, undoChange, pageBackspace, pageDelete, pageEnter, pageFurniture, pageShiftTab, pageTab, pagesState, setLatexMarks, setPageBreaks, toggleReveal, visualMode, visualPage } from "./visual";
+import { fromOtherSide } from "./split";
+import { describeReference, keepChange, nextChange, onListNeeds, showChanges, undoChange, pageBackspace, pageDelete, pageEnter, pageFurniture, pageShiftTab, pageTab, pagesState, setLatexMarks, setPageBreaks, toggleReveal, visualMode, visualPage } from "./visual";
 
 /** The stretches of source that are not shown as they are written: hidden or drawn. */
 function notShown(view: EditorView): string[] {
@@ -352,6 +354,21 @@ describe("page view: formats like Word", () => {
     expect(text(view)).toContain("\\end{itemize}\n\nNew\n\nAfter.");
   });
 
+  it("Enter on an empty item in the middle of a numbered list cuts it in two, numbered on, and asks for enumitem", () => {
+    const doc = "\\begin{document}\n\\begin{enumerate}\n  \\item a\n  \\item \n  \\item c\n\\end{enumerate}\n\\end{document}";
+    const asked: string[] = [];
+    onListNeeds((needs) => asked.push(...needs.map((n) => n.name)));
+    try {
+      const view = editor(doc, doc.indexOf("\\item \n") + 6);
+      pageEnter(view);
+      expect(text(view)).toContain("\\end{enumerate}\n\n\n\n\\begin{enumerate}[resume]\n  \\item c");
+      expect([...view.contentDOM.querySelectorAll(".cm-v-number")].map((el) => el.textContent)).toEqual(["1.", "2."]);
+      expect(asked).toEqual(["enumitem"]);
+    } finally {
+      onListNeeds(() => {});
+    }
+  });
+
   it("a heading just after a list keeps its style, though the list's hidden last line joins it", () => {
     const doc = "\\begin{document}\n\\begin{itemize}\n  \\item a\n\\end{itemize}\n\\section{Next}\nText.\n\\end{document}";
     const view = editor(doc, doc.indexOf("Text"));
@@ -579,5 +596,162 @@ describe("page view: the bridge to LaTeX", () => {
     expect(view.contentDOM.querySelector(".cm-v-macro")?.textContent).toBe("groundwater recharge");
     pageBackspace(view);
     expect(text(view)).toBe(doc.replace(`${B}gwr{}`, ""));
+  });
+});
+
+describe("page view: typing at the edge of formatting", () => {
+  const text = (view: EditorView) => view.state.doc.toString();
+  const type = (view: EditorView, insert: string) => view.dispatch({ ...view.state.replaceSelection(insert), userEvent: "input.type" });
+  const B = String.fromCharCode(92);
+  const doc = (body: string) => `${B}begin{document}\n${body}\n${B}end{document}\n`;
+
+  it("goes on in the formatting of the word before it, on either side of the hidden brace, as in Word", () => {
+    for (const where of [at("bold}", 4), at("} text", 1)]) {
+      const view = editor(DOC, where);
+      type(view, "er");
+      type(view, "s");
+      expect(text(view)).toContain(`Some ${B}textbf{bolders} text`);
+      expect(view.state.selection.main.head).toBe(text(view).indexOf("} text"));
+    }
+  });
+
+  it("stays plain after a plain word, before a formatted one, and after the space that follows one", () => {
+    for (const where of [at(`${B}textbf`), at("bold")]) {
+      const view = editor(DOC, where);
+      type(view, "X");
+      expect(text(view)).toContain(`Some X${B}textbf{bold} text`);
+    }
+    const view = editor(DOC, at(" text", 1));
+    type(view, "Y");
+    expect(text(view)).toContain(`${B}textbf{bold} Ytext`);
+  });
+
+  it("at the start of a paragraph, a heading or an item, takes the formatting of what follows", () => {
+    const para = doc(`${B}textbf{Bold} start.`);
+    const view = editor(para, para.indexOf(`${B}textbf`));
+    type(view, "X");
+    expect(text(view)).toContain(`${B}textbf{XBold} start.`);
+    const heading = doc(`${B}section{Intro}\nText.`);
+    const top = editor(heading, heading.indexOf(`${B}section`));
+    type(top, "A ");
+    expect(text(top)).toContain(`${B}section{A Intro}`);
+    const end = editor(heading, heading.indexOf("}\nText"));
+    end.dispatch({ selection: { anchor: heading.indexOf("}\nText") + 1 } });
+    type(end, "s");
+    expect(text(end)).toContain(`${B}section{Intros}\nText.`);
+    const list = doc(`${B}begin{itemize}\n  ${B}item ${B}textbf{Term} rest\n${B}end{itemize}`);
+    const item = editor(list, list.indexOf(`${B}textbf`));
+    type(item, "X");
+    expect(text(item)).toContain(`${B}item ${B}textbf{XTerm} rest`);
+  });
+
+  it("goes in the empty group a tool leaves for typing, and inside every format the word before it has", () => {
+    const empty = doc(`Some ${B}textbf{bold}${B}textit{} text`);
+    const view = editor(empty, empty.indexOf(`${B}textit{}`) + `${B}textit{`.length);
+    type(view, "new");
+    expect(text(view)).toContain(`${B}textbf{bold}${B}textit{new} text`);
+    const nested = doc(`A ${B}textbf{${B}textit{word}} after`);
+    const deep = editor(nested, nested.indexOf("} after") + 1);
+    type(deep, "s");
+    expect(text(deep)).toContain(`A ${B}textbf{${B}textit{words}} after`);
+    const two = doc(`${B}textbf{a}${B}textit{b} c`);
+    for (const where of [two.indexOf("a}") + 1, two.indexOf("a}") + 2, two.indexOf("b}")]) {
+      const between = editor(two, where);
+      type(between, "X");
+      expect(text(between)).toContain(`${B}textbf{aX}${B}textit{b} c`);
+    }
+  });
+
+  it("does not run on a link, nor take a formula's neighbour into a format", () => {
+    const link = doc(`See ${B}href{https://x.org}{the site} now.`);
+    for (const where of [link.indexOf("} now"), link.indexOf("} now") + 1]) {
+      const view = editor(link, where);
+      type(view, "!");
+      expect(text(view)).toContain(`${B}href{https://x.org}{the site}! now.`);
+    }
+    const formula = doc(`Take $x$${B}textbf{b} here.`);
+    const view = editor(formula, formula.indexOf(`${B}textbf`) + `${B}textbf{`.length);
+    type(view, "y");
+    expect(text(view)).toContain(`$x$y${B}textbf{b} here.`);
+  });
+
+  it("each cursor goes on in its own word's formatting, and the draft view and the LaTeX side are left as they are", () => {
+    const two = doc(`${B}textbf{one} and ${B}textit{two} end`);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: two,
+        selection: EditorSelection.create([EditorSelection.cursor(two.indexOf("} and") + 1), EditorSelection.cursor(two.indexOf("} end") + 1)]),
+        extensions: [visualPage, EditorState.allowMultipleSelections.of(true)],
+      }),
+    });
+    views.push(view);
+    type(view, "s");
+    expect(text(view)).toContain(`${B}textbf{ones} and ${B}textit{twos} end`);
+    expect(view.state.selection.ranges.map((r) => r.head)).toEqual([text(view).indexOf("} and"), text(view).indexOf("} end")]);
+    const draft = new EditorView({ state: EditorState.create({ doc: DOC, selection: { anchor: at("} text", 1) }, extensions: [visualMode] }) });
+    views.push(draft);
+    type(draft, "X");
+    expect(text(draft)).toContain(`${B}textbf{bold}X text`);
+    const latex = editor(DOC, at("} text", 1));
+    latex.dispatch({ changes: { from: at("} text", 1), insert: "X" }, annotations: fromOtherSide.of(true), userEvent: "input.type" });
+    expect(text(latex)).toContain(`${B}textbf{bold}X text`);
+  });
+
+  /** Type as the browser does, through the editor's input handlers (closeBrackets among them), one key at a time. */
+  function typeAsKeys(view: EditorView, keys: string) {
+    for (const ch of keys) {
+      const { from, to } = view.state.selection.main;
+      const insert = () => view.state.update({ changes: { from, to, insert: ch }, selection: { anchor: from + ch.length }, userEvent: "input.type", scrollIntoView: true });
+      if (!view.state.facet(EditorView.inputHandler).some((h) => h(view, from, to, ch, insert))) view.dispatch(insert());
+    }
+  }
+  const withBrackets = (doc: string, at: number) => {
+    const view = new EditorView({ state: EditorState.create({ doc, selection: { anchor: at }, extensions: [visualPage, closeBrackets()] }) });
+    views.push(view);
+    return view;
+  };
+
+  it("types brackets that close themselves inside the formatting, each closed once", () => {
+    const view = withBrackets(DOC, at("} text", 1));
+    typeAsKeys(view, "(s)");
+    expect(text(view)).toContain(`Some ${B}textbf{bold(s)} text`);
+    expect(view.state.selection.main.head).toBe(text(view).indexOf("} text"));
+  });
+
+  it("never puts a %, a backslash or a brace before a hidden brace, where it would break the command", () => {
+    const comment = withBrackets(DOC, at("} text", 1));
+    typeAsKeys(comment, "%x");
+    expect(text(comment)).toContain(`Some ${B}textbf{bold}%x text`);
+    const slash = withBrackets(DOC, at("} text", 1));
+    typeAsKeys(slash, B);
+    expect(text(slash)).toContain(`Some ${B}textbf{bold}${B} text`);
+    const brace = withBrackets(DOC, at("} text", 1));
+    typeAsKeys(brace, "{");
+    expect(text(brace)).toContain(`Some ${B}textbf{bold}{} text`);
+  });
+
+  it("with LaTeX marks shown, types where the cursor is beside the brace it shows", () => {
+    setLatexMarks(true);
+    try {
+      const view = editor(DOC, at("} text", 1));
+      type(view, "X");
+      expect(text(view)).toContain(`${B}textbf{bold}X text`);
+    } finally {
+      setLatexMarks(false);
+    }
+  });
+
+  it("does not run on a link written over two lines", () => {
+    const link = doc(`See ${B}href{https://x.org}{the\nsite} now.`);
+    const view = editor(link, link.indexOf("} now") + 1);
+    type(view, "!");
+    expect(text(view)).toContain("site}! now.");
+  });
+
+  it("keeps a cursor typing put between brackets where it was among them", () => {
+    const view = editor(DOC, at("} text", 1));
+    view.dispatch({ changes: { from: at("} text", 1), insert: "()" }, selection: { anchor: at("} text", 2) }, userEvent: "input.type" });
+    expect(text(view)).toContain(`${B}textbf{bold()} text`);
+    expect(view.state.selection.main.head).toBe(text(view).indexOf("()") + 1);
   });
 });

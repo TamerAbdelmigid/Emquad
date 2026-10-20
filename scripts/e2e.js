@@ -350,6 +350,19 @@
       await click("Show LaTeX marks");
       await until("the marks gone", () => !$(".cm-v-mark"));
       await shot("02-formats");
+      // A numbered list cut in two numbers on, and one paragraph of several aligned together is set apart.
+      buffers.run((v) => (v.dispatch({ changes: { from: doc().lastIndexOf(`${B}end{document}`), insert: `${B}begin{enumerate}\n  ${B}item one\n  ${B}item two\n  ${B}item three\n${B}end{enumerate}\n\n${B}begin{flushright}\nRight one.\n\nRight two.\n${B}end{flushright}\n` } }), true));
+      cursor("item two", 8);
+      key("Enter");
+      await until("an empty item", () => doc().includes(`${B}item two\n  ${B}item \n`));
+      key("Enter");
+      await until("numbered on", () => doc().includes(`${B}end{enumerate}\n\n\n\n${B}begin{enumerate}[resume]\n  ${B}item three`) && doc().includes(`${B}usepackage{enumitem}`));
+      await until("drawn 3.", () => $$(".cm-v-number").some((n) => n.textContent === "3."));
+      await ok(true, "Enter on an empty item in the middle of a numbered list cuts it in two, the second half numbered on with enumitem's resume and drawn so");
+      cursor("Right two", 2);
+      await click("Centre");
+      await until("one paragraph centred", () => doc().includes(`${B}begin{flushright}\nRight one.\n${B}end{flushright}\n\n${B}begin{center}\nRight two.\n${B}end{center}`));
+      await ok($$(".cm-v-line-align-right").some((l) => l.textContent === "Right one.") && $$(".cm-v-line-align-center").some((l) => l.textContent === "Right two."), "Centre on one of two right-aligned paragraphs centres that one alone, the other kept right");
       // All of it compiles, with the packages loaded for it.
       const version = store().pdfVersion;
       await click("Recompile");
