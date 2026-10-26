@@ -2,7 +2,8 @@
 // editor already has. Every tool writes plain LaTeX, and its tooltip says which.
 import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
-import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, type RefObject, createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon, type IconName, Menu, type MenuItem } from "../../design/ui";
 import { useStore } from "../../state/store";
 import { SymbolPicker } from "./SymbolPicker";
@@ -16,6 +17,7 @@ import type { Setup } from "./documentSetup";
 import { COLOURS, formatAt } from "./formatting";
 import { NUMBER_FORMATS, listAt, numberingAt } from "./lists";
 import { type FloatHere, floatAt } from "./floats";
+import { rowPlan, tabsShown } from "./ribbonFit";
 
 /** What the ribbon asks of the app: the dialogs and actions that live outside the editor. */
 export interface RibbonActions {
@@ -124,15 +126,371 @@ function Tool(p: {
   );
 }
 
-function Group({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * How the tab on show fits the pane: the groups folded into one button each, those moved into the
+ * More button, and the element More's tools are drawn in while it is open.
+ */
+interface Fitting {
+  folded: readonly string[];
+  more: readonly string[];
+  box: HTMLElement | null;
+}
+const Fit = createContext<Fitting>({ folded: [], more: [], box: null });
+
+/** The icon a group shows when it is folded into one button. */
+const GROUP_ICONS: Record<string, IconName> = {
+  Undo: "undo",
+  Clipboard: "paste",
+  Font: "abc",
+  Paragraph: "al-l",
+  Styles: "toc",
+  Editing: "search",
+  Pages: "page",
+  Tables: "table",
+  Illustrations: "picture",
+  Links: "link",
+  "Header & Footer": "header",
+  Text: "footnote",
+  Equations: "sigma",
+  Citations: "quote",
+  "Page setup": "margins",
+  "Paragraph · whole document": "spacing",
+  Arrange: "picture",
+  Document: "gear",
+  "Size · of the line": "size",
+  Picture: "picture",
+  "Table of contents": "toc",
+  Footnotes: "footnote",
+  Captions: "caption",
+  Proofing: "abc",
+  Comments: "comment",
+  Changes: "history",
+  Versions: "snap",
+  Share: "send",
+  Views: "page",
+  Zoom: "plus",
+  LaTeX: "code",
+  Window: "split",
+  "Write LaTeX": "code",
+  Learn: "learn",
+  Build: "play",
+};
+
+/** A group drawn whole: its tools over its name. */
+function WholeGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="rb-group" role="group" aria-label={label}>
+    <div className="rb-group" role="group" aria-label={label} data-label={label}>
       <div className="rb-tools">{children}</div>
       <div className="rb-label" aria-hidden="true">
         {label}
       </div>
     </div>
   );
+}
+
+/**
+ * A group of tools under its name. To fit a narrow pane, as Word's ribbon does, it is folded into
+ * one button that opens its tools below it, or, narrower still, moved into the More button. `open`
+ * holds it open while something in it is in use from elsewhere, such as the Symbol panel opened
+ * from the Insert menu.
+ */
+function Group({ label, open: held = false, children }: { label: string; open?: boolean; children: ReactNode }) {
+  const fit = useContext(Fit);
+  const [open, setOpen] = useState(false);
+  /** Opened from the keyboard, so the keyboard goes into it. */
+  const [grab, setGrab] = useState(false);
+  const button = useRef<HTMLButtonElement>(null);
+  const id = useId();
+  const folded = fit.folded.includes(label) && !fit.more.includes(label);
+  // Unfolded while open, it is shut, so that folding again later does not open it unasked.
+  if (open && !folded) setOpen(false);
+  if (fit.more.includes(label)) return fit.box ? createPortal(<WholeGroup label={label}>{children}</WholeGroup>, fit.box) : null;
+  if (!folded) return <WholeGroup label={label}>{children}</WholeGroup>;
+  const shown = open || held;
+  return (
+    <FoldButton label={label} icon={GROUP_ICONS[label] ?? "chev"} button={button} shown={shown} controls={id} onToggle={(next) => (setGrab(document.activeElement === button.current), setOpen(next))} className="rb-group rb-folded" data-label={label}>
+      {shown && (
+        <FoldedTools id={id} label={label} anchor={button} grab={open && grab} onClose={(refocus) => (setOpen(false), refocus && button.current?.focus())}>
+          {children}
+        </FoldedTools>
+      )}
+    </FoldButton>
+  );
+}
+
+/** The button a folded group, or More, is drawn as, with what it opens. */
+function FoldButton(p: {
+  label: string;
+  icon: IconName;
+  button: RefObject<HTMLButtonElement | null>;
+  shown: boolean;
+  /** The id of what it opens. */
+  controls: string;
+  /** Asked to open (true) or shut, from how it stood when it was pressed. */
+  onToggle: (open: boolean) => void;
+  className: string;
+  "data-label"?: string;
+  children: ReactNode;
+}) {
+  // Open or shut as it stood when the mouse went down: a panel inside that holds it open, such
+  // as the Symbol panel, shuts itself on that press, and the click is then to shut it, not reopen it.
+  const pressed = useRef<boolean | null>(null);
+  // A disclosure, not a menu: what it opens is the group's own tools.
+  return (
+    <div className={p.className} data-label={p["data-label"]}>
+      <button
+        ref={p.button}
+        type="button"
+        className="rb-big rb-fold"
+        aria-expanded={p.shown}
+        aria-controls={p.shown ? p.controls : undefined}
+        id={`${p.controls}-button`}
+        data-tip={p.label}
+        data-why="Folded to fit the pane: its tools open below. A wider pane shows them all."
+        onMouseDown={(e) => {
+          e.preventDefault();
+          pressed.current = p.shown;
+        }}
+        onClick={() => {
+          const was = pressed.current ?? p.shown;
+          pressed.current = null;
+          p.onToggle(!was);
+        }}
+      >
+        <Icon name={p.icon} size={22} />
+        <span>
+          {p.label}
+          <Icon name="chev" size={10} />
+        </span>
+      </button>
+      <div className="rb-label" aria-hidden="true">
+        &nbsp;
+      </div>
+      {p.children}
+    </div>
+  );
+}
+
+/**
+ * Folded tools, below their button: put away by Escape, a click elsewhere, or using a tool. For
+ * More, the groups are drawn into it from where they stand (`into`), so its own handling listens
+ * to what happens inside it in the page rather than in React's tree.
+ */
+function FoldedTools(p: {
+  id: string;
+  label: string;
+  /** Take the keyboard, as a menu opened from the keyboard does. Opened with the mouse, or for a
+   * panel inside asked for from elsewhere, it stays where it was: in the text, or a table's cell. */
+  grab: boolean;
+  anchor: RefObject<HTMLButtonElement | null>;
+  onClose: (refocus: boolean) => void;
+  into?: (el: HTMLDivElement | null) => void;
+  /** Changes when what it holds is drawn, so that it is placed and focused again. */
+  filled?: unknown;
+  children?: ReactNode;
+}) {
+  const { anchor, filled, grab } = p;
+  const box = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
+  const close = useRef(p.onClose);
+  close.current = p.onClose;
+  const focused = useRef(false);
+  // Placed again when the window changes size, so that it stays inside it.
+  const [resized, setResized] = useState(0);
+  useEffect(() => {
+    const bump = () => setResized((n) => n + 1);
+    window.addEventListener("resize", bump);
+    return () => window.removeEventListener("resize", bump);
+  }, []);
+  useLayoutEffect(() => {
+    const button = anchor.current?.getBoundingClientRect();
+    const width = box.current?.offsetWidth ?? 0;
+    if (button) {
+      const left = Math.max(8, Math.min(button.left, window.innerWidth - width - 8));
+      setAt((was) => (was?.left === left && was.top === button.bottom + 4 ? was : { left, top: button.bottom + 4 }));
+    }
+    // The keyboard goes to the first tool, as a menu's does, once there is one and it is placed:
+    // until then it is hidden, and a hidden button cannot take the keyboard.
+    const first = box.current?.querySelector<HTMLElement>("button:not(:disabled)");
+    if (grab && at && first && !focused.current) {
+      focused.current = true;
+      first.focus();
+    }
+  }, [anchor, filled, at, resized, grab]);
+  useEffect(() => {
+    const el = box.current;
+    const outside = (target: EventTarget | null) => target instanceof Node && !el?.contains(target) && !anchor.current?.contains(target);
+    const away = (e: MouseEvent) => {
+      if (outside(e.target)) close.current(false);
+    };
+    const left = () => close.current(false);
+    // The keyboard taken elsewhere, by Tab or by a tool that gives it back to the writing.
+    const gone = (e: FocusEvent) => {
+      if (outside(e.relatedTarget)) close.current(false);
+    };
+    // Opened with the mouse, the keyboard is still elsewhere, in the text or a table's cell: Escape
+    // there puts the card away, and only that, as Word's does with its dropdowns.
+    const escape = (e: KeyboardEvent) => {
+      // A dialog, the KeyTips, or a menu or panel the keyboard is in, takes its own Escape first.
+      const own = document.querySelector("dialog[open], .rb-kt") || document.activeElement?.closest(".menu-list, .sym-pop, .tpick-pop");
+      if (e.key !== "Escape" || el?.contains(document.activeElement) || own) return;
+      e.preventDefault();
+      e.stopPropagation();
+      close.current(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      // A menu or panel open inside takes its own Escape first.
+      if (e.key === "Escape" && !el?.querySelector(".menu-list, .sym-pop, .tpick-pop")) {
+        e.stopPropagation();
+        close.current(true);
+      }
+    };
+    let later = 0;
+    const click = (e: MouseEvent) => {
+      // A tool used puts the tools away; one that opens a menu or a panel leaves them open. Put
+      // away after the tool has had the click: React hears it further up, and a tool taken out
+      // of the page before then would never run.
+      const used = (e.target as HTMLElement).closest("button");
+      if (used && !used.hasAttribute("aria-haspopup")) later = window.setTimeout(() => close.current(false));
+    };
+    window.addEventListener("mousedown", away, true);
+    window.addEventListener("blur", left);
+    window.addEventListener("keydown", escape, true);
+    el?.addEventListener("focusout", gone);
+    el?.addEventListener("keydown", key);
+    el?.addEventListener("click", click);
+    return () => {
+      clearTimeout(later);
+      window.removeEventListener("mousedown", away, true);
+      window.removeEventListener("blur", left);
+      window.removeEventListener("keydown", escape, true);
+      el?.removeEventListener("focusout", gone);
+      el?.removeEventListener("keydown", key);
+      el?.removeEventListener("click", click);
+    };
+  }, [anchor]);
+  return (
+    <div
+      ref={box}
+      id={p.id}
+      // A dialog opened from inside gives the keyboard back to the card's button once the card is gone.
+      data-return-to={`${p.id}-button`}
+      className={p.into ? "rb-pop rb-pop-more" : "rb-pop"}
+      role="group"
+      aria-label={p.label} style={at ? { left: at.left, top: at.top } : { visibility: "hidden" }}>
+      <div className="rb-tools" ref={p.into}>
+        {p.children}
+      </div>
+      {!p.into && (
+        <div className="rb-label" aria-hidden="true">
+          {p.label}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A folded group's, and More's, width before it is first drawn. */
+const FOLDED_GUESS = 72;
+
+/**
+ * Which groups of the tab on show to fold, and which to move into More, so that its row fits the
+ * pane, worked out from each group's width as drawn: whole when it was last drawn whole, as one
+ * button when folded.
+ */
+function useFolding(panel: RefObject<HTMLDivElement | null>, shown: TabName) {
+  const whole = useRef(new Map<string, number>());
+  const one = useRef(new Map<string, number>());
+  /** The tab's groups in order, as last seen all in the row: those in More are not. */
+  const order = useRef(new Map<TabName, string[]>());
+  const none = { tab: shown, labels: [] as string[], more: [] as string[], over: false };
+  const [fold, setFold] = useState(none);
+  const current = fold.tab === shown ? fold : none;
+  const key = `${current.labels.join("\n")}|${current.more.join("\n")}`;
+  // Measured again whenever the pane, or any group in it, changes width: the window is resized,
+  // or a group gains tools (the document's own commands, read when the LaTeX tab opens).
+  const [resized, setResized] = useState(0);
+  useEffect(() => {
+    const el = panel.current;
+    // Without a ResizeObserver (a test's page) the row is fitted as it is drawn, not on resizing.
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() => setResized((n) => n + 1));
+    watch.observe(el);
+    for (const g of el.querySelectorAll(":scope > .rb-group")) watch.observe(g);
+    return () => watch.disconnect();
+  }, [panel, shown, key]);
+  useLayoutEffect(() => {
+    const el = panel.current;
+    if (!el) return;
+    const inRow = [...el.querySelectorAll<HTMLElement>(":scope > .rb-group[data-label]")];
+    for (const g of inRow) {
+      const label = g.dataset.label ?? "";
+      if (g.classList.contains("rb-folded")) one.current.set(label, g.offsetWidth);
+      else whole.current.set(`${shown}|${label}`, g.offsetWidth);
+    }
+    const seen = inRow.map((g) => g.dataset.label ?? "");
+    if (current.more.length === 0) order.current.set(shown, seen);
+    const labels = order.current.get(shown) ?? seen;
+    const moreButton = el.querySelector<HTMLElement>(":scope > .rb-more");
+    const moreWidth = moreButton?.offsetWidth || FOLDED_GUESS;
+    const full = labels.map((l) => whole.current.get(`${shown}|${l}`) ?? 0);
+    const folded = labels.map((l) => one.current.get(l) ?? FOLDED_GUESS);
+    const style = getComputedStyle(el);
+    const available = el.clientWidth - (Number.parseFloat(style.paddingLeft) || 0) - (Number.parseFloat(style.paddingRight) || 0);
+    const plan = rowPlan(full, folded, available, moreWidth);
+    const next = { labels: labels.filter((_, i) => plan.fold[i]), more: labels.filter((_, i) => plan.more[i]) };
+    // Even More alone too wide: the row scrolls, as the last resort.
+    const width = full.reduce((sum, w, i) => sum + (plan.more[i] ? 0 : plan.fold[i] ? folded[i] : w), 0) + (next.more.length ? moreWidth : 0);
+    const over = width > available;
+    if (`${next.labels.join("\n")}|${next.more.join("\n")}` !== key || over !== current.over) setFold({ tab: shown, ...next, over });
+  }, [panel, shown, key, current.more.length, current.over, resized]);
+  return current;
+}
+
+/**
+ * The tabs that do not fit the row beside the mode switch, from the right, offered from one
+ * button instead; the tab on show always keeps its place. Worked out from each tab's width as last
+ * drawn in the row.
+ */
+function useTabsFit(row: RefObject<HTMLDivElement | null>, ids: TabName[], shown: TabName) {
+  const widths = useRef(new Map<string, number>());
+  const [hidden, setHidden] = useState<TabName[]>([]);
+  const [resized, setResized] = useState(0);
+  useEffect(() => {
+    const el = row.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() => setResized((n) => n + 1));
+    watch.observe(el);
+    const right = el.querySelector(".rb-right");
+    if (right) watch.observe(right);
+    return () => watch.disconnect();
+  }, [row]);
+  const idsKey = ids.join(" ");
+  const hiddenKey = hidden.join(" ");
+  useLayoutEffect(() => {
+    const el = row.current;
+    // Not laid out (a test's page): every tab keeps its place.
+    if (!el || el.clientWidth === 0) return;
+    for (const tab of el.querySelectorAll<HTMLElement>("[role=tab]")) if (tab.offsetWidth) widths.current.set(tab.id, tab.offsetWidth);
+    const list = idsKey.split(" ") as TabName[];
+    const style = getComputedStyle(el);
+    const px = (v: string) => Number.parseFloat(v) || 0;
+    const gap = px(style.columnGap);
+    const right = el.querySelector<HTMLElement>(".rb-right")?.offsetWidth ?? 0;
+    const overflow = (el.querySelector<HTMLElement>(".rb-tabs-more")?.offsetWidth || 32) + gap;
+    const available = el.clientWidth - px(style.paddingLeft) - px(style.paddingRight) - right - gap;
+    const between = px(getComputedStyle(el.querySelector(".rb-tablist") ?? el).columnGap);
+    const keep = tabsShown(
+      list.map((t) => widths.current.get(`rb-tab-${t}`) ?? 0),
+      list.indexOf(shown),
+      available,
+      overflow,
+      between,
+    );
+    const next = list.filter((_, i) => !keep[i]);
+    if (next.join(" ") !== hiddenKey) setHidden(next);
+  }, [row, idsKey, shown, hiddenKey, resized]);
+  return hidden;
 }
 
 const insertTool = (ins: Insertion, icon: IconName, big = false, disabled = false) => (
@@ -339,7 +697,7 @@ const TAB_KEYS: Record<TabName, string> = { home: "H", insert: "N", layout: "P",
  * the tab and shows a letter on each of its tools, and pressing that uses the tool. Escape goes
  * back a step; a click or any other key puts them away. Alt held for a shortcut shows nothing.
  */
-function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown: TabName, choose: (tab: TabName) => void) {
+function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown: TabName, choose: (tab: TabName) => void, fitted: string) {
   const [mode, setModeShown] = useState<"off" | "tabs" | "tools">("off");
   const [tips, setTips] = useState<{ key: string; x: number; y: number; el: HTMLElement }[]>([]);
   // Kept beside what is drawn, so that each key sees the one before it at once.
@@ -381,7 +739,7 @@ function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown:
         tool.el.focus();
         tool.el.click();
         // A menu keeps the keyboard; any other tool gives it back to the writing.
-        if (!tool.el.hasAttribute("aria-haspopup")) {
+        if (!tool.el.hasAttribute("aria-haspopup") && !tool.el.hasAttribute("aria-expanded")) {
           tool.el.blur();
           // To the LaTeX side of Split when the typing was there, else to the page.
           const side = buffers.sourceView();
@@ -431,7 +789,7 @@ function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown:
         tabsKey
           .split(" ")
           .map((t) => [document.getElementById(`rb-tab-${t}`), TAB_KEYS[t as TabName]] as const)
-          .flatMap(([el, key]) => (el ? [at(el, key)] : [])),
+          .flatMap(([el, key]) => (el && !el.hidden ? [at(el, key)] : [])),
       );
     }
     // A tool's letter is the first of its name not taken already, else a digit.
@@ -445,7 +803,8 @@ function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown:
       out.push(at(el, key));
     }
     setTips(out);
-  }, [mode, shown, tabsKey, root]);
+    // Placed again once the row is fitted: a tab is drawn whole first, then folded to fit.
+  }, [mode, shown, tabsKey, root, fitted]);
   return tips;
 }
 
@@ -655,15 +1014,35 @@ export function Ribbon(p: Props) {
     ["latex", "LaTeX"],
     ...(figure ? [["picture", "Picture"] as [TabName, string]] : []),
   ];
+  const panel = useRef<HTMLDivElement>(null);
+  const folding = useFolding(panel, shown);
+  const tabRow = useRef<HTMLDivElement>(null);
+  const tabsHidden = useTabsFit(
+    tabRow,
+    tabs.map(([id]) => id),
+    shown,
+  );
+  // More: the groups that do not fit even folded, opened from one button at the end of the row.
+  const moreButton = useRef<HTMLButtonElement>(null);
+  // Open for the tab it was opened on, and shut once there is nothing in it, so that it never opens unasked.
+  const [moreFor, setMoreFor] = useState<TabName | null>(null);
+  const [moreGrab, setMoreGrab] = useState(false);
+  if (moreFor !== null && (moreFor !== shown || folding.more.length === 0)) setMoreFor(null);
+  const moreOpen = moreFor === shown;
+  const moreId = useId();
+  const [moreBox, setMoreBox] = useState<HTMLDivElement | null>(null);
+  // The Symbol panel, asked for from the Insert menu while its group is in More, opens More.
+  const moreShown = folding.more.length > 0 && (moreOpen || (p.symbolsOpen && folding.more.includes("Text")));
   const keyTips = useKeyTips(
     root,
     tabs.map(([id]) => id),
     shown,
     setTab,
+    `${folding.labels.join(" ")}|${folding.more.join(" ")}|${tabsHidden.join(" ")}`,
   );
   return (
     <div className="ribbon" ref={root}>
-      <div className="rb-tabs">
+      <div className="rb-tabs" ref={tabRow}>
         <div role="tablist" aria-label="Ribbon" className="rb-tablist">
           {tabs.map(([id, name]) => (
             <button
@@ -674,6 +1053,7 @@ export function Ribbon(p: Props) {
               aria-selected={shown === id}
               aria-controls="rb-panel"
               className={id === "picture" ? "rb-tab rb-ctx" : id === "latex" ? "rb-tab rb-lx" : "rb-tab"}
+              hidden={tabsHidden.includes(id)}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setTab(id)}
             >
@@ -681,6 +1061,18 @@ export function Ribbon(p: Props) {
             </button>
           ))}
         </div>
+        {/* The tabs the row has no room for, offered from one button at its end. */}
+        {tabsHidden.length > 0 && (
+          <div className="rb-tabs-more">
+            <Menu
+              className="rb-tab rb-tab-more"
+              ariaLabel="More tabs"
+              label={<Icon name="chev" size={14} />}
+              buttonProps={{ "data-tip": "More tabs", "data-why": "The tabs this pane has no room for. A wider pane shows them all." }}
+              items={tabs.filter(([id]) => tabsHidden.includes(id)).map(([id, name]) => ({ label: name, run: () => setTab(id) }))}
+            />
+          </div>
+        )}
         <div className="rb-right">
           <div className="seg" role="group" aria-label="Editor mode">
             <button type="button" aria-pressed={false} onClick={p.onCode}>
@@ -695,7 +1087,14 @@ export function Ribbon(p: Props) {
           </button>
         </div>
       </div>
-      <div className="rb-panel" id="rb-panel" role="tabpanel" aria-labelledby={`rb-tab-${shown}`}>
+      <div
+        ref={panel}
+        className={folding.over ? "rb-panel rb-over" : "rb-panel"}
+        id="rb-panel"
+        role="tabpanel"
+        aria-labelledby={`rb-tab-${shown}`}
+      >
+        <Fit.Provider value={{ folded: folding.labels, more: folding.more, box: moreShown ? moreBox : null }}>
         {shown === "home" && (
           <>
             <Group label="Undo">
@@ -968,7 +1367,7 @@ export function Ribbon(p: Props) {
                 />
               </div>
             </Group>
-            <Group label="Text">
+            <Group label="Text" open={p.symbolsOpen}>
               {insertTool(INSERT.footnote, "footnote", true, off)}
               <SymbolPicker open={p.symbolsOpen} disabled={off} recent={p.recentSymbols} onOpen={p.onSymbols} onUsed={p.onSymbolUsed} />
             </Group>
@@ -1211,6 +1610,22 @@ export function Ribbon(p: Props) {
           </>
         )}
         {shown === "latex" && <LatexTab {...p} off={off} />}
+        {folding.more.length > 0 && (
+          <FoldButton label="More" icon="plus" button={moreButton} shown={moreShown} controls={moreId} onToggle={(next) => (setMoreGrab(document.activeElement === moreButton.current), setMoreFor(next ? shown : null))} className="rb-group rb-folded rb-more">
+            {moreShown && (
+              <FoldedTools
+                id={moreId}
+                label="More"
+                grab={moreOpen && moreGrab}
+                anchor={moreButton}
+                into={setMoreBox}
+                filled={moreBox}
+                onClose={(refocus) => (setMoreFor(null), refocus && moreButton.current?.focus())}
+              />
+            )}
+          </FoldButton>
+        )}
+        </Fit.Provider>
       </div>
       <Tip root={root} />
       {keyTips.map((t) => (

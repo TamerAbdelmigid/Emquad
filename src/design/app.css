@@ -420,14 +420,16 @@ body[data-dropping] .cm-editor{outline:2px dashed var(--acc);outline-offset:-6px
 .paged .sfoot{align-items:center;border-top:1px solid var(--line);font-family:var(--ui);font-size:11.5px;color:var(--mu);padding:5px 10px 5px 14px}
 .paged .screen-empty{color:var(--mu)}
 
-.ribbon{position:relative;flex:none;color:var(--tx)}
+.ribbon{position:relative;flex:none;color:var(--tx);container-type:inline-size}
 .rb-tabs{display:flex;align-items:flex-end;gap:2px;padding:2px 8px 0;border-bottom:1px solid var(--line)}
-.rb-tablist{display:flex;gap:2px}
+.rb-tablist{display:flex;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none}
 .rb-tab{padding:7px 12px 9px;font:600 12.5px/1 var(--ui);color:var(--mu);border-radius:8px 8px 0 0}
 .rb-tab:hover{background:var(--hover);color:var(--tx)}
 .rb-tab[aria-selected="true"]{color:var(--tx);box-shadow:inset 0 -3px 0 var(--acc)}
 .rb-right{margin-left:auto;display:flex;align-items:center;gap:8px;padding-bottom:5px}
-.rb-panel{display:flex;align-items:stretch;min-height:90px;padding:6px 4px 4px;overflow-x:auto;scrollbar-width:thin;border-bottom:1px solid var(--line)}
+.rb-panel{display:flex;align-items:stretch;min-height:90px;padding:6px 4px 4px;border-bottom:1px solid var(--line)}
+/* Folded as far as it goes and still too wide for the pane: the last resort is to scroll. */
+.rb-panel.rb-over{overflow-x:auto;scrollbar-width:thin}
 .rb-group{display:flex;flex-direction:column;flex:none;padding:0 8px;border-right:1px solid var(--line)}
 .rb-group:last-child{border-right:0}
 .rb-tools{flex:1;display:flex;align-items:flex-start;gap:2px}
@@ -563,3 +565,26 @@ body[data-dropping] .cm-editor{outline:2px dashed var(--acc);outline-offset:-6px
 .paged .cm-textfield{background:var(--paper);color:var(--paper-tx);border-color:var(--paper-line)}
 .paged .cm-button{background:var(--paper);color:var(--paper-tx);border-color:var(--paper-line)}
 .paged .cm-tooltip{background:var(--paper);color:var(--paper-tx);border-color:var(--paper-line)}
+
+/* A ribbon group folded into one button to fit a narrow pane, and its tools opened below it */
+.rb-fold{justify-content:flex-start;min-width:58px}
+.rb-fold span{display:inline-flex;align-items:center;gap:2px}
+.rb-fold[aria-expanded="true"]{background:var(--hover)}
+.rb-pop{position:fixed;z-index:40;display:flex;flex-direction:column;padding:8px 8px 4px;border-radius:12px;background:var(--pop-bg);-webkit-backdrop-filter:var(--blur);backdrop-filter:var(--blur);box-shadow:0 0 0 1px var(--edge-b),0 14px 30px rgba(40,38,30,.2);color:var(--tx)}
+/* In a narrow pane the tab row tightens, and Changes (also Review ▸ Compare) gives way. */
+@container (max-width:760px){.rb-tab{padding:7px 8px 9px}.rb-right .mode{display:none}}
+/* The tabs with no room in the row are offered from one button at its end; the switch tightens. */
+.rb-tabs-more{flex:none}
+.rb-tab-more{display:inline-flex;align-items:center;padding:7px 9px 9px}
+.rb-tab-more[aria-expanded="true"]{background:var(--hover);color:var(--tx)}
+@container (max-width:600px){.rb-right .seg button{padding:6px 8px}}
+/* More holds whole groups, side by side as far as the window allows. */
+.rb-pop-more{padding:6px 4px 4px}
+.rb-pop-more>.rb-tools{flex-wrap:wrap;max-width:min(720px,calc(100vw - 32px));row-gap:8px}
+.rb-pop-more .rb-group{border-right:0;border-left:1px solid var(--line)}
+.rb-pop-more .rb-group:first-child{border-left:0}
+/* The page view's status line in a narrow pane: the word count (also Review ▸ Word count) gives way first, then the path's label. */
+.paged .sfoot{container-type:inline-size}
+.sfoot-words{white-space:nowrap}
+@container (max-width:480px){.paged .sfoot .sfoot-words{display:none}}
+@container (max-width:360px){.paged .sfoot .latex-path-label{display:none}}

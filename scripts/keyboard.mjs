@@ -135,6 +135,42 @@ await key("Escape");
 await sleep(300);
 await check((await focusName()) === "Help", "Escape closes it and gives the keyboard back to the Help menu's button");
 
+// In a narrow pane the ribbon's groups fold to fit: Enter opens one, a tool in it is used with
+// Enter, and Escape puts it away.
+if (await evaluate("!!document.querySelector('#rb-panel')")) {
+  await evaluate("(() => { const s = window.emquad.store(); window.__kbWas = { filesWidth: s.filesWidth, split: s.split }; s.set({ filesWidth: 480, split: 0.3 }); return true; })()");
+  await sleep(800);
+  const doc = "(await import('/src/features/editor/buffers.ts')).buffers";
+  const bold = `(async () => (${doc}).text('main.tex').includes(String.fromCharCode(92) + 'textbf{Start}'))()`;
+  // The group that holds Bold: Font, folded, or More, which holds it whole.
+  const fold = "[...document.querySelectorAll('.rb-folded')].find((g) => g.dataset.label === 'Font' || g.classList.contains('rb-more')).querySelector('.rb-fold')";
+  await evaluate(`(async () => { const b = ${doc}; const at = b.text('main.tex').indexOf('Start writing'); b.run((v) => (v.dispatch({ selection: { anchor: at, head: at + 5 } }), true)); return true; })()`);
+  await evaluate(`${fold}.focus(); true`);
+  await key("Enter");
+  await sleep(300);
+  await check(await focusIn(".rb-pop"), "Enter on a folded ribbon group opens its tools with the keyboard in them");
+  for (let i = 0; i < 40 && (await focusName()) !== "Bold" && (await focusIn(".rb-pop")); i++) await key("Tab");
+  await key("Enter");
+  await sleep(400);
+  await check((await evaluate(bold)) && (await evaluate("!document.querySelector('.rb-pop')")), "Enter on a tool among them uses it, and puts them away");
+  await evaluate("document.querySelector('.cm-content').focus(); true");
+  await key("z", { ctrl: true });
+  await sleep(300);
+  await evaluate(`${fold}.focus(); true`);
+  await key("Enter");
+  await sleep(300);
+  await key("Escape");
+  await sleep(200);
+  await check(await focusIs(".rb-fold"), "Escape puts them away and gives the keyboard back to the group's button");
+  await check(!(await evaluate(bold)), "and the bold was undone");
+  // Nothing left selected, so that Escape in the text is free to hand Tab to the page, as it was.
+  await evaluate(`(async () => { const b = ${doc}; b.run((v) => (v.dispatch({ selection: { anchor: 0 } }), true)); return true; })()`);
+  // From here on the ribbon's tools are reached in their places, so each group is drawn whole:
+  // the editor has the window to itself, beside the file panel.
+  await evaluate("(window.emquad.store().set({ ...window.__kbWas, layout: 'editor' }), true)");
+  await sleep(800);
+}
+
 // The symbol panel. In the page view it is on the ribbon's Insert tab, chosen with Enter.
 if (await evaluate("!!document.querySelector('#rb-tab-insert')")) {
   await evaluate("document.querySelector('#rb-tab-insert').focus(); true");

@@ -229,6 +229,14 @@
     await ok($(".cm-v-display .katex") && !$(".cm-v-math-bad"), "and typesets inline and display mathematics");
     await ok(buffers.text("main.tex") === rich, "the source text itself is unchanged by visual mode");
     await shot("02-visual");
+    // The checks of the page view's tools want them in the row, so the editor has the window to
+    // itself, beside the file panel: only the widest groups fold. The narrow pane is checked on its own.
+    const layoutWas = { layout: store().layout, filesWidth: store().filesWidth };
+    store().set({ layout: "editor", filesWidth: 244 });
+    await until("the ribbon fitted", () => $("#rb-panel") && !$(".rb-more") && !$(".rb-tabs-more")).catch((e) => {
+      const folded = $$(".rb-folded").map((g) => g.dataset.label ?? "More");
+      throw new Error(`${e.message} (${$("#rb-panel")?.clientWidth} wide; folded: ${folded.join(", ")}; tabs hidden: ${$$("[role=tab][hidden]").map((t) => t.id).join(", ")})`);
+    });
     // The page view keeps what is drawn drawn under the cursor; Ctrl+/ shows the LaTeX.
     {
       const into = rich.indexOf("writing") + 3;
@@ -250,6 +258,36 @@
       await ok(true, "the ribbon's Bold writes \\textbf around the selection");
       await undoText();
       await until("bold undone", () => buffers.text("main.tex") === rich);
+
+      // In a narrow pane the ribbon folds groups, and then its tabs, to fit, as Word's does.
+      const was = { layout: store().layout, filesWidth: store().filesWidth, split: store().split };
+      store().set({ layout: "split", filesWidth: 480, split: 0.3 });
+      const panel = () => $("#rb-panel");
+      await until("the ribbon folded to fit", () => $(".rb-more") && panel().scrollWidth <= panel().clientWidth + 1);
+      const tabs = $(".rb-tablist");
+      await until("the tabs fitted", () => $(".rb-tabs-more"));
+      await ok(
+        !panel().classList.contains("rb-over") && tabs.scrollWidth <= tabs.clientWidth + 1 && $("#rb-tab-home").getClientRects().length > 0 && $("#rb-tab-latex").hidden,
+        "in a narrow pane the ribbon folds its groups, and offers the tabs with no room from one button, leaving nothing to scroll to",
+      );
+      button("More tabs").click();
+      await until("the tabs with no room", () => $$(".rb-tabs-more .menu-item").length > 0);
+      $$(".rb-tabs-more .menu-item").find((i) => i.textContent.trim() === "LaTeX").click();
+      await until("the LaTeX tab, in the row", () => $("#rb-tab-latex").getAttribute("aria-selected") === "true" && !$("#rb-tab-latex").hidden);
+      await ok(tabs.scrollWidth <= tabs.clientWidth + 1, "a tab chosen from them takes a place in the row");
+      $("#rb-tab-home").click();
+      await until("the ribbon folded to fit again", () => $(".rb-more") && panel().scrollWidth <= panel().clientWidth + 1);
+      // Pressed from the keyboard, as its button has it, More takes the keyboard into its groups.
+      button("More").focus();
+      button("More").click();
+      const pop = await until("More's groups", () => ($(".rb-pop .rb-group") ? $(".rb-pop") : null));
+      await ok(pop.getBoundingClientRect().right <= innerWidth && pop.contains(document.activeElement) && button("Bold"), "More opens the groups that did not fit, inside the window, with the keyboard in them");
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      await until("More put away", () => !$(".rb-pop"));
+      await ok(document.activeElement === button("More"), "Escape puts More away and gives the keyboard back to its button");
+      store().set(was);
+      await until("the ribbon fitted again", () => !$(".rb-more") && !$(".rb-tabs-more") && button("Bold"));
+      await ok(true, "with room again, the groups are drawn whole again");
     }
     // Formats like Word: the Home tab's character, list and paragraph tools, each written as
     // LaTeX, drawn on the page, with what it needs loaded; and the document still compiles.
@@ -341,7 +379,9 @@
       await click("Justify");
       await until("justified", () => !doc().includes(`${B}begin{center}`));
       cursor("Start", 2);
-      $(".rb-style-quote").click();
+      // Folded in a window this size, the gallery opens from its group's button.
+      if (!$(".rb-style-quote")) button("Styles").click();
+      (await until("the Quote style", () => $(".rb-style-quote"))).click();
       await until("a quotation", () => doc().includes(`${B}begin{quote}`) && $(".cm-v-line-quote"));
       await ok(true, "Justify takes the centring away; Quote from the styles gallery sets the paragraph in a quote environment");
       await click("Show LaTeX marks");
@@ -365,7 +405,8 @@
       await ok($$(".cm-v-line-align-right").some((l) => l.textContent === "Right one.") && $$(".cm-v-line-align-center").some((l) => l.textContent === "Right two."), "Centre on one of two right-aligned paragraphs centres that one alone, the other kept right");
       // All of it compiles, with the packages loaded for it.
       const version = store().pdfVersion;
-      await click("Recompile");
+      // The PDF, with its Recompile, is put away while the editor has the window.
+      void act.compile();
       await until("the formatted document compiled", () => store().pdfVersion > version && !store().compiling, 300000);
       await ok(text(".proj .st") === "Compiled", `the document with every new format compiles (${text(".proj .st")})`);
       await writeOutside({ path: "main.tex", text: rich });
@@ -614,6 +655,7 @@
       await writeOutside({ path: "main.tex", text: rich });
       await until("the document as it was", () => doc() === rich);
     }
+    store().set(layoutWas);
     await click("Code");
     await until("plain source again", () => !$(".cm-visual") && !$(".cm-v-math"));
     await ok(text(".cm-content").includes("\\begin{equation}"), "code mode shows the plain source again");

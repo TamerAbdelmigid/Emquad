@@ -335,5 +335,9 @@ function WordCount({ path }: { path: string | null }) {
     };
   }, [path]);
   if (words === null) return null;
-  return <span title="Words in this file's text, not counting commands, mathematics, comments or the preamble">{words.toLocaleString()} words</span>;
+  return (
+    <span className="sfoot-words" title="Words in this file's text, not counting commands, mathematics, comments or the preamble">
+      {words.toLocaleString()} words
+    </span>
+  );
 }

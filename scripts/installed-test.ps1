@@ -31,7 +31,12 @@ function Find([string]$like, $type, [int]$seconds = 20) {
   }
   return $null
 }
-function Press($el) { $el.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+# A button that is pressed or not (aria-pressed) is toggled rather than invoked.
+function Press($el) {
+  $pattern = $null
+  if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke() }
+  else { $el.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle() }
+}
 
 $cfgDir = Join-Path $env:APPDATA "app.emquad.desktop"
 $cfg = Join-Path $cfgDir "settings.json"
@@ -57,6 +62,8 @@ try {
   Ok ($null -ne $recompile) "the project opens in the editor"
   Press $recompile
   Ok ($null -ne (Find "Compiled" $Type::Text 300)) "Recompile in the installed app reaches Compiled"
+  # A project opens in the page view; the Code view's status line names the compiler.
+  Press (Find "Code" $Type::Button 10)
   Ok ($null -ne (Find "Tectonic engine" $Type::Text 10)) "using the Tectonic that the installer put in place"
   Ok (Test-Path (Join-Path $Project ".emquad\build\main.pdf")) "and a PDF was written"
   if ($Shot) { & (Join-Path $PSScriptRoot "shot.ps1") -Out $Shot | Out-Null }
