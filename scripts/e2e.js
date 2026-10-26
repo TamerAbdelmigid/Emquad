@@ -250,6 +250,22 @@
       await ok(true, "the ribbon's Bold writes \\textbf around the selection");
       await undoText();
       await until("bold undone", () => buffers.text("main.tex") === rich);
+
+      // In a narrow pane the ribbon folds groups, and then its tabs, to fit, as Word's does.
+      const was = { filesWidth: store().filesWidth, split: store().split };
+      store().set({ filesWidth: 480, split: 0.3 });
+      const panel = () => $("#rb-panel");
+      await until("the ribbon folded to fit", () => $(".rb-more") && panel().scrollWidth <= panel().clientWidth + 1);
+      await ok(!panel().classList.contains("rb-over") && getComputedStyle($(".rb-tabmenu")).display !== "none" && getComputedStyle($(".rb-tablist")).display === "none", "in a narrow pane the ribbon folds its groups and its tabs to fit, leaving nothing to scroll to");
+      button("More").click();
+      const pop = await until("More's groups", () => ($(".rb-pop .rb-group") ? $(".rb-pop") : null));
+      await ok(pop.getBoundingClientRect().right <= innerWidth && pop.contains(document.activeElement) && button("Bold"), "More opens the groups that did not fit, inside the window, with the keyboard in them");
+      document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      await until("More put away", () => !$(".rb-pop"));
+      await ok(document.activeElement === button("More"), "Escape puts More away and gives the keyboard back to its button");
+      store().set(was);
+      await until("the ribbon whole again", () => !$(".rb-more") && getComputedStyle($(".rb-tablist")).display !== "none");
+      await ok(true, "with room again, every group is drawn whole");
     }
     // Formats like Word: the Home tab's character, list and paragraph tools, each written as
     // LaTeX, drawn on the page, with what it needs loaded; and the document still compiles.

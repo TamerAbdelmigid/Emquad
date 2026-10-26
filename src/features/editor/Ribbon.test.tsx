@@ -2,7 +2,7 @@
 // The ribbon shows what is asked for from elsewhere: Insert ▸ Symbol… opens the Symbol panel,
 // which lives on the Insert tab, whichever tab was showing.
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Ribbon } from "./Ribbon";
 import { buffers } from "./buffers";
 import type { Setup } from "./documentSetup";
@@ -211,5 +211,108 @@ describe("Ribbon", () => {
       page.remove();
       latex.remove();
     }
+  });
+
+  it("offers every tab from one menu too, for a pane too narrow for the row of tabs", () => {
+    render(<Ribbon {...props} symbolsOpen={false} />);
+    const menu = screen.getByRole("button", { name: "Ribbon tab" });
+    expect(menu.textContent).toContain("Home");
+    fireEvent.click(menu);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Review/ }));
+    expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Ribbon tab" }).textContent).toContain("Review");
+  });
+
+  describe("in a narrow pane", () => {
+    // jsdom lays nothing out: the panel is given a width, each group 150 pixels whole and 64 folded.
+    const widths = { panel: 520, whole: 150, folded: 64 };
+    const restore: (() => void)[] = [];
+    const measure = (name: "clientWidth" | "offsetWidth" | "scrollWidth", get: (el: HTMLElement) => number | undefined) => {
+      // offsetWidth is an HTMLElement's own; clientWidth and scrollWidth are any Element's.
+      const owner = name === "offsetWidth" ? HTMLElement.prototype : Element.prototype;
+      const was = Object.getOwnPropertyDescriptor(owner, name)!;
+      Object.defineProperty(HTMLElement.prototype, name, {
+        configurable: true,
+        get(this: HTMLElement) {
+          return get(this) ?? was.get!.call(this);
+        },
+      });
+      restore.push(() =>
+        owner === HTMLElement.prototype ? Object.defineProperty(owner, name, was) : delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name],
+      );
+    };
+    const groupWidth = (el: HTMLElement) => (el.classList.contains("rb-folded") ? widths.folded : widths.whole);
+    const panelWidth = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>(":scope > .rb-group")].reduce((sum, g) => sum + groupWidth(g), 0);
+    beforeEach(() => {
+      measure("clientWidth", (el) => (el.id === "rb-panel" ? widths.panel : undefined));
+      measure("scrollWidth", (el) => (el.id === "rb-panel" ? Math.max(widths.panel, panelWidth(el)) : undefined));
+      measure("offsetWidth", (el) => (el.classList.contains("rb-group") ? groupWidth(el) : undefined));
+    });
+    afterEach(() => restore.splice(0).forEach((r) => r()));
+
+    it("folds groups from the right into one button each, so that nothing has to be scrolled to", () => {
+      render(<Ribbon {...props} symbolsOpen={false} />);
+      const panel = document.getElementById("rb-panel")!;
+      const groups = [...panel.querySelectorAll<HTMLElement>(":scope > .rb-group")];
+      const folded = groups.map((g) => g.classList.contains("rb-folded"));
+      // Home has six groups: 900 pixels whole; three folded bring it to 642, four to 556, five to 470.
+      expect(folded).toEqual([false, true, true, true, true, true]);
+      expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth);
+      expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Font" }).getAttribute("aria-haspopup")).toBe("true");
+    });
+
+    it("opens a folded group's tools below its button, with the keyboard in them, and closes on Escape or once a tool is used", () => {
+      render(<Ribbon {...props} symbolsOpen={false} />);
+      const font = screen.getByRole("button", { name: "Font" });
+      fireEvent.click(font);
+      expect(font.getAttribute("aria-expanded")).toBe("true");
+      const bold = screen.getByRole("button", { name: "Bold" });
+      expect(bold.closest(".rb-pop")).toBeTruthy();
+      expect(document.activeElement?.closest(".rb-pop")).toBeTruthy();
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+      expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+      expect(document.activeElement).toBe(font);
+      fireEvent.click(font);
+      fireEvent.click(screen.getByRole("button", { name: "Italic" }));
+      expect(screen.queryByRole("button", { name: "Italic" })).toBeNull();
+      // A click elsewhere puts it away too.
+      fireEvent.click(font);
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+    });
+
+    it("puts what still does not fit, folded, into one More button, so that nothing has to be scrolled to", () => {
+      widths.panel = 200;
+      try {
+        render(<Ribbon {...props} symbolsOpen={false} />);
+        // Six groups folded are 384 pixels; with More, Undo and Clipboard stay in the row.
+        const row = [...document.querySelectorAll<HTMLElement>("#rb-panel > .rb-group")].map((g) => g.dataset.label ?? "More");
+        expect(row).toEqual(["Undo", "Clipboard", "More"]);
+        const more = screen.getByRole("button", { name: "More" });
+        expect(more.getAttribute("aria-haspopup")).toBe("true");
+        fireEvent.click(more);
+        expect(screen.getByRole("button", { name: "Bold" }).closest(".rb-pop")).toBeTruthy();
+        expect(screen.getByRole("group", { name: "Styles" })).toBeTruthy();
+        expect(document.activeElement?.closest(".rb-pop")).toBeTruthy();
+        fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+        expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+        expect(document.activeElement).toBe(more);
+      } finally {
+        widths.panel = 520;
+      }
+    });
+
+    it("draws every group whole again when the pane is wide enough", () => {
+      widths.panel = 2000;
+      try {
+        render(<Ribbon {...props} symbolsOpen={false} />);
+        expect(document.querySelectorAll(".rb-folded")).toHaveLength(0);
+        expect(screen.getByRole("button", { name: "Bold" })).toBeTruthy();
+      } finally {
+        widths.panel = 520;
+      }
+    });
   });
 });

@@ -81,6 +81,8 @@ A drawing written in LaTeX, such as a TikZ picture, cannot be drawn by the edito
 
 **Packages…** lists the packages your document loads, what each is for in plain words, and which tool loaded it. **My commands…** makes a shortcut from the words you selected: give it a name, and it is written once at the top as `\newcommand` and appears as a button on the LaTeX tab.
 
+In a narrow pane the ribbon makes room, as Word's does, so you never scroll it: groups at the right fold into a single button with the group's name (**Font ▾**, **Styles ▾**), which opens their tools below it; narrower still, what does not fit goes into **More ▾**. When there is not room for every tab, the tab on show becomes a button (**Home ▾**) listing them all. Widen the pane and everything is drawn whole again.
+
 As in Word, press and let go **Alt** to see a letter on each tab of the ribbon; press one to open that tab and see a letter on each tool, and press that to use it. Esc goes back.
 
 To see or change the LaTeX of a paragraph, press **Ctrl+/** (or View ▸ Show LaTeX). Press it again, or Esc, or move to another paragraph, and it is drawn again. Going to a line, an error or a search result that is inside something drawn shows it as LaTeX too.

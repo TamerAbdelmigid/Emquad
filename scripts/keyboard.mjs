@@ -135,6 +135,21 @@ await key("Escape");
 await sleep(300);
 await check((await focusName()) === "Help", "Escape closes it and gives the keyboard back to the Help menu's button");
 
+// In a narrow pane the ribbon's groups fold to fit: Enter opens one, Escape puts it away.
+if (await evaluate("!!document.querySelector('#rb-panel')")) {
+  await evaluate("(() => { const s = window.emquad.store(); window.__kbWas = { filesWidth: s.filesWidth, split: s.split }; s.set({ filesWidth: 480, split: 0.3 }); return true; })()");
+  await sleep(800);
+  await evaluate("document.querySelector('.rb-fold').focus(); true");
+  await key("Enter");
+  await sleep(300);
+  await check(await focusIn(".rb-pop"), "Enter on a folded ribbon group opens its tools with the keyboard in them");
+  await key("Escape");
+  await sleep(200);
+  await check(await focusIs(".rb-fold"), "Escape puts them away and gives the keyboard back to the group's button");
+  await evaluate("(window.emquad.store().set(window.__kbWas), true)");
+  await sleep(800);
+}
+
 // The symbol panel. In the page view it is on the ribbon's Insert tab, chosen with Enter.
 if (await evaluate("!!document.querySelector('#rb-tab-insert')")) {
   await evaluate("document.querySelector('#rb-tab-insert').focus(); true");
