@@ -9,9 +9,10 @@ Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each c
 The ribbon fits a narrow window, as Word's does.
 
 - When the editor pane is too narrow for a tab's tools, the ribbon no longer scrolls sideways. Groups at the right fold into a single button with the group's name, such as **Font ▾** or **Styles ▾**, which opens their tools below it; narrower still, what does not fit goes into one **More ▾** button. Widen the pane and everything is drawn whole again.
-- When there is not room for every tab, the tabs at the right go into one **⌄** button at the end of the row, which lists them; the tab you are on always keeps its place. Opened from the keyboard, a folded group or More takes the keyboard to its first tool; opened with the mouse, it leaves the keyboard where it was, so a table cell being typed in stays open. Escape puts it away.
+- Opened from the keyboard, a folded group or More takes the keyboard to its first tool; opened with the mouse, it leaves the keyboard where it was, so a table cell being typed in stays open. Escape puts it away, and Alt's KeyTips letter the folded buttons.
+- When there is not room for every tab, the tabs at the right go into one **⌄** button at the end of the row, which lists them; the tab you are on always keeps its place. In a narrow pane the **Changes** button leaves the tab row; Review ▸ Compare does the same.
 - In a narrow pane the status line keeps the LaTeX path and zoom readable: the word count gives way (Review ▸ Word count has it).
-- The checks run on a release build and on the installed app now look for the compiler's name in the Code view.
+- The check of the installed app now looks for the compiler's name in the Code view.
 
 ## 0.19.2 - 2026-10-26
 

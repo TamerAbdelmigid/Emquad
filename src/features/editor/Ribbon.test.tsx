@@ -300,10 +300,13 @@ describe("Ribbon", () => {
         fireEvent.click(screen.getByRole("button", { name: "Font" }));
         expect(screen.getByRole("button", { name: "Bold" }).closest(".rb-pop")).toBeTruthy();
         expect(document.activeElement).toBe(cell);
-        // Escape where the keyboard is puts it away.
+        // Escape where the keyboard is puts it away, and only that: the cell never hears it.
+        const heard = vi.fn();
+        cell.addEventListener("keydown", heard);
         fireEvent.keyDown(cell, { key: "Escape" });
         expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
         expect(document.activeElement).toBe(cell);
+        expect(heard).not.toHaveBeenCalled();
       } finally {
         cell.remove();
       }

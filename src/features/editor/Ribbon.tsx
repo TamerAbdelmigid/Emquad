@@ -208,7 +208,7 @@ function Group({ label, open: held = false, children }: { label: string; open?: 
   if (!folded) return <WholeGroup label={label}>{children}</WholeGroup>;
   const shown = open || held;
   return (
-    <FoldButton label={label} icon={GROUP_ICONS[label] ?? "chev"} button={button} shown={shown} controls={id} onToggle={() => (setGrab(document.activeElement === button.current), setOpen(!shown))} className="rb-group rb-folded" data-label={label}>
+    <FoldButton label={label} icon={GROUP_ICONS[label] ?? "chev"} button={button} shown={shown} controls={id} onToggle={(next) => (setGrab(document.activeElement === button.current), setOpen(next))} className="rb-group rb-folded" data-label={label}>
       {shown && (
         <FoldedTools id={id} label={label} anchor={button} grab={open && grab} onClose={(refocus) => (setOpen(false), refocus && button.current?.focus())}>
           {children}
@@ -226,11 +226,15 @@ function FoldButton(p: {
   shown: boolean;
   /** The id of what it opens. */
   controls: string;
-  onToggle: () => void;
+  /** Asked to open (true) or shut, from how it stood when it was pressed. */
+  onToggle: (open: boolean) => void;
   className: string;
   "data-label"?: string;
   children: ReactNode;
 }) {
+  // Open or shut as it stood when the mouse went down: a panel inside that holds it open, such
+  // as the Symbol panel, shuts itself on that press, and the click is then to shut it, not reopen it.
+  const pressed = useRef<boolean | null>(null);
   // A disclosure, not a menu: what it opens is the group's own tools.
   return (
     <div className={p.className} data-label={p["data-label"]}>
@@ -240,10 +244,18 @@ function FoldButton(p: {
         className="rb-big rb-fold"
         aria-expanded={p.shown}
         aria-controls={p.shown ? p.controls : undefined}
+        id={`${p.controls}-button`}
         data-tip={p.label}
         data-why="Folded to fit the pane: its tools open below. A wider pane shows them all."
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={p.onToggle}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          pressed.current = p.shown;
+        }}
+        onClick={() => {
+          const was = pressed.current ?? p.shown;
+          pressed.current = null;
+          p.onToggle(!was);
+        }}
       >
         <Icon name={p.icon} size={22} />
         <span>
@@ -316,9 +328,13 @@ function FoldedTools(p: {
     const gone = (e: FocusEvent) => {
       if (outside(e.relatedTarget)) close.current(false);
     };
-    // Opened with the mouse, the keyboard is still elsewhere: Escape there puts it away too.
+    // Opened with the mouse, the keyboard is still elsewhere, in the text or a table's cell: Escape
+    // there puts the card away, and only that, as Word's does with its dropdowns.
     const escape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !el?.contains(document.activeElement)) close.current(false);
+      if (e.key !== "Escape" || el?.contains(document.activeElement) || document.querySelector("dialog[open]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      close.current(false);
     };
     const key = (e: KeyboardEvent) => {
       // A menu or panel open inside takes its own Escape first.
@@ -337,7 +353,7 @@ function FoldedTools(p: {
     };
     window.addEventListener("mousedown", away, true);
     window.addEventListener("blur", left);
-    window.addEventListener("keydown", escape);
+    window.addEventListener("keydown", escape, true);
     el?.addEventListener("focusout", gone);
     el?.addEventListener("keydown", key);
     el?.addEventListener("click", click);
@@ -345,14 +361,21 @@ function FoldedTools(p: {
       clearTimeout(later);
       window.removeEventListener("mousedown", away, true);
       window.removeEventListener("blur", left);
-      window.removeEventListener("keydown", escape);
+      window.removeEventListener("keydown", escape, true);
       el?.removeEventListener("focusout", gone);
       el?.removeEventListener("keydown", key);
       el?.removeEventListener("click", click);
     };
   }, [anchor]);
   return (
-    <div ref={box} id={p.id} className={p.into ? "rb-pop rb-pop-more" : "rb-pop"} role="group" aria-label={p.label} style={at ? { left: at.left, top: at.top } : { visibility: "hidden" }}>
+    <div
+      ref={box}
+      id={p.id}
+      // A dialog opened from inside gives the keyboard back to the card's button once the card is gone.
+      data-return-to={`${p.id}-button`}
+      className={p.into ? "rb-pop rb-pop-more" : "rb-pop"}
+      role="group"
+      aria-label={p.label} style={at ? { left: at.left, top: at.top } : { visibility: "hidden" }}>
       <div className="rb-tools" ref={p.into}>
         {p.children}
       </div>
@@ -672,7 +695,7 @@ const TAB_KEYS: Record<TabName, string> = { home: "H", insert: "N", layout: "P",
  * the tab and shows a letter on each of its tools, and pressing that uses the tool. Escape goes
  * back a step; a click or any other key puts them away. Alt held for a shortcut shows nothing.
  */
-function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown: TabName, choose: (tab: TabName) => void) {
+function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown: TabName, choose: (tab: TabName) => void, fitted: string) {
   const [mode, setModeShown] = useState<"off" | "tabs" | "tools">("off");
   const [tips, setTips] = useState<{ key: string; x: number; y: number; el: HTMLElement }[]>([]);
   // Kept beside what is drawn, so that each key sees the one before it at once.
@@ -778,7 +801,8 @@ function useKeyTips(root: RefObject<HTMLElement | null>, tabs: TabName[], shown:
       out.push(at(el, key));
     }
     setTips(out);
-  }, [mode, shown, tabsKey, root]);
+    // Placed again once the row is fitted: a tab is drawn whole first, then folded to fit.
+  }, [mode, shown, tabsKey, root, fitted]);
   return tips;
 }
 
@@ -1012,6 +1036,7 @@ export function Ribbon(p: Props) {
     tabs.map(([id]) => id),
     shown,
     setTab,
+    `${folding.labels.join(" ")}|${folding.more.join(" ")}|${tabsHidden.join(" ")}`,
   );
   return (
     <div className="ribbon" ref={root}>
@@ -1584,7 +1609,7 @@ export function Ribbon(p: Props) {
         )}
         {shown === "latex" && <LatexTab {...p} off={off} />}
         {folding.more.length > 0 && (
-          <FoldButton label="More" icon="plus" button={moreButton} shown={moreShown} controls={moreId} onToggle={() => (setMoreGrab(document.activeElement === moreButton.current), setMoreFor(moreShown ? null : shown))} className="rb-group rb-folded rb-more">
+          <FoldButton label="More" icon="plus" button={moreButton} shown={moreShown} controls={moreId} onToggle={(next) => (setMoreGrab(document.activeElement === moreButton.current), setMoreFor(next ? shown : null))} className="rb-group rb-folded rb-more">
             {moreShown && (
               <FoldedTools
                 id={moreId}
