@@ -4,6 +4,15 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.20.0 - 2026-10-26
+
+The ribbon fits a narrow window, as Word's does.
+
+- When the editor pane is too narrow for a tab's tools, the ribbon no longer scrolls sideways. Groups at the right fold into a single button with the group's name, such as **Font ▾** or **Styles ▾**, which opens their tools below it; narrower still, what does not fit goes into one **More ▾** button. Widen the pane and everything is drawn whole again.
+- When there is not room for every tab, the tab on show becomes a button, such as **Home ▾**, that lists them all.
+- In a narrow pane the status line keeps the LaTeX path and zoom readable: the word count gives way (Review ▸ Word count has it).
+- The checks run on a release build and on the installed app now look for the compiler's name in the Code view.
+
 ## 0.19.2 - 2026-10-26
 
 Nothing changes for users: the check run on a release build before an installer is made now looks for the compiler's name in the Code view, since a project opens in the page view.
