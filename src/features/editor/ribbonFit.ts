@@ -1,6 +1,7 @@
 // Which of a ribbon tab's groups to fold into a single button so that the row fits the width the
 // pane gives it, as Word's ribbon does in a narrow window: from the right, one group at a time,
-// passing over any group that would be no narrower folded. Pure.
+// passing over any group that would be no narrower folded, then unfolding any that fit whole again.
+// Pure.
 
 /**
  * The whole plan for a row: which groups to fold, and, when folding them all still leaves the
@@ -33,5 +34,32 @@ export function groupsToFold(full: number[], folded: number[], available: number
     fold[i] = true;
     width -= full[i] - folded[i];
   }
+  // A narrow group folded on the way may fit whole again once a wide one has folded: the leftmost first.
+  for (let i = 0; i < full.length; i++) {
+    if (fold[i] && width + full[i] - folded[i] <= available) {
+      fold[i] = false;
+      width += full[i] - folded[i];
+    }
+  }
   return fold;
+}
+
+/**
+ * Which tabs keep their place in a row `available` wide, given each tab's width and the gap
+ * between tabs: all when they fit; otherwise as many as fit from the left, after room for the
+ * button the rest are offered from (`overflow` wide, its gap included). The tab on show, at
+ * `current`, always keeps its place.
+ */
+export function tabsShown(widths: number[], current: number, available: number, overflow: number, gap: number): boolean[] {
+  const total = widths.reduce((sum, w) => sum + w, 0) + gap * Math.max(0, widths.length - 1);
+  if (total <= available) return widths.map(() => true);
+  const shown = widths.map((_, i) => i === current);
+  let used = current >= 0 ? widths[current] : -gap;
+  for (let i = 0; i < widths.length; i++) {
+    if (i === current) continue;
+    if (used + gap + widths[i] > available - overflow) break;
+    shown[i] = true;
+    used += gap + widths[i];
+  }
+  return shown;
 }

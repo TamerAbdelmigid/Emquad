@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // The ribbon shows what is asked for from elsewhere: Insert ▸ Symbol… opens the Symbol panel,
 // which lives on the Insert tab, whichever tab was showing.
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Ribbon } from "./Ribbon";
 import { buffers } from "./buffers";
@@ -213,19 +213,9 @@ describe("Ribbon", () => {
     }
   });
 
-  it("offers every tab from one menu too, for a pane too narrow for the row of tabs", () => {
-    render(<Ribbon {...props} symbolsOpen={false} />);
-    const menu = screen.getByRole("button", { name: "Ribbon tab" });
-    expect(menu.textContent).toContain("Home");
-    fireEvent.click(menu);
-    fireEvent.click(screen.getByRole("menuitem", { name: /Review/ }));
-    expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("button", { name: "Ribbon tab" }).textContent).toContain("Review");
-  });
-
   describe("in a narrow pane", () => {
     // jsdom lays nothing out: the panel is given a width, each group 150 pixels whole and 64 folded.
-    const widths = { panel: 520, whole: 150, folded: 64 };
+    const widths = { panel: 520, whole: 150, folded: 64, tabs: 2000 };
     const restore: (() => void)[] = [];
     const measure = (name: "clientWidth" | "offsetWidth" | "scrollWidth", get: (el: HTMLElement) => number | undefined) => {
       // offsetWidth is an HTMLElement's own; clientWidth and scrollWidth are any Element's.
@@ -244,9 +234,12 @@ describe("Ribbon", () => {
     const groupWidth = (el: HTMLElement) => (el.classList.contains("rb-folded") ? widths.folded : widths.whole);
     const panelWidth = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>(":scope > .rb-group")].reduce((sum, g) => sum + groupWidth(g), 0);
     beforeEach(() => {
-      measure("clientWidth", (el) => (el.id === "rb-panel" ? widths.panel : undefined));
+      // The tab row: 70 pixels a tab, and the mode switch 150.
+      measure("clientWidth", (el) => (el.id === "rb-panel" ? widths.panel : el.classList.contains("rb-tabs") ? widths.tabs : undefined));
       measure("scrollWidth", (el) => (el.id === "rb-panel" ? Math.max(widths.panel, panelWidth(el)) : undefined));
-      measure("offsetWidth", (el) => (el.classList.contains("rb-group") ? groupWidth(el) : undefined));
+      measure("offsetWidth", (el) =>
+        el.classList.contains("rb-group") ? groupWidth(el) : el.getAttribute("role") === "tab" ? (el.hidden ? 0 : 70) : el.classList.contains("rb-right") ? 150 : undefined,
+      );
     });
     afterEach(() => restore.splice(0).forEach((r) => r()));
 
@@ -260,14 +253,20 @@ describe("Ribbon", () => {
       expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth);
       expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
-      expect(screen.getByRole("button", { name: "Font" }).getAttribute("aria-haspopup")).toBe("true");
+      const font = screen.getByRole("button", { name: "Font" });
+      // A disclosure of the group's own tools, not a menu.
+      expect(font.getAttribute("aria-haspopup")).toBeNull();
+      expect(font.getAttribute("aria-expanded")).toBe("false");
     });
 
-    it("opens a folded group's tools below its button, with the keyboard in them, and closes on Escape or once a tool is used", () => {
+    it("opens a folded group's tools below its button, with the keyboard in them, and closes on Escape or once a tool is used", async () => {
       render(<Ribbon {...props} symbolsOpen={false} />);
       const font = screen.getByRole("button", { name: "Font" });
+      // Pressed from the keyboard: the button has it.
+      font.focus();
       fireEvent.click(font);
       expect(font.getAttribute("aria-expanded")).toBe("true");
+      expect(document.getElementById(font.getAttribute("aria-controls")!)?.classList.contains("rb-pop")).toBe(true);
       const bold = screen.getByRole("button", { name: "Bold" });
       expect(bold.closest(".rb-pop")).toBeTruthy();
       expect(document.activeElement?.closest(".rb-pop")).toBeTruthy();
@@ -275,12 +274,39 @@ describe("Ribbon", () => {
       expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
       expect(document.activeElement).toBe(font);
       fireEvent.click(font);
+      // Put away only once the tool has had the click.
       fireEvent.click(screen.getByRole("button", { name: "Italic" }));
-      expect(screen.queryByRole("button", { name: "Italic" })).toBeNull();
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Italic" })).toBeNull());
+      // Or once the keyboard goes elsewhere.
+      font.focus();
+      fireEvent.click(font);
+      const outside = document.createElement("button");
+      document.body.append(outside);
+      fireEvent.focusOut(document.activeElement!, { relatedTarget: outside });
+      expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+      outside.remove();
       // A click elsewhere puts it away too.
       fireEvent.click(font);
       fireEvent.mouseDown(document.body);
       expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+    });
+
+    it("opened with the mouse, leaves the keyboard where it was, as in a table's cell being typed in", () => {
+      render(<Ribbon {...props} symbolsOpen={false} />);
+      const cell = document.createElement("input");
+      document.body.append(cell);
+      try {
+        cell.focus();
+        fireEvent.click(screen.getByRole("button", { name: "Font" }));
+        expect(screen.getByRole("button", { name: "Bold" }).closest(".rb-pop")).toBeTruthy();
+        expect(document.activeElement).toBe(cell);
+        // Escape where the keyboard is puts it away.
+        fireEvent.keyDown(cell, { key: "Escape" });
+        expect(screen.queryByRole("button", { name: "Bold" })).toBeNull();
+        expect(document.activeElement).toBe(cell);
+      } finally {
+        cell.remove();
+      }
     });
 
     it("puts what still does not fit, folded, into one More button, so that nothing has to be scrolled to", () => {
@@ -291,7 +317,8 @@ describe("Ribbon", () => {
         const row = [...document.querySelectorAll<HTMLElement>("#rb-panel > .rb-group")].map((g) => g.dataset.label ?? "More");
         expect(row).toEqual(["Undo", "Clipboard", "More"]);
         const more = screen.getByRole("button", { name: "More" });
-        expect(more.getAttribute("aria-haspopup")).toBe("true");
+        expect(more.getAttribute("aria-expanded")).toBe("false");
+        more.focus();
         fireEvent.click(more);
         expect(screen.getByRole("button", { name: "Bold" }).closest(".rb-pop")).toBeTruthy();
         expect(screen.getByRole("group", { name: "Styles" })).toBeTruthy();
@@ -301,6 +328,22 @@ describe("Ribbon", () => {
         expect(document.activeElement).toBe(more);
       } finally {
         widths.panel = 520;
+      }
+    });
+
+    it("offers the tabs the row has no room for from one button, keeping the tab on show in the row", () => {
+      // 400 less the switch leaves 250: with the button's 32, three tabs of 70.
+      widths.tabs = 400;
+      try {
+        render(<Ribbon {...props} symbolsOpen={false} />);
+        const inRow = () => screen.getAllByRole("tab").map((t) => t.textContent);
+        expect(inRow()).toEqual(["Home", "Insert", "Layout"]);
+        fireEvent.click(screen.getByRole("button", { name: "More tabs" }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Review" }));
+        expect(inRow()).toEqual(["Home", "Insert", "Review"]);
+        expect(screen.getByRole("tab", { name: "Review" }).getAttribute("aria-selected")).toBe("true");
+      } finally {
+        widths.tabs = 2000;
       }
     });
 
