@@ -95,6 +95,10 @@
       return false;
     });
     await ok(true, "the PDF viewer has drawn text on the page");
+    // A project opens in the page view, whose status line holds the words and the LaTeX path;
+    // the Code view's names the compiler and texlab.
+    button("Code").click();
+    await until("the Code view's status line", () => text(".sfoot").includes("engine"));
     await ok(text(".sfoot").includes("Tectonic engine"), "the bundled Tectonic did the compiling");
     await ok(text(".sfoot").includes("texlab"), "the bundled texlab is running");
 

@@ -4,6 +4,10 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.19.2 - 2026-10-26
+
+Nothing changes for users: the check run on a release build before an installer is made now looks for the compiler's name in the Code view, since a project opens in the page view.
+
 ## 0.19.1 - 2026-10-20
 
 The page view's rough edges, smoothed.
