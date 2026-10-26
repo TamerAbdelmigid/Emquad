@@ -331,7 +331,9 @@ function FoldedTools(p: {
     // Opened with the mouse, the keyboard is still elsewhere, in the text or a table's cell: Escape
     // there puts the card away, and only that, as Word's does with its dropdowns.
     const escape = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || el?.contains(document.activeElement) || document.querySelector("dialog[open]")) return;
+      // A dialog, the KeyTips, or a menu or panel the keyboard is in, takes its own Escape first.
+      const own = document.querySelector("dialog[open], .rb-kt") || document.activeElement?.closest(".menu-list, .sym-pop, .tpick-pop");
+      if (e.key !== "Escape" || el?.contains(document.activeElement) || own) return;
       e.preventDefault();
       e.stopPropagation();
       close.current(false);
