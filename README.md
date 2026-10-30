@@ -161,7 +161,7 @@ Yes, free and open source under the MIT licence, for personal, academic and comm
 - 📝 **[Changelog](CHANGELOG.md):** what each version changed.
 - 🐞 **[Report a problem or suggest a feature](https://github.com/TamerAbdelmigid/Emquad/issues)**
 
-Current version: `0.20.0`.
+Current version: `0.20.1`.
 
 ## For developers
 
