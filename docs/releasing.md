@@ -12,6 +12,19 @@ How to produce the installer, and what is needed before giving it to other peopl
 6. Install it and run `scripts/installed-test.ps1` against the installed copy (usage at the top of the script; Windows PowerShell 5 or 7). It opens a recent project, compiles it with the installed Tectonic, and checks that double-clicking a bundle reuses the open window. It puts the user's settings back exactly as they were.
 7. Install it on a clean machine and open, compile and export once by hand.
 
+## Publish
+
+The repository is public at https://github.com/TamerAbdelmigid/Emquad, and users download the installer from its Releases page, which the README's Download button opens. A release is made only when the owner asks for one, from the merged `main`:
+
+1. Tag that version's commit on `main` with an annotated tag `vX.Y.Z` and push `main` and the tag.
+2. Create the GitHub release from the tag, titled `Emquad X.Y.Z`, with that version's `CHANGELOG.md` section as its notes, and attach `Emquad_X.Y.Z_x64-setup.exe` built without the test harness:
+
+```bash
+gh release create vX.Y.Z "src-tauri/target/release/bundle/nsis/Emquad_X.Y.Z_x64-setup.exe" --title "Emquad X.Y.Z" --notes-file notes.md
+```
+
+The README's pictures are in `docs/images/`. When a screen they show changes noticeably, take them again from the running app (`scripts/shot.ps1`), without a personal folder name in any path they show.
+
 The version is set by the rule in `AGENTS.md` under "Versions": one for each change set that lands, written in `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json`, the README and the newest `CHANGELOG.md` heading, which `pnpm verify` checks agree. The installer is named after it (`Emquad_X.Y.Z_x64-setup.exe`), and installing a newer one over an older replaces it.
 
 ## Signing
