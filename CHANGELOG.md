@@ -4,6 +4,13 @@ Each completed change set gets one numbered, dated section here before it lands 
 
 Versions 0.1.0 to 0.8.0 were numbered when this file was started, one for each change set that had landed; until then every file said 0.1.0.
 
+## 0.20.1 - 2026-10-30
+
+Emquad is published: the first version anyone can download from GitHub.
+
+- The installer is on the project's GitHub Releases page, and the README now starts with what Emquad is, how to install it, a first document in a few steps, pictures of each screen, and answers to common questions. How to build it from source moved to the end.
+- The licence, still MIT, and the installer's copyright now name Tamer A. Abdelmigid.
+
 ## 0.20.0 - 2026-10-26
 
 The ribbon fits a narrow window, as Word's does.
